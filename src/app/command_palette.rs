@@ -1358,7 +1358,9 @@ mod tests {
             .find("\n    pub(super) fn render_command_palette(")
             .expect("render function must exist");
         let end = source[start..]
-            .find("\n}\n\n#[cfg(test)]")
+            // Match from the final newline only so this accepts both LF and
+            // CRLF checkouts.
+            .find("\n#[cfg(test)]")
             .map(|offset| start + offset)
             .expect("test module marker must exist");
         let render = &source[start..end];
