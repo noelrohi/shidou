@@ -245,12 +245,19 @@ pub fn run() {
                 // conventional VS Code bindings. The primary shortcut + G cycles matches from
                 // the editor without moving focus to the bar.
                 KeyBinding::new("secondary-f", OpenFind, Some("Waku")),
+                // The text input's macOS-style Ctrl-F caret binding is more
+                // specific than Waku's root context. Reassert the platform
+                // primary shortcut for inputs inside this window so Ctrl-F
+                // remains find-in-page on Linux/Windows while Cmd-F keeps the
+                // native behavior on macOS.
+                KeyBinding::new("secondary-f", OpenFind, Some("Waku > TextInput")),
                 KeyBinding::new("secondary-alt-f", OpenFindReplace, Some("Waku")),
                 KeyBinding::new("secondary-g", FindNext, Some("Waku")),
                 KeyBinding::new("secondary-shift-g", FindPrevious, Some("Waku")),
                 // Scoped to the editor pane: escape closes the bar there and
                 // falls through to CancelTurn anywhere else.
                 KeyBinding::new("escape", CloseFind, Some("FileEditorPane")),
+                KeyBinding::new("escape", CloseFind, Some("FindBar")),
                 KeyBinding::new(
                     "secondary-alt-c",
                     ToggleFindCaseSensitive,

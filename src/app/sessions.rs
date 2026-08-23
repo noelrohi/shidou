@@ -780,6 +780,7 @@ impl Waku {
         // Selection belongs to the session being left.
         self.transcript_selection.selection.borrow_mut().clear();
         self.transcript_selection.registry.borrow_mut().clear();
+        self.reset_transcript_search_for_session();
         let (streaming_messages, live_reasoning) = self.selected_session().map_or_else(
             || (Vec::new(), Vec::new()),
             |session| {

@@ -211,7 +211,7 @@ impl Waku {
     }
 
     pub(super) fn render_transcript(
-        &self,
+        &mut self,
         window: &mut Window,
         chat_viewport_width: f32,
         cx: &mut Context<Self>,
@@ -219,6 +219,8 @@ impl Waku {
         self.prefetch_checkpoint_refs(cx);
         self.sync_transcript_rows();
         self.sync_transcript_layout_width(window);
+        self.apply_pending_transcript_search_reveal(window, cx);
+        let search_bar = self.render_transcript_search_bar(chat_viewport_width, cx);
         let transcript_rows = self.active_transcript_rows().clone();
         // A scrollbar drag owns the position for as long as it lasts, and the
         // bar writes offsets straight into the list rather than through its
@@ -375,11 +377,20 @@ impl Waku {
                     .size_full(),
             )
         });
+        let transcript_focus = self.transcript_focus.clone();
         div()
             .flex_1()
             .min_h_0()
             .w_full()
             .relative()
+            .key_context("Transcript")
+            .track_focus(&transcript_focus)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    window.focus(&this.transcript_focus, cx);
+                }),
+            )
             // Painted before any row, so the frame's selection registry holds
             // exactly the text elements this frame put on screen, in order.
             .child(md::render::frame_reset(self.transcript_selection.clone()))
@@ -402,6 +413,7 @@ impl Waku {
                 &self.transcript_scrollbar,
             ))
             .child(self.transcript_selection_input())
+            .children(search_bar)
             .into_any_element()
     }
 
@@ -1328,12 +1340,15 @@ impl Waku {
                             MarkdownMetrics::BODY
                         });
                     let animate_streaming = message.streaming && !cx.reduce_motion();
-                    let ctx = self.markdown_ctx(
+                    let mut ctx = self.markdown_ctx(
                         format!("message-{}", message.id),
                         &palette,
                         metrics,
                         animate_streaming,
                     );
+                    if let Some(highlights) = self.transcript_search_highlights(message_index) {
+                        ctx = ctx.with_search_highlights(highlights);
+                    }
                     // Human and assistant messages share the Markdown path.
                     // Parse only visible rows rather than doing work for every
                     // driver delta or every off-screen prompt.
