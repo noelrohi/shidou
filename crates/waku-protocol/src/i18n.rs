@@ -11,14 +11,16 @@ pub enum AppLanguage {
     English,
     SimplifiedChinese,
     Japanese,
+    Tagalog,
 }
 
 impl AppLanguage {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::System,
         Self::English,
         Self::SimplifiedChinese,
         Self::Japanese,
+        Self::Tagalog,
     ];
 
     pub fn locale(self) -> &'static str {
@@ -27,6 +29,7 @@ impl AppLanguage {
             Self::English => "en",
             Self::SimplifiedChinese => "zh-CN",
             Self::Japanese => "ja",
+            Self::Tagalog => "tl",
         }
     }
 
@@ -38,6 +41,7 @@ impl AppLanguage {
             Self::English => "English".to_owned(),
             Self::SimplifiedChinese => "简体中文".to_owned(),
             Self::Japanese => "日本語".to_owned(),
+            Self::Tagalog => "Tagalog".to_owned(),
         }
     }
 
@@ -58,6 +62,12 @@ impl AppLanguage {
             Self::SimplifiedChinese
         } else if locale == "ja" || locale.starts_with("ja-") {
             Self::Japanese
+        } else if locale == "tl"
+            || locale.starts_with("tl-")
+            || locale == "fil"
+            || locale.starts_with("fil-")
+        {
+            Self::Tagalog
         } else {
             Self::English
         }
@@ -117,11 +127,13 @@ mod tests {
         assert_eq!(AppLanguage::English.locale(), "en");
         assert_eq!(AppLanguage::SimplifiedChinese.locale(), "zh-CN");
         assert_eq!(AppLanguage::Japanese.locale(), "ja");
+        assert_eq!(AppLanguage::Tagalog.locale(), "tl");
         let locales = rust_i18n::available_locales!();
-        assert_eq!(locales.len(), 3);
+        assert_eq!(locales.len(), 4);
         assert!(locales.iter().any(|locale| locale.as_ref() == "en"));
         assert!(locales.iter().any(|locale| locale.as_ref() == "zh-CN"));
         assert!(locales.iter().any(|locale| locale.as_ref() == "ja"));
+        assert!(locales.iter().any(|locale| locale.as_ref() == "tl"));
     }
 
     #[test]
@@ -129,6 +141,7 @@ mod tests {
         assert_eq!(AppLanguage::English.label(), "English");
         assert_eq!(AppLanguage::SimplifiedChinese.label(), "简体中文");
         assert_eq!(AppLanguage::Japanese.label(), "日本語");
+        assert_eq!(AppLanguage::Tagalog.label(), "Tagalog");
     }
 
     #[test]
@@ -140,7 +153,7 @@ mod tests {
         );
         assert!(matches!(
             AppLanguage::System.locale(),
-            "en" | "zh-CN" | "ja"
+            "en" | "zh-CN" | "ja" | "tl"
         ));
     }
 
@@ -151,10 +164,18 @@ mod tests {
     }
 
     #[test]
+    fn tagalog_and_filipino_system_locales_are_detected() {
+        assert_eq!(AppLanguage::from_locale_id("tl"), AppLanguage::Tagalog);
+        assert_eq!(AppLanguage::from_locale_id("tl_PH"), AppLanguage::Tagalog);
+        assert_eq!(AppLanguage::from_locale_id("fil-PH"), AppLanguage::Tagalog);
+    }
+
+    #[test]
     fn japanese_and_simplified_chinese_use_east_asian_dates() {
         assert!(locale_uses_east_asian_date_format("ja"));
         assert!(locale_uses_east_asian_date_format("zh-CN"));
         assert!(!locale_uses_east_asian_date_format("en"));
+        assert!(!locale_uses_east_asian_date_format("tl"));
     }
 
     #[test]
@@ -204,6 +225,14 @@ mod tests {
         assert_eq!(
             &*rust_i18n::t!("session.rewound", locale = "ja", turn = 3),
             "タスクをターン 3 の前まで巻き戻しました"
+        );
+        assert_eq!(
+            &*rust_i18n::t!("settings.general", locale = "tl"),
+            "Pangkalahatan"
+        );
+        assert_eq!(
+            &*rust_i18n::t!("session.rewound", locale = "tl", turn = 3),
+            "Na-rewind hanggang bago ang turn 3"
         );
     }
 

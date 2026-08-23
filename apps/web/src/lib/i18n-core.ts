@@ -1,8 +1,8 @@
-export type AppLanguage = 'system' | 'en' | 'zh-CN' | 'ja'
+export type AppLanguage = 'system' | 'en' | 'zh-CN' | 'ja' | 'tl'
 export type AppLocale = Exclude<AppLanguage, 'system'>
 export type TranslationParams = Record<string, string | number>
 
-export const APP_LANGUAGES: readonly AppLanguage[] = ['system', 'en', 'zh-CN', 'ja']
+export const APP_LANGUAGES: readonly AppLanguage[] = ['system', 'en', 'zh-CN', 'ja', 'tl']
 
 export function parseRustI18nCatalog(source: string, locale: AppLocale) {
   const messages: Record<string, string> = {}
@@ -46,6 +46,9 @@ export function resolveLanguage(
       return 'zh-CN'
     }
     if (locale === 'ja' || locale.startsWith('ja-')) return 'ja'
+    if (locale === 'tl' || locale.startsWith('tl-') || locale === 'fil' || locale.startsWith('fil-')) {
+      return 'tl'
+    }
   }
   return 'en'
 }
