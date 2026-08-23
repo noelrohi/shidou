@@ -58,6 +58,7 @@ command_palette.settings: 设置
 command_palette.new_task: 新建任务
 command_palette.open_project: 打开项目…
 command_palette.choose_model: 选择模型…
+command_palette.collapse_sidebar_groups: 折叠所有侧边栏分组
 command_palette.show_sidebar: 显示侧边栏
 command_palette.hide_sidebar: 隐藏侧边栏
 command_palette.show_right_panel: 显示右侧面板

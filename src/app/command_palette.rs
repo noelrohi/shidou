@@ -83,8 +83,8 @@ impl PaletteSection {
 
     fn query_rank(self) -> usize {
         match self {
-            Self::Tasks => 0,
-            Self::Commands | Self::Suggested => 1,
+            Self::Commands | Self::Suggested => 0,
+            Self::Tasks => 1,
             Self::Settings => 2,
         }
     }
@@ -103,6 +103,7 @@ enum PaletteAction {
     FocusComposer,
     ChooseModel,
     ToggleUsage,
+    CollapseSidebarGroups,
     ToggleSidebar,
     ToggleRightPanel,
     OpenSettings(SettingsPage),
@@ -562,56 +563,63 @@ impl Waku {
             ));
         }
 
-        if searching {
+        commands.push(CommandPaletteItem::command(
+            PaletteSection::Commands,
+            tr!("menu.focus_composer"),
+            "icons/pencil.svg",
+            Some(crate::platform::primary_shortcut("⌘L", "Ctrl+L")),
+            PaletteAction::FocusComposer,
+            "focus composer prompt input message",
+            next(),
+        ));
+        if self.usage_meter_available() {
             commands.push(CommandPaletteItem::command(
                 PaletteSection::Commands,
-                tr!("menu.focus_composer"),
-                "icons/pencil.svg",
-                Some(crate::platform::primary_shortcut("⌘L", "Ctrl+L")),
-                PaletteAction::FocusComposer,
-                "focus composer prompt input message",
+                tr!("menu.toggle_usage_panel"),
+                "icons/command.svg",
+                Some(crate::platform::primary_shortcut("⌘U", "Ctrl+U")),
+                PaletteAction::ToggleUsage,
+                "toggle usage limits rate quota panel",
                 next(),
             ));
-            if self.usage_meter_available() {
-                commands.push(CommandPaletteItem::command(
-                    PaletteSection::Commands,
-                    tr!("menu.toggle_usage_panel"),
-                    "icons/gauge.svg",
-                    Some(crate::platform::primary_shortcut("⌘U", "Ctrl+U")),
-                    PaletteAction::ToggleUsage,
-                    "toggle usage limits rate quota panel",
-                    next(),
-                ));
-            }
-            commands.extend([
-                CommandPaletteItem::command(
-                    PaletteSection::Commands,
-                    tr!(if self.sidebar_visible {
-                        "command_palette.hide_sidebar"
-                    } else {
-                        "command_palette.show_sidebar"
-                    }),
-                    "icons/panel-left.svg",
-                    Some(crate::platform::primary_shortcut("⌘B", "Ctrl+B")),
-                    PaletteAction::ToggleSidebar,
-                    "toggle show hide left sidebar history tasks",
-                    next(),
-                ),
-                CommandPaletteItem::command(
-                    PaletteSection::Commands,
-                    tr!(if self.right_panel_visible {
-                        "command_palette.hide_right_panel"
-                    } else {
-                        "command_palette.show_right_panel"
-                    }),
-                    "icons/panel-right.svg",
-                    Some(crate::platform::primary_shortcut("⇧⌘B", "Ctrl+Shift+B")),
-                    PaletteAction::ToggleRightPanel,
-                    "toggle show hide right panel files diff terminal browser",
-                    next(),
-                ),
-            ]);
         }
+        commands.push(CommandPaletteItem::command(
+            PaletteSection::Commands,
+            tr!("command_palette.collapse_sidebar_groups"),
+            "icons/command.svg",
+            None,
+            PaletteAction::CollapseSidebarGroups,
+            "collapse close fold all sidebar groups projects dates history",
+            next(),
+        ));
+        commands.extend([
+            CommandPaletteItem::command(
+                PaletteSection::Commands,
+                tr!(if self.sidebar_visible {
+                    "command_palette.hide_sidebar"
+                } else {
+                    "command_palette.show_sidebar"
+                }),
+                "icons/panel-left.svg",
+                Some(crate::platform::primary_shortcut("⌘B", "Ctrl+B")),
+                PaletteAction::ToggleSidebar,
+                "toggle show hide left sidebar history tasks",
+                next(),
+            ),
+            CommandPaletteItem::command(
+                PaletteSection::Commands,
+                tr!(if self.right_panel_visible {
+                    "command_palette.hide_right_panel"
+                } else {
+                    "command_palette.show_right_panel"
+                }),
+                "icons/panel-right.svg",
+                Some(crate::platform::primary_shortcut("⇧⌘B", "Ctrl+Shift+B")),
+                PaletteAction::ToggleRightPanel,
+                "toggle show hide right panel files diff terminal browser",
+                next(),
+            ),
+        ]);
 
         for (page, label_key, icon, keywords) in [
             (
@@ -827,9 +835,12 @@ impl Waku {
                 .get(self.command_palette.selected)
                 .map(|item| item.action.clone())
         });
-        let next_results = tasks
+        let mut scored_results = tasks;
+        scored_results.extend(commands);
+        // Stable sorting keeps each section's existing score/recency order.
+        scored_results.sort_by_key(|scored| scored.item.section.query_rank());
+        let next_results = scored_results
             .into_iter()
-            .chain(commands)
             .map(|scored| scored.item)
             .collect::<Vec<_>>();
         // This is the palette equivalent of TanStack Query's
@@ -910,6 +921,7 @@ impl Waku {
             PaletteAction::NewTask => self.new_session_action(&NewSession, window, cx),
             PaletteAction::OpenProject => self.new_project_action(&NewProject, window, cx),
             PaletteAction::FocusComposer => self.focus_composer_action(&FocusComposer, window, cx),
+            PaletteAction::CollapseSidebarGroups => self.collapse_all_sidebar_groups(cx),
             PaletteAction::ToggleSidebar => self.toggle_sidebar_action(&ToggleSidebar, window, cx),
             PaletteAction::ToggleRightPanel => {
                 self.toggle_right_panel_action(&ToggleRightPanel, window, cx)
@@ -1293,6 +1305,12 @@ mod tests {
         assert_eq!(next_selection_index(2, 5, isize::MIN), Some(0));
         assert_eq!(next_selection_index(2, 5, isize::MAX), Some(4));
         assert_eq!(next_selection_index(0, 0, 1), None);
+    }
+
+    #[test]
+    fn searched_commands_rank_before_tasks() {
+        assert!(PaletteSection::Commands.query_rank() < PaletteSection::Tasks.query_rank());
+        assert!(PaletteSection::Tasks.query_rank() < PaletteSection::Settings.query_rank());
     }
 
     #[test]

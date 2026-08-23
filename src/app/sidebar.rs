@@ -1552,6 +1552,26 @@ impl Waku {
         self.set_sidebar_group_collapsed(group, collapsed, cx);
     }
 
+    pub(super) fn collapse_all_sidebar_groups(&mut self, cx: &mut Context<Self>) {
+        let groups = self
+            .sidebar_rows_cached(Local::now().date_naive(), unix_time())
+            .iter()
+            .filter_map(|row| match row {
+                SidebarRow::Header(group) => Some(*group),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut changed = false;
+        for group in groups {
+            changed |= self.sidebar_collapsed_groups.insert(group);
+            changed |= self.sidebar_project_reveal_counts.remove(&group).is_some();
+        }
+        if changed {
+            self.sidebar_rows_fingerprint.set(None);
+            cx.notify();
+        }
+    }
+
     fn set_sidebar_group_collapsed(
         &mut self,
         group: SidebarGroup,

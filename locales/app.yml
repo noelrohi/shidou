@@ -131,6 +131,8 @@ command_palette.open_project:
   en: Open project…
 command_palette.choose_model:
   en: Choose model…
+command_palette.collapse_sidebar_groups:
+  en: Collapse all sidebar groups
 command_palette.show_sidebar:
   en: Show sidebar
 command_palette.hide_sidebar:
