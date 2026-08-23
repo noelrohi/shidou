@@ -1463,7 +1463,7 @@ impl Waku {
         &self,
         group: SidebarGroup,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> Div {
         let theme = Theme::current(cx);
         let group_key = group.element_key();
         let focus = self
@@ -1472,24 +1472,17 @@ impl Waku {
             .entry(group)
             .or_insert_with(|| cx.focus_handle())
             .clone();
-        div()
+        let button = div()
             .id(SharedString::from(format!("sidebar-show-more-{group_key}")))
             .track_focus(&focus)
             .tab_index(0)
             .tab_stop(true)
-            .w_full()
-            .h(px(30.0))
             .flex_none()
-            .px(px(8.0))
-            .rounded(px(6.0))
-            .flex()
-            .items_center()
             .cursor_default()
             .text_size(sp(12.5))
             .text_color(theme.text_tertiary)
-            .focus_visible(|style| style.border_1().border_color(theme.accent))
-            .hover(|element| element.bg(theme.sidebar_item_background))
-            .active(|element| element.bg(theme.overlay_strong))
+            .focus_visible(|style| style.text_color(theme.text))
+            .hover(|style| style.text_color(theme.text))
             .child(tr!("sidebar.show_more"))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.show_more_project_sessions(group, cx);
@@ -1499,7 +1492,15 @@ impl Waku {
                     this.show_more_project_sessions(group, cx);
                     cx.stop_propagation();
                 }
-            }))
+            }));
+
+        div()
+            .w_full()
+            .h(px(30.0))
+            .pl(px(28.0))
+            .flex()
+            .items_center()
+            .child(button)
     }
 
     fn show_more_project_sessions(&mut self, group: SidebarGroup, cx: &mut Context<Self>) {
@@ -1728,7 +1729,8 @@ impl Waku {
             .flex()
             .flex_col()
             .gap(px(4.0))
-            .px(px(8.0))
+            .pl(px(28.0))
+            .pr(px(8.0))
             .py(px(7.0))
             .rounded(px(7.0))
             .cursor_default()
