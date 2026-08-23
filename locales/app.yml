@@ -71,6 +71,10 @@ visuals.selected_count:
   en: "%{count} selected"
 visuals.attach_selected:
   en: Attach selected to composer
+visuals.attach:
+  en: Attach
+visuals.clear:
+  en: Clear
 visuals.attached:
   en: "%{count} images attached to the composer"
 visuals.select_first:
@@ -93,6 +97,14 @@ visuals.preview_image:
   en: "Preview %{name}"
 visuals.load_failed:
   en: "Could not load workspace images: %{error}"
+visuals.context_preview:
+  en: Preview image
+visuals.context_attach:
+  en: Attach to composer
+visuals.copy_path:
+  en: Copy path
+visuals.image_attached:
+  en: "%{name} attached to the composer"
 
 updater.update:
   en: Update

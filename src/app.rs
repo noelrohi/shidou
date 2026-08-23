@@ -321,6 +321,15 @@ fn path_extension_lowercase(path: &str) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
+/// One masonry row of the visuals gallery: a run of images sharing a height,
+/// with per-image widths that exactly fill the panel (justified layout).
+#[derive(Clone, Debug, PartialEq)]
+struct VisualGalleryRow {
+    start: usize,
+    image_height: f32,
+    widths: Vec<f32>,
+}
+
 /// Workspace image index and imported previews for the singleton Visuals
 /// gallery. All filesystem and daemon work lands here before render reads it.
 struct VisualGallery {
@@ -334,8 +343,19 @@ struct VisualGallery {
     /// Why the last index refresh failed, drawn in place of the gallery.
     load_error: Option<String>,
     generation: u64,
-    columns: usize,
     list_state: ListState,
+    /// Image to scroll to, focus, and select once its folder's images land —
+    /// set by "reveal in Visuals" jumps from elsewhere in the app.
+    pending_reveal: Option<String>,
+    /// Masonry rows derived from `images` plus whatever dimensions have
+    /// landed, rebuilt in render whenever `row_plan_key` goes stale.
+    row_plan: Vec<VisualGalleryRow>,
+    row_plan_key: Option<(u64, u64, u32, VisualGalleryLayout)>,
+    /// Bumped whenever `images` is replaced, so the plan key catches it.
+    images_epoch: u64,
+    /// The next plan rebuild resets the list (dropping scroll) instead of
+    /// splicing — set when the image set itself changed, not just its layout.
+    plan_reset_pending: bool,
 }
 
 impl VisualGallery {
@@ -350,8 +370,12 @@ impl VisualGallery {
             loading: false,
             load_error: None,
             generation: 0,
-            columns: 1,
             list_state: ListState::new(0, ListAlignment::Top, px(320.0)),
+            pending_reveal: None,
+            row_plan: Vec::new(),
+            row_plan_key: None,
+            images_epoch: 0,
+            plan_reset_pending: false,
         }
     }
 
@@ -369,6 +393,11 @@ impl VisualGallery {
         self.folder = None;
         self.images.clear();
         self.selected.clear();
+        self.pending_reveal = None;
+        self.row_plan.clear();
+        self.row_plan_key = None;
+        self.images_epoch = self.images_epoch.wrapping_add(1);
+        self.plan_reset_pending = false;
         self.list_state.reset(0);
     }
 }
@@ -1319,6 +1348,12 @@ pub struct Waku {
     /// one background fetch only when a visible row asks to render it; the
     /// desktop never creates another attachment file.
     remote_images: RefCell<HashMap<String, RemoteImageState>>,
+    /// Pixel dimensions probed from fetched image bytes, keyed like
+    /// `remote_images`. The visuals masonry layout reads these; a missing
+    /// entry falls back to a square slot.
+    remote_image_sizes: RefCell<HashMap<String, (u32, u32)>>,
+    /// Bumped when a dimension lands so cached layouts know to rebuild.
+    remote_image_sizes_version: std::cell::Cell<u64>,
     /// Coalesced edge trigger for provider and background result queues. The
     /// payloads stay in their typed channels; this channel only wakes the UI.
     event_wake_tx: smol::channel::Sender<()>,
@@ -2832,6 +2867,8 @@ impl Waku {
                 image_preview: None,
                 image_preview_generation: 0,
                 remote_images: RefCell::new(HashMap::new()),
+                remote_image_sizes: RefCell::new(HashMap::new()),
+                remote_image_sizes_version: std::cell::Cell::new(0),
                 event_wake_tx,
                 task_state_sync_tx,
                 task_state_sync_events,

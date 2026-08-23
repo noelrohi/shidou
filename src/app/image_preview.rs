@@ -89,14 +89,27 @@ impl Waku {
                         daemon_path.as_deref(),
                         &daemon,
                     )
-                    .map(|bytes| Arc::new(gpui::Image::from_bytes(format, bytes)))
+                    .map(|bytes| {
+                        let dimensions = super::visuals::probe_image_dimensions(&bytes);
+                        (Arc::new(gpui::Image::from_bytes(format, bytes)), dimensions)
+                    })
                 })
                 .await;
             let _ = waku.update(cx, |waku, cx| {
-                waku.remote_images.borrow_mut().insert(
-                    cache_key,
-                    image.map_or(RemoteImageState::Unavailable, RemoteImageState::Ready),
-                );
+                let state = match image {
+                    Some((image, dimensions)) => {
+                        if let Some(dimensions) = dimensions {
+                            waku.remote_image_sizes
+                                .borrow_mut()
+                                .insert(cache_key.clone(), dimensions);
+                            waku.remote_image_sizes_version
+                                .set(waku.remote_image_sizes_version.get().wrapping_add(1));
+                        }
+                        RemoteImageState::Ready(image)
+                    }
+                    None => RemoteImageState::Unavailable,
+                };
+                waku.remote_images.borrow_mut().insert(cache_key, state);
                 cx.notify();
             });
         })
