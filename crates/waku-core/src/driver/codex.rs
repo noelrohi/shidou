@@ -1931,7 +1931,11 @@ fn codex_activity_kind(item: &Value) -> Option<ActivityKind> {
         .and_then(Value::as_str)?
         .to_ascii_lowercase();
     if item_type.contains("command") {
-        Some(ActivityKind::Command)
+        Some(
+            codex_command_action_presentation(item)
+                .map(|(kind, _)| kind)
+                .unwrap_or(ActivityKind::Command),
+        )
     } else if item_type.contains("filechange") || item_type.contains("patch") {
         Some(ActivityKind::FileChange)
     } else if item_type.contains("websearch") {
@@ -1952,6 +1956,9 @@ fn codex_activity_kind(item: &Value) -> Option<ActivityKind> {
 }
 
 fn codex_item_title(item: &Value) -> String {
+    if let Some((_, title)) = codex_command_action_presentation(item) {
+        return title;
+    }
     if let Some(command) = item.get("command").and_then(Value::as_str) {
         return command.to_owned();
     }
@@ -2074,11 +2081,40 @@ fn codex_item_arguments(item: &Value) -> Option<String> {
             if let Some(cwd) = item.get("cwd") {
                 arguments.insert("cwd".into(), cwd.clone());
             }
+            if let Some(action) = codex_single_presentable_command_action(item) {
+                arguments.insert("action".into(), action.clone());
+            }
             (!arguments.is_empty())
                 .then(|| Value::Object(arguments))
                 .as_ref()
                 .and_then(format_activity_json)
         }
+        _ => None,
+    }
+}
+
+fn codex_single_presentable_command_action(item: &Value) -> Option<&Value> {
+    if item.get("type").and_then(Value::as_str) != Some("commandExecution") {
+        return None;
+    }
+    let [action] = item.get("commandActions")?.as_array()?.as_slice() else {
+        return None;
+    };
+    matches!(
+        action.get("type").and_then(Value::as_str),
+        Some("read" | "listFiles" | "search")
+    )
+    .then_some(action)
+}
+
+fn codex_command_action_presentation(item: &Value) -> Option<(ActivityKind, String)> {
+    match codex_single_presentable_command_action(item)?
+        .get("type")
+        .and_then(Value::as_str)?
+    {
+        "read" => Some((ActivityKind::FileRead, tr!("activity.read_file"))),
+        "listFiles" => Some((ActivityKind::FileList, tr!("activity.list_files"))),
+        "search" => Some((ActivityKind::FileSearch, tr!("activity.search_files"))),
         _ => None,
     }
 }
@@ -3049,6 +3085,99 @@ mod tests {
             activity.display_target.as_deref(),
             Some("/tmp/waku/src/model.rs")
         );
+    }
+
+    #[test]
+    fn command_actions_use_semantic_file_presentation() {
+        for (action, expected_kind, expected_title, expected_target) in [
+            (
+                json!({
+                    "type": "read",
+                    "command": "sed -n '12,20p' crates/waku-core/src/driver/codex.rs",
+                    "name": "codex.rs",
+                    "path": "/tmp/waku/crates/waku-core/src/driver/codex.rs"
+                }),
+                ActivityKind::FileRead,
+                tr!("activity.read_file"),
+                "/tmp/waku/crates/waku-core/src/driver/codex.rs",
+            ),
+            (
+                json!({
+                    "type": "listFiles",
+                    "command": "rg --files crates/waku-core/src",
+                    "path": "crates/waku-core/src"
+                }),
+                ActivityKind::FileList,
+                tr!("activity.list_files"),
+                "crates/waku-core/src",
+            ),
+            (
+                json!({
+                    "type": "search",
+                    "command": "rg commandActions crates/waku-core/src",
+                    "query": "commandActions",
+                    "path": "crates/waku-core/src"
+                }),
+                ActivityKind::FileSearch,
+                tr!("activity.search_files"),
+                "commandActions",
+            ),
+        ] {
+            let item = json!({
+                "id": "command-1",
+                "type": "commandExecution",
+                "command": action["command"],
+                "cwd": "/tmp/waku",
+                "commandActions": [action],
+                "status": "completed"
+            });
+
+            let kind = codex_activity_kind(&item).expect("command should be an activity");
+            let activity = ActivityItem::new(
+                Some("command-1".into()),
+                kind,
+                codex_item_title(&item),
+                None,
+                true,
+            )
+            .with_arguments(codex_item_arguments(&item))
+            .with_activity_source(Some(&item));
+
+            assert_eq!(activity.kind, expected_kind);
+            assert_eq!(activity.title, expected_title);
+            assert_eq!(activity.display_target.as_deref(), Some(expected_target));
+        }
+    }
+
+    #[test]
+    fn unknown_or_compound_command_actions_keep_the_raw_command() {
+        for command_actions in [
+            json!([{"type": "unknown", "command": "sed -i '' file.txt"}]),
+            json!([
+                {
+                    "type": "search",
+                    "command": "rg needle src",
+                    "query": "needle",
+                    "path": "src"
+                },
+                {
+                    "type": "read",
+                    "command": "cat src/main.rs",
+                    "name": "main.rs",
+                    "path": "/tmp/waku/src/main.rs"
+                }
+            ]),
+        ] {
+            let item = json!({
+                "type": "commandExecution",
+                "command": "inspect files",
+                "cwd": "/tmp/waku",
+                "commandActions": command_actions
+            });
+
+            assert_eq!(codex_activity_kind(&item), Some(ActivityKind::Command));
+            assert_eq!(codex_item_title(&item), "inspect files");
+        }
     }
 
     #[test]

@@ -7,10 +7,7 @@ fn retain_runtime_after_cancel(provider: ProviderKind) -> bool {
     !matches!(provider, ProviderKind::Codex | ProviderKind::Amp)
 }
 
-fn new_task_runtime_mode(
-    current: Option<&AgentSession>,
-    remembered: RuntimeMode,
-) -> RuntimeMode {
+fn new_task_runtime_mode(current: Option<&AgentSession>, remembered: RuntimeMode) -> RuntimeMode {
     current
         .map(|session| session.runtime_mode)
         .unwrap_or(remembered)
