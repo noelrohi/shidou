@@ -1049,8 +1049,8 @@ struct ComputerUsePreview {
 struct SessionNavigation {
     back: Vec<Uuid>,
     forward: Vec<Uuid>,
-    /// The unstarted task behind the global New Task entry. Viewing another
-    /// session must not make that entry forget the project chosen for it.
+    /// The most recently selected unstarted task. The global New Task entry
+    /// may reuse it only when it belongs to the currently selected project.
     new_task: Option<Uuid>,
 }
 
@@ -1094,11 +1094,17 @@ impl SessionNavigation {
         self.new_task = Some(session_id);
     }
 
-    fn remembered_new_task(&self, sessions: &[AgentSession]) -> Option<Uuid> {
+    fn remembered_new_task(
+        &self,
+        sessions: &[AgentSession],
+        current_project_id: Uuid,
+    ) -> Option<Uuid> {
         self.new_task.filter(|session_id| {
-            sessions
-                .iter()
-                .any(|session| session.id == *session_id && !session.has_started())
+            sessions.iter().any(|session| {
+                session.id == *session_id
+                    && session.project_id == current_project_id
+                    && !session.has_started()
+            })
         })
     }
 }

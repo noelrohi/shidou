@@ -382,17 +382,22 @@ impl Waku {
         cx: &mut Context<Self>,
     ) {
         self.settings_page = None;
-        if let Some(session_id) = self
-            .session_navigation
-            .remembered_new_task(&self.state.sessions)
-        {
-            self.select_session(session_id, cx);
-        } else if self.selected_project().is_some_and(Project::is_projectless) {
-            self.create_projectless_session(cx);
-        } else if let Some(project_id) = self.state.selected_project {
-            self.create_session_for(project_id, self.state.last_provider, cx);
-        } else {
-            self.create_projectless_session(cx);
+        let current_project = self
+            .selected_project()
+            .map(|project| (project.id, project.is_projectless()));
+        match current_project {
+            Some((_, true)) => self.create_projectless_session(cx),
+            Some((project_id, false)) => {
+                if let Some(session_id) = self
+                    .session_navigation
+                    .remembered_new_task(&self.state.sessions, project_id)
+                {
+                    self.select_session(session_id, cx);
+                } else {
+                    self.create_session_for(project_id, self.state.last_provider, cx);
+                }
+            }
+            None => self.create_projectless_session(cx),
         }
         let focus_handle = self.composer_focus(cx);
         window.focus(&focus_handle, cx);
@@ -1610,10 +1615,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_task_navigation_keeps_the_selected_project_after_visiting_history() {
+    fn new_task_navigation_reuses_a_draft_from_the_current_project() {
         let project_id = Uuid::new_v4();
         let draft = AgentSession::new(project_id, ProviderKind::Codex);
-        let mut started = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let mut started = AgentSession::new(project_id, ProviderKind::Claude);
         started.begin_turn("Existing task");
         let mut navigation = SessionNavigation::default();
 
@@ -1621,8 +1626,22 @@ mod tests {
         navigation.visit(Some(draft.id), started.id);
 
         assert_eq!(
-            navigation.remembered_new_task(&[draft.clone(), started]),
+            navigation.remembered_new_task(&[draft.clone(), started], project_id),
             Some(draft.id)
+        );
+    }
+
+    #[test]
+    fn new_task_navigation_does_not_reopen_a_draft_from_another_project() {
+        let draft = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+        let current_project_id = Uuid::new_v4();
+        let mut navigation = SessionNavigation::default();
+
+        navigation.remember_new_task(draft.id);
+
+        assert_eq!(
+            navigation.remembered_new_task(&[draft], current_project_id),
+            None
         );
     }
 
@@ -1634,7 +1653,10 @@ mod tests {
         navigation.remember_new_task(draft.id);
 
         draft.begin_turn("Start it");
-        assert_eq!(navigation.remembered_new_task(&[draft.clone()]), None);
+        assert_eq!(
+            navigation.remembered_new_task(&[draft.clone()], project_id),
+            None
+        );
 
         navigation.remove(draft.id);
         assert_eq!(navigation.new_task, None);
