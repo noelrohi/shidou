@@ -290,6 +290,89 @@ fn paused_toast_duration(remaining: Duration, elapsed: Duration) -> Duration {
         .max(MINIMUM_TOAST_RESUME_DURATION)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VisualGalleryLayout {
+    Compact,
+    Large,
+    Fit,
+}
+
+#[derive(Clone, Debug)]
+struct VisualGalleryFile {
+    relative_path: String,
+    absolute_path: PathBuf,
+    name: String,
+}
+
+#[derive(Clone, Debug)]
+struct VisualGalleryImage {
+    relative_path: String,
+    stored_path: PathBuf,
+    name: String,
+    reference: String,
+}
+
+/// Lowercased extension of a workspace path, shared by the extension
+/// matchers in `visuals` and `right_panel`.
+fn path_extension_lowercase(path: &str) -> Option<String> {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+}
+
+/// Workspace image index and imported previews for the singleton Visuals
+/// gallery. All filesystem and daemon work lands here before render reads it.
+struct VisualGallery {
+    workspace: Option<PathBuf>,
+    index: HashMap<String, Vec<VisualGalleryFile>>,
+    folder: Option<String>,
+    images: Vec<VisualGalleryImage>,
+    selected: HashSet<String>,
+    layout: VisualGalleryLayout,
+    loading: bool,
+    /// Why the last index refresh failed, drawn in place of the gallery.
+    load_error: Option<String>,
+    generation: u64,
+    columns: usize,
+    list_state: ListState,
+}
+
+impl VisualGallery {
+    fn new() -> Self {
+        Self {
+            workspace: None,
+            index: HashMap::new(),
+            folder: None,
+            images: Vec::new(),
+            selected: HashSet::new(),
+            layout: VisualGalleryLayout::Compact,
+            loading: false,
+            load_error: None,
+            generation: 0,
+            columns: 1,
+            list_state: ListState::new(0, ListAlignment::Top, px(320.0)),
+        }
+    }
+
+    /// Forget everything, including which workspace was indexed.
+    fn clear(&mut self) {
+        self.workspace = None;
+        self.index.clear();
+        self.loading = false;
+        self.load_error = None;
+        self.clear_folder();
+    }
+
+    /// Drop the folder selection and everything derived from it.
+    fn clear_folder(&mut self) {
+        self.folder = None;
+        self.images.clear();
+        self.selected.clear();
+        self.list_state.reset(0);
+    }
+}
+
 /// A file dropped onto the composer, staged as a chip until the next
 /// submission carries it as an `@` mention.
 #[derive(Clone, Debug)]
@@ -520,6 +603,7 @@ fn fitted_panel_widths(
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum RightPanelSurface {
     Browser(Uuid),
+    Visuals,
     Terminal(Uuid),
     BackgroundWork {
         key: BackgroundWorkKey,
@@ -1226,6 +1310,7 @@ pub struct Waku {
     /// Files dropped onto the composer, drawn as chips above the input and
     /// drained into the next submission.
     composer_attachments: Vec<ComposerAttachment>,
+    visual_gallery: VisualGallery,
     /// Window-modal expansion of an image attachment. The path is already
     /// cached attachment metadata; render never probes the filesystem.
     image_preview: Option<image_preview::ImagePreviewState>,
@@ -1579,6 +1664,7 @@ mod transcript;
 mod transcript_view;
 mod usage_meter;
 mod usage_page;
+mod visuals;
 mod window_chrome;
 
 pub use autocomplete::init as init_composer_autocomplete;
@@ -1907,10 +1993,8 @@ impl Waku {
         });
 
         let composer = cx.new(|cx| ComposerInput::new(window, cx).padding_x(px(14.0), cx));
-        let user_input_answer = cx.new(|cx| {
-            TextInput::new(window, cx)
-                .placeholder(tr!("user_input.other_placeholder"))
-        });
+        let user_input_answer = cx
+            .new(|cx| TextInput::new(window, cx).placeholder(tr!("user_input.other_placeholder")));
         let command_palette_search = cx.new(|cx| {
             TextInput::new(window, cx)
                 .clear_on_escape()
@@ -1963,14 +2047,10 @@ impl Waku {
                 .select_all_on_focus_click()
                 .placeholder(tr!("input.detected_automatically"))
         });
-        let usage_project_filter = cx.new(|cx| {
-            TextInput::new(window, cx)
-                .placeholder(tr!("input.filter_projects"))
-        });
-        let right_panel_diff_filter = cx.new(|cx| {
-            TextInput::new(window, cx)
-                .placeholder(tr!("diff.filter_files"))
-        });
+        let usage_project_filter =
+            cx.new(|cx| TextInput::new(window, cx).placeholder(tr!("input.filter_projects")));
+        let right_panel_diff_filter =
+            cx.new(|cx| TextInput::new(window, cx).placeholder(tr!("diff.filter_files")));
         let navigation_rail = cx.new(|_| ConversationNavigationRail::new());
         let sidebar_pane = WakuPane::new(Waku::sidebar_pane_content, cx);
         let transcript_pane = WakuPane::new(Waku::transcript_pane_content, cx);
@@ -2489,14 +2569,11 @@ impl Waku {
                 )
                 .detach();
             }
-            cx.subscribe(
-                &skills_search,
-                |_: &mut Self, _, event: &InputEvent, cx| {
-                    if matches!(event, InputEvent::Edited) {
-                        cx.notify();
-                    }
-                },
-            )
+            cx.subscribe(&skills_search, |_: &mut Self, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Edited) {
+                    cx.notify();
+                }
+            })
             .detach();
             cx.subscribe(
                 &session_rename_input,
@@ -2751,6 +2828,7 @@ impl Waku {
                 composer_sources_stale: false,
                 composer_autocomplete: autocomplete::AutocompleteUi::new(),
                 composer_attachments,
+                visual_gallery: VisualGallery::new(),
                 image_preview: None,
                 image_preview_generation: 0,
                 remote_images: RefCell::new(HashMap::new()),

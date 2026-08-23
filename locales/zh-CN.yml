@@ -27,6 +27,25 @@ menu.close_window: 关闭窗口
 window.minimize: 最小化
 window.maximize: 最大化
 window.restore: 还原
+visuals.choose_folder: 选择图片文件夹
+visuals.folder: 图片文件夹
+visuals.layout: 画廊布局
+visuals.layout_compact: 紧凑网格
+visuals.layout_large: 大图网格
+visuals.layout_fit: 完整显示
+visuals.selected_count: "已选择 %{count} 个"
+visuals.attach_selected: 将所选图片附加到输入框
+visuals.attached: "已将 %{count} 张图片附加到输入框"
+visuals.select_first: 请先选择至少一张图片
+visuals.refresh: 刷新工作区图片
+visuals.loading: 正在加载图片…
+visuals.no_workspace: 请打开工作区以浏览图片
+visuals.no_folders: 没有文件夹包含支持的图片
+visuals.no_images: 此文件夹不包含支持的图片
+visuals.folder_hint: 通过主输入框生成图片，然后刷新此画廊。
+visuals.select_image: "选择 %{name}"
+visuals.preview_image: "预览 %{name}"
+visuals.load_failed: "无法加载工作区图片：%{error}"
 updater.update: 更新
 updater.updating: 正在更新…
 updater.up_to_date: Waku 已是最新版本
@@ -387,6 +406,7 @@ mode.supervised: 监督
 mode.auto_accept_edits: 自动接受修改
 mode.auto: 自动
 mode.full_access: 完全访问
+mode.plan_not_supported: 此服务商不支持规划模式
 mode.plan_description: 仅检查并制定计划，不进行任何修改
 mode.supervised_description: 执行命令或修改文件前先征求许可
 mode.auto_accept_edits_description: 自动批准文件修改，执行其他操作前先询问
@@ -667,6 +687,7 @@ session.rewind_title: "%{title}（回退）"
 session.rewound: 已回退到第 %{turn} 轮任务之前
 session.rewound_with_stale_refs: "已回退到第 %{turn} 轮任务之前，但仍有过期引用：%{error}"
 right_panel.browser: 浏览器
+right_panel.visuals: 视觉素材
 right_panel.terminal: 终端
 right_panel.files: 文件
 right_panel.diff: 审阅
@@ -674,6 +695,7 @@ right_panel.toggle: 显示或隐藏右侧面板
 right_panel.open_surface: 打开一个面板
 right_panel.choose_surface: 选择要在右侧面板中显示的内容
 right_panel.browser_description: 打开本地应用或网址
+right_panel.visuals_description: 浏览工作区图片文件夹
 right_panel.terminal_description: 在此工作区中启动 Shell
 right_panel.files_description: 浏览并阅读工作区文件
 right_panel.diff_description: 审阅文件更改
@@ -755,6 +777,10 @@ files.could_not_save_read_only: "无法保存 %{path}：文件不可编辑"
 files.could_not_save: "无法保存 %{path}：%{error}"
 files.preview_markdown: 预览 Markdown
 files.edit_markdown_source: 编辑源码
+files.open_in_browser: 在浏览器中打开
+files.browser_preview_remote: 无法在浏览器中预览远程守护进程上的文件
+files.browser_preview_unsaved: 请先保存文件，再在浏览器中打开
+files.browser_preview_failed: 无法在浏览器中打开此文件
 files.resize_tree: 调整文件树宽度
 files.refresh: 刷新文件
 files.loading: 正在加载文件…

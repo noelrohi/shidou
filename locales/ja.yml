@@ -28,6 +28,26 @@ window.minimize: 最小化
 window.maximize: 最大化
 window.restore: 元に戻す
 
+visuals.choose_folder: 画像フォルダを選択
+visuals.folder: 画像フォルダ
+visuals.layout: ギャラリーレイアウト
+visuals.layout_compact: コンパクトグリッド
+visuals.layout_large: 大きいグリッド
+visuals.layout_fit: 全体を表示
+visuals.selected_count: "%{count}件選択"
+visuals.attach_selected: 選択画像を入力欄に添付
+visuals.attached: "%{count}件の画像を入力欄に添付しました"
+visuals.select_first: まず画像を1つ以上選択してください
+visuals.refresh: ワークスペース画像を更新
+visuals.loading: 画像を読み込み中…
+visuals.no_workspace: 画像を閲覧するワークスペースを開いてください
+visuals.no_folders: 対応画像を含むフォルダがありません
+visuals.no_images: このフォルダに対応画像はありません
+visuals.folder_hint: メイン入力欄から画像を生成し、このギャラリーを更新してください。
+visuals.select_image: "%{name}を選択"
+visuals.preview_image: "%{name}をプレビュー"
+visuals.load_failed: "ワークスペース画像を読み込めませんでした：%{error}"
+
 updater.update: アップデート
 updater.updating: アップデート中…
 updater.up_to_date: Waku は最新です
@@ -406,6 +426,7 @@ mode.supervised: 監督モード
 mode.auto_accept_edits: 編集を自動承認
 mode.auto: 自動
 mode.full_access: フルアクセス
+mode.plan_not_supported: このプロバイダーはプランモードに対応していません
 mode.plan_description: 変更を加えずに調査してプランを作成します
 mode.supervised_description: コマンドの実行とファイル変更の前に確認します
 mode.auto_accept_edits_description: 編集は自動承認し、その他の操作は事前に確認します
@@ -705,6 +726,7 @@ session.rewound: タスクをターン %{turn} の前まで巻き戻しました
 session.rewound_with_stale_refs: "タスクをターン %{turn} の前まで巻き戻しましたが、古い ref が残っています：%{error}"
 
 right_panel.browser: ブラウザ
+right_panel.visuals: ビジュアル
 right_panel.terminal: ターミナル
 right_panel.files: ファイル
 right_panel.diff: レビュー
@@ -712,6 +734,7 @@ right_panel.toggle: 右パネルの表示を切り替える
 right_panel.open_surface: パネルを開く
 right_panel.choose_surface: 右パネルに表示する内容を選択します
 right_panel.browser_description: ローカルアプリまたは URL を開きます
+right_panel.visuals_description: ワークスペースの画像フォルダを閲覧します
 right_panel.terminal_description: このワークスペースでシェルを起動します
 right_panel.files_description: ワークスペースのファイルを閲覧します
 right_panel.diff_description: ファイルの変更をレビューします
@@ -798,6 +821,10 @@ files.could_not_save_read_only: "%{path} を保存できませんでした：こ
 files.could_not_save: "%{path} を保存できませんでした：%{error}"
 files.preview_markdown: Markdown をプレビュー
 files.edit_markdown_source: ソースを編集
+files.open_in_browser: ブラウザで開く
+files.browser_preview_remote: リモートデーモン上のファイルはブラウザでプレビューできません
+files.browser_preview_unsaved: ブラウザで開く前にファイルを保存してください
+files.browser_preview_failed: このファイルをブラウザで開けませんでした
 files.resize_tree: ファイルツリーの幅を変更
 files.refresh: ファイルを更新
 files.loading: ファイルを読み込み中…

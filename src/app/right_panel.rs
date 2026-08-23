@@ -767,6 +767,27 @@ fn visible_working_tree_entries(
     entries
 }
 
+/// Whether the OS browser can render the file natively, making the
+/// open-in-browser control worth showing for it.
+fn browser_preview_supported_file(path: &str) -> bool {
+    matches!(
+        path_extension_lowercase(path).as_deref(),
+        Some(
+            "html"
+                | "htm"
+                | "svg"
+                | "pdf"
+                | "png"
+                | "jpg"
+                | "jpeg"
+                | "gif"
+                | "webp"
+                | "bmp"
+                | "ico"
+        )
+    )
+}
+
 /// The language name for a file, as understood by [`crate::md::highlight`].
 /// Names the lexer does not know simply render unhighlighted.
 fn file_highlighter_language(relative_path: &str) -> &'static str {
@@ -895,6 +916,7 @@ impl RightPanelSurface {
     fn label(&self) -> String {
         match self {
             Self::Browser(_) => tr!("right_panel.browser"),
+            Self::Visuals => tr!("right_panel.visuals"),
             Self::Terminal(_) => tr!("right_panel.terminal"),
             Self::BackgroundWork { key, title } => {
                 if title.is_empty() {
@@ -916,6 +938,7 @@ impl RightPanelSurface {
     fn icon_path(&self) -> &'static str {
         match self {
             Self::Browser(_) => "icons/globe.svg",
+            Self::Visuals => "icons/sparkle.svg",
             Self::Terminal(_) => "icons/terminal.svg",
             Self::BackgroundWork { key, .. } => work_kind_icon(key.kind),
             Self::Files => "icons/folder.svg",
@@ -955,6 +978,9 @@ fn reusable_surface_index(
 ) -> Option<usize> {
     match requested {
         RightPanelSurface::Browser(_) | RightPanelSurface::Terminal(_) => None,
+        RightPanelSurface::Visuals => surfaces
+            .iter()
+            .position(|surface| *surface == RightPanelSurface::Visuals),
         RightPanelSurface::BackgroundWork { key, .. } => surfaces.iter().position(|surface| {
             matches!(surface, RightPanelSurface::BackgroundWork { key: candidate, .. } if candidate == key)
         }),
@@ -1472,6 +1498,25 @@ mod tests {
     }
 
     #[test]
+    fn browser_preview_supports_web_documents_and_browser_native_assets() {
+        for path in [
+            "index.html",
+            "page.HTM",
+            "art.svg",
+            "catalog.pdf",
+            "hero.png",
+            "photo.jpeg",
+            "animation.gif",
+            "texture.webp",
+        ] {
+            assert!(browser_preview_supported_file(path), "{path}");
+        }
+        for path in ["styles.css", "app.js", "README.md", "data.json"] {
+            assert!(!browser_preview_supported_file(path), "{path}");
+        }
+    }
+
+    #[test]
     fn file_highlighter_language_follows_file_name_and_extension() {
         assert_eq!(file_highlighter_language("src/app.rs"), "rust");
         assert_eq!(file_highlighter_language("ui/panel.tsx"), "tsx");
@@ -1605,6 +1650,7 @@ mod tests {
             browser,
             terminal,
             background,
+            RightPanelSurface::Visuals,
             RightPanelSurface::Files,
             RightPanelSurface::Diff,
         ];
@@ -1628,12 +1674,16 @@ mod tests {
             Some(2)
         );
         assert_eq!(
-            reusable_surface_index(&surfaces, &RightPanelSurface::Files),
+            reusable_surface_index(&surfaces, &RightPanelSurface::Visuals),
             Some(3)
         );
         assert_eq!(
-            reusable_surface_index(&surfaces, &RightPanelSurface::Diff),
+            reusable_surface_index(&surfaces, &RightPanelSurface::Files),
             Some(4)
+        );
+        assert_eq!(
+            reusable_surface_index(&surfaces, &RightPanelSurface::Diff),
+            Some(5)
         );
     }
 
@@ -1787,6 +1837,9 @@ impl Waku {
             Some(RightPanelSurface::Files | RightPanelSurface::File(_))
         ) {
             self.refresh_right_panel_working_tree(cx);
+        }
+        if self.active_right_panel_surface() == Some(&RightPanelSurface::Visuals) {
+            self.refresh_visual_gallery(cx);
         }
         self.ensure_right_panel_terminals(cx);
         self.retain_right_panel_browsers();
@@ -1946,6 +1999,9 @@ impl Waku {
         ) {
             self.refresh_right_panel_working_tree(cx);
         }
+        if surface == RightPanelSurface::Visuals {
+            self.refresh_visual_gallery(cx);
+        }
         if let Some(terminal_id) = surface.terminal_id() {
             self.ensure_right_panel_terminal(terminal_id, cx);
         }
@@ -1985,6 +2041,52 @@ impl Waku {
         self.right_panel_diff_snapshot = None;
         self.right_panel_diff_selected_file = None;
         self.open_right_panel_surface(RightPanelSurface::Diff, cx);
+    }
+
+    fn open_workspace_file_in_browser(
+        &mut self,
+        relative_path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !browser_preview_supported_file(&relative_path) {
+            return;
+        }
+        if self.daemon.is_remote() {
+            self.show_toast(tr!("files.browser_preview_remote"));
+            return;
+        }
+        if self.right_panel_file_is_dirty(&relative_path) {
+            self.show_toast(tr!("files.browser_preview_unsaved"));
+            return;
+        }
+        let Some(workspace) = self.selected_workspace_path() else {
+            return;
+        };
+        let absolute_path = workspace.join(&relative_path);
+        let Ok(url) = url::Url::from_file_path(&absolute_path) else {
+            self.show_toast(tr!("files.browser_preview_failed"));
+            return;
+        };
+
+        self.open_url_in_right_panel_browser(url.to_string(), window, cx);
+    }
+
+    fn open_url_in_right_panel_browser(
+        &mut self,
+        url: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let surface = RightPanelSurface::new_browser();
+        let Some(browser_id) = surface.browser_id() else {
+            return;
+        };
+        self.open_right_panel_surface(surface, cx);
+        let browser = self.ensure_right_panel_browser(browser_id, window, cx);
+        browser.update(cx, |browser, cx| browser.navigate_to_url(url, cx));
+        self.request_active_browser_focus();
+        cx.notify();
     }
 
     fn open_right_panel_file(&mut self, relative_path: String, cx: &mut Context<Self>) {
@@ -2141,6 +2243,9 @@ impl Waku {
             None => self.render_right_panel_chooser(cx).into_any_element(),
             Some(RightPanelSurface::BackgroundWork { key, .. }) => self
                 .render_background_work_surface(&key, cx)
+                .into_any_element(),
+            Some(RightPanelSurface::Visuals) => self
+                .render_visuals_surface(width, window, cx)
                 .into_any_element(),
             Some(RightPanelSurface::Files) => self
                 .render_right_panel_files(width, window, cx)
@@ -2496,6 +2601,7 @@ impl Waku {
             let weak = cx.entity().downgrade();
             let existing_surfaces = self.right_panel_surfaces.clone();
             let options = [
+                RightPanelSurface::Visuals,
                 RightPanelSurface::new_browser(),
                 RightPanelSurface::new_terminal(),
                 RightPanelSurface::Files,
@@ -2551,6 +2657,46 @@ impl Waku {
 
     fn render_right_panel_chooser(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let theme = Theme::current(cx);
+        let cards = [
+            (
+                RightPanelSurface::Visuals,
+                tr!("right_panel.visuals_description"),
+            ),
+            (
+                RightPanelSurface::new_browser(),
+                tr!("right_panel.browser_description"),
+            ),
+            (
+                RightPanelSurface::new_terminal(),
+                tr!("right_panel.terminal_description"),
+            ),
+            (
+                RightPanelSurface::Files,
+                tr!("right_panel.files_description"),
+            ),
+            (RightPanelSurface::Diff, tr!("right_panel.diff_description")),
+        ];
+
+        let mut grid = div().mt(px(18.0)).w_full().flex().flex_col().gap(px(8.0));
+        for row_cards in cards.chunks(2) {
+            let mut row = div().w_full().flex().gap(px(8.0));
+            for (surface, description) in row_cards {
+                // Every column is an unpadded cell that the card fills. A padded
+                // card used as the flex item directly takes its padding out of
+                // the free space before growing, so a half-filled row would end
+                // up wider than the columns above it.
+                row = row.child(div().flex_1().min_w_0().child(self.render_right_panel_card(
+                    surface.clone(),
+                    description.clone(),
+                    cx,
+                )));
+            }
+            for _ in row_cards.len()..2 {
+                row = row.child(div().flex_1());
+            }
+            grid = grid.child(row);
+        }
+
         div()
             .id("right-panel-chooser")
             .flex_1()
@@ -2581,40 +2727,7 @@ impl Waku {
                             .text_color(theme.text_tertiary)
                             .child(tr!("right_panel.choose_surface")),
                     )
-                    .child(
-                        div()
-                            .mt(px(18.0))
-                            .w_full()
-                            .flex()
-                            .gap(px(8.0))
-                            .child(self.render_right_panel_card(
-                                RightPanelSurface::new_browser(),
-                                tr!("right_panel.browser_description"),
-                                cx,
-                            ))
-                            .child(self.render_right_panel_card(
-                                RightPanelSurface::new_terminal(),
-                                tr!("right_panel.terminal_description"),
-                                cx,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .mt(px(8.0))
-                            .w_full()
-                            .flex()
-                            .gap(px(8.0))
-                            .child(self.render_right_panel_card(
-                                RightPanelSurface::Files,
-                                tr!("right_panel.files_description"),
-                                cx,
-                            ))
-                            .child(self.render_right_panel_card(
-                                RightPanelSurface::Diff,
-                                tr!("right_panel.diff_description"),
-                                cx,
-                            )),
-                    ),
+                    .child(grid),
             )
     }
 
@@ -2633,7 +2746,7 @@ impl Waku {
                 label.to_lowercase()
             )))
             .h(px(112.0))
-            .flex_1()
+            .w_full()
             .min_w_0()
             .p(px(14.0))
             .rounded(px(8.0))
@@ -2708,6 +2821,15 @@ impl Waku {
             let absolute_path = entry.absolute_path.clone();
             let is_dir = entry.is_dir;
             let selected = selected_path == Some(relative_path.as_str());
+            let can_preview = !is_dir
+                && !self.daemon.is_remote()
+                && cfg!(any(target_os = "macos", target_os = "windows"))
+                && browser_preview_supported_file(&relative_path);
+            let preview_relative_path = relative_path.clone();
+            let preview_menu = self.menu_handle(
+                format!("right-panel-file-browser-preview-{relative_path}-menu"),
+                cx,
+            );
             let row = div()
                 .id(SharedString::from(format!(
                     "right-panel-file-{relative_path}"
@@ -2748,7 +2870,22 @@ impl Waku {
                         .text_size(sp(12.5))
                         .text_color(theme.text_secondary)
                         .child(entry.name),
-                );
+                )
+                .when(can_preview, |row| {
+                    let open_path = preview_relative_path.clone();
+                    row.child(self.render_icon_button(
+                        format!("right-panel-file-browser-preview-{preview_relative_path}"),
+                        "icons/globe.svg",
+                        22.0,
+                        5.0,
+                        theme.overlay_strong,
+                        tr!("files.open_in_browser"),
+                        move |this, window, cx| {
+                            this.open_workspace_file_in_browser(open_path.clone(), window, cx);
+                        },
+                        cx,
+                    ))
+                });
             list = if is_dir {
                 list.child(row.on_click(cx.listener(move |this, _, _, cx| {
                     if !this.right_panel_expanded_paths.remove(&absolute_path) {
@@ -2759,9 +2896,39 @@ impl Waku {
                     cx.notify();
                 })))
             } else {
-                list.child(row.on_click(cx.listener(move |this, _, _, cx| {
-                    this.open_right_panel_file(relative_path.clone(), cx);
-                })))
+                let open_path = relative_path.clone();
+                let row = row.on_click(cx.listener(move |this, _, _, cx| {
+                    this.open_right_panel_file(open_path.clone(), cx);
+                }));
+                if can_preview {
+                    let weak = cx.entity().downgrade();
+                    let menu_path = relative_path.clone();
+                    list.child(context_menu(
+                        row,
+                        SharedString::from(format!(
+                            "right-panel-file-browser-preview-{relative_path}-context-menu"
+                        )),
+                        &preview_menu,
+                        move |_| {
+                            let weak = weak.clone();
+                            let path = menu_path.clone();
+                            vec![
+                                MenuItem::new(tr!("files.open_in_browser"), move |window, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.open_workspace_file_in_browser(
+                                            path.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .icon("icons/globe.svg"),
+                            ]
+                        },
+                    ))
+                } else {
+                    list.child(row)
+                }
             };
         }
 
@@ -2841,34 +3008,40 @@ impl Waku {
             )
         };
         let preview_toggle = is_markdown.then(|| {
-            let focus = self.transcript_control_focus("file-markdown-preview-toggle", cx);
             let (icon_path, label) = if preview {
                 ("icons/pencil.svg", tr!("files.edit_markdown_source"))
             } else {
                 ("icons/eye.svg", tr!("files.preview_markdown"))
             };
-            div()
-                .id("file-markdown-preview-toggle")
-                .track_focus(&focus)
-                .tab_index(0)
-                .size(px(26.0))
-                .rounded(px(7.0))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .cursor_default()
-                .focus_visible(|style| style.border_1().border_color(theme.accent))
-                .hover(|style| style.bg(theme.overlay))
-                .child(icon(icon_path, 12.0, theme.text_tertiary))
-                .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_markdown_preview(cx)))
-                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                    if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                        this.toggle_markdown_preview(cx);
-                        cx.stop_propagation();
-                    }
-                }))
+            self.render_icon_button(
+                "file-markdown-preview-toggle",
+                icon_path,
+                26.0,
+                7.0,
+                theme.overlay,
+                label,
+                |this, _, cx| this.toggle_markdown_preview(cx),
+                cx,
+            )
+        });
+
+        let browser_preview = (!self.daemon.is_remote()
+            && cfg!(any(target_os = "macos", target_os = "windows"))
+            && browser_preview_supported_file(&relative_path))
+        .then(|| {
+            let open_path = relative_path.clone();
+            self.render_icon_button(
+                "file-open-in-browser",
+                "icons/globe.svg",
+                26.0,
+                7.0,
+                theme.overlay,
+                tr!("files.open_in_browser"),
+                move |this, window, cx| {
+                    this.open_workspace_file_in_browser(open_path.clone(), window, cx);
+                },
+                cx,
+            )
         });
 
         let editor = div()
@@ -2897,7 +3070,8 @@ impl Waku {
                             .text_color(theme.text_secondary)
                             .child(relative_path.clone()),
                     )
-                    .children(preview_toggle),
+                    .children(preview_toggle)
+                    .children(browser_preview),
             )
             .child(body);
 
@@ -2989,14 +3163,11 @@ impl Waku {
         .detach();
 
         let focused_path = relative_path.to_owned();
-        cx.subscribe(
-            &state,
-            move |this: &mut Self, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Focus) {
-                    this.reload_right_panel_file_if_clean(focused_path.as_str(), cx);
-                }
-            },
-        )
+        cx.subscribe(&state, move |this: &mut Self, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Focus) {
+                this.reload_right_panel_file_if_clean(focused_path.as_str(), cx);
+            }
+        })
         .detach();
 
         self.read_right_panel_file_into_editor(relative_path.to_owned(), cx);
@@ -4155,13 +4326,20 @@ impl Waku {
                 let path = file.path.clone();
                 let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
                 let selected = self.right_panel_diff_selected_file == Some(file_index);
+                let can_preview = !matches!(file.status, crate::review_diff::FileStatus::Deleted)
+                    && !self.daemon.is_remote()
+                    && cfg!(any(target_os = "macos", target_os = "windows"))
+                    && browser_preview_supported_file(&path);
+                let preview_path = path.clone();
+                let preview_menu =
+                    self.menu_handle(format!("review-diff-browser-preview-{file_index}-menu"), cx);
                 let (status, status_color) = match file.status {
                     crate::review_diff::FileStatus::Added => ("A", theme.success),
                     crate::review_diff::FileStatus::Deleted => ("D", theme.danger),
                     crate::review_diff::FileStatus::Binary => ("B", theme.warning),
                     crate::review_diff::FileStatus::Modified => ("M", theme.warning),
                 };
-                div()
+                let row = div()
                     .w_full()
                     .h(px(30.0))
                     .px(px(6.0))
@@ -4203,6 +4381,27 @@ impl Waku {
                                     .tooltip(Tooltip::text(path.clone()))
                                     .child(name),
                             )
+                            .when(can_preview, |row| {
+                                let open_path = preview_path.clone();
+                                row.child(self.render_icon_button(
+                                    SharedString::from(format!(
+                                        "review-diff-browser-preview-{file_index}"
+                                    )),
+                                    "icons/globe.svg",
+                                    20.0,
+                                    4.0,
+                                    theme.overlay_strong,
+                                    tr!("files.open_in_browser"),
+                                    move |this, window, cx| {
+                                        this.open_workspace_file_in_browser(
+                                            open_path.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    },
+                                    cx,
+                                ))
+                            })
                             .child(
                                 div()
                                     .w(px(18.0))
@@ -4226,8 +4425,36 @@ impl Waku {
                                 this.right_panel_diff_tree_cursor = Some(index);
                                 this.select_right_panel_diff_file(file_index, cx);
                             })),
+                    );
+                if can_preview {
+                    let weak = cx.entity().downgrade();
+                    let menu_path = path.clone();
+                    context_menu(
+                        row,
+                        SharedString::from(format!(
+                            "review-diff-browser-preview-{file_index}-context-menu"
+                        )),
+                        &preview_menu,
+                        move |_| {
+                            let weak = weak.clone();
+                            let path = menu_path.clone();
+                            vec![
+                                MenuItem::new(tr!("files.open_in_browser"), move |window, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.open_workspace_file_in_browser(
+                                            path.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .icon("icons/globe.svg"),
+                            ]
+                        },
                     )
-                    .into_any_element()
+                } else {
+                    row.into_any_element()
+                }
             }
         }
     }
@@ -4273,6 +4500,7 @@ impl Waku {
             Some(RightPanelSurface::Files | RightPanelSurface::File(_)) => {
                 self.refresh_right_panel_working_tree(cx)
             }
+            Some(RightPanelSurface::Visuals) => self.refresh_visual_gallery(cx),
             _ => {}
         }
     }
@@ -4283,7 +4511,7 @@ impl Waku {
     /// directories — filesystem I/O, so it runs on the background executor and
     /// the panel keeps drawing the previous listing until the result lands.
     /// Called when the tree's inputs change, never from a frame.
-    fn refresh_right_panel_working_tree(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn refresh_right_panel_working_tree(&mut self, cx: &mut Context<Self>) {
         let Some(project_path) = self
             .selected_workspace_path()
             .map(std::path::Path::to_path_buf)

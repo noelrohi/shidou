@@ -55,6 +55,45 @@ window.maximize:
 window.restore:
   en: Restore
 
+visuals.choose_folder:
+  en: Choose image folder
+visuals.folder:
+  en: Image folder
+visuals.layout:
+  en: Gallery layout
+visuals.layout_compact:
+  en: Compact grid
+visuals.layout_large:
+  en: Large grid
+visuals.layout_fit:
+  en: Fit / contain
+visuals.selected_count:
+  en: "%{count} selected"
+visuals.attach_selected:
+  en: Attach selected to composer
+visuals.attached:
+  en: "%{count} images attached to the composer"
+visuals.select_first:
+  en: Select at least one image first
+visuals.refresh:
+  en: Refresh workspace images
+visuals.loading:
+  en: Loading images…
+visuals.no_workspace:
+  en: Open a workspace to browse its images
+visuals.no_folders:
+  en: No workspace folders contain supported images
+visuals.no_images:
+  en: This folder contains no supported images
+visuals.folder_hint:
+  en: Generate images through the main composer, then refresh this gallery.
+visuals.select_image:
+  en: "Select %{name}"
+visuals.preview_image:
+  en: "Preview %{name}"
+visuals.load_failed:
+  en: "Could not load workspace images: %{error}"
+
 updater.update:
   en: Update
 updater.updating:
@@ -1373,6 +1412,8 @@ session.rewound_with_stale_refs:
 
 right_panel.browser:
   en: Browser
+right_panel.visuals:
+  en: Visuals
 right_panel.terminal:
   en: Terminal
 right_panel.files:
@@ -1387,6 +1428,8 @@ right_panel.choose_surface:
   en: Choose what to show in the right panel
 right_panel.browser_description:
   en: Open a local app or URL
+right_panel.visuals_description:
+  en: Browse workspace image folders
 right_panel.terminal_description:
   en: Start a shell in this workspace
 right_panel.files_description:
@@ -1554,6 +1597,14 @@ files.preview_markdown:
   en: Preview markdown
 files.edit_markdown_source:
   en: Edit source
+files.open_in_browser:
+  en: Open in Browser
+files.browser_preview_remote:
+  en: Browser preview is unavailable for files on a remote daemon
+files.browser_preview_unsaved:
+  en: Save this file before opening it in Browser
+files.browser_preview_failed:
+  en: This file could not be opened in Browser
 files.resize_tree:
   en: Resize file tree
 files.refresh:

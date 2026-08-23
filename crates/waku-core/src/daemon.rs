@@ -457,6 +457,12 @@ impl Backend for WakuBackend {
             Command::ImportPathAttachment { path } => Ok(ResponsePayload::AttachmentStored {
                 attachment: self.attachments.import_path(&path)?,
             }),
+            Command::ImportPathAttachments { paths } => Ok(ResponsePayload::AttachmentsStored {
+                attachments: paths
+                    .iter()
+                    .map(|path| self.attachments.import_path(path).ok())
+                    .collect(),
+            }),
             Command::ReadBlob { reference } => {
                 let path = self
                     .task_store
@@ -1566,6 +1572,7 @@ fn handle_driver_command(
         | Command::StoreBlob { .. }
         | Command::ImportAttachment { .. }
         | Command::ImportPathAttachment { .. }
+        | Command::ImportPathAttachments { .. }
         | Command::ReadBlob { .. }
         | Command::ReadAttachment { .. }
         | Command::SweepBlobs

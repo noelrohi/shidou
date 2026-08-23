@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { ControlMenu } from '@/components/control-menu'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
 import { Button } from '@/components/ui/button'
+import { VisualsPanel } from '@/components/visuals-panel'
 import { FileTypeIcon, WakuIcon, type WakuIconName } from '@/components/waku-icon'
 import type { CodeDiffSurfaceHandle, DiffSurfaceFile } from '@/components/code-surfaces'
 import {
@@ -63,7 +64,7 @@ const CodeDiffSurface = lazy(() => import('@/components/code-surfaces').then((mo
   default: module.CodeDiffSurface,
 })))
 
-export type PanelSurface = 'files' | 'file' | 'changes' | 'terminal' | 'backgroundWork'
+export type PanelSurface = 'visuals' | 'files' | 'file' | 'changes' | 'terminal' | 'backgroundWork'
 
 interface PanelTab {
   id: string
@@ -353,6 +354,13 @@ export function RightPanel({
             triggerClassName="size-7 justify-center px-0"
             items={[
               {
+                id: 'visuals',
+                label: t('right_panel.visuals'),
+                icon: 'sparkle',
+                selected: tabs.some((tab) => tab.surface === 'visuals'),
+                onSelect: () => openSurface('visuals'),
+              },
+              {
                 id: 'terminal',
                 label: t('right_panel.terminal'),
                 icon: 'terminal',
@@ -391,6 +399,13 @@ export function RightPanel({
           key={tab.id}
           role="tabpanel"
         >
+          {tab.surface === 'visuals' && (
+            <VisualsPanel
+              panelWidth={fittedPanelWidth}
+              sessionId={session?.id ?? null}
+              workspaceRoot={bufferRoot}
+            />
+          )}
           {(tab.surface === 'files' || tab.surface === 'file') && (
             <FilesPanel
               active={active && tab.id === activeTab?.id}
@@ -450,16 +465,20 @@ function PanelTabButton({
 }) {
   const { t } = useI18n()
   const saveShortcut = usePrimaryShortcut('⌘S', 'Ctrl+S')
-  const title = tab.surface === 'files' || tab.surface === 'file'
-    ? tab.selectedFile?.split('/').at(-1) ?? t('right_panel.files')
-    : tab.surface === 'changes'
+  const title = tab.surface === 'visuals'
+    ? t('right_panel.visuals')
+    : tab.surface === 'files' || tab.surface === 'file'
+      ? tab.selectedFile?.split('/').at(-1) ?? t('right_panel.files')
+      : tab.surface === 'changes'
       ? t('right_panel.diff')
       : tab.surface === 'backgroundWork'
         ? tab.title?.trim() || backgroundWorkKindLabel(tab.backgroundWorkKey?.kind, t)
         : tab.title?.trim() || t('right_panel.terminal')
-  const icon = tab.surface === 'files' || tab.surface === 'file'
-    ? 'folder'
-    : tab.surface === 'changes'
+  const icon = tab.surface === 'visuals'
+    ? 'sparkle'
+    : tab.surface === 'files' || tab.surface === 'file'
+      ? 'folder'
+      : tab.surface === 'changes'
       ? 'fileDiff'
       : tab.surface === 'backgroundWork'
         ? backgroundWorkKindIcon(tab.backgroundWorkKey?.kind)
@@ -523,6 +542,7 @@ function PanelChooser({ onSelect }: { onSelect: (surface: PanelSurface) => void 
         <h3 className="text-[13px] font-medium">{t('right_panel.open_surface')}</h3>
         <p className="mt-[5px] text-[11px] text-[var(--text-tertiary)]">{t('right_panel.choose_surface')}</p>
         <div className="mt-5 grid grid-cols-2 gap-2 text-left">
+          <PanelCard icon={<WakuIcon className="size-[18px]" name="sparkle" />} label={t('right_panel.visuals')} description={t('right_panel.visuals_description')} onClick={() => onSelect('visuals')} />
           <PanelCard icon={<WakuIcon className="size-[18px]" name="terminal" />} label={t('right_panel.terminal')} description={t('right_panel.terminal_description')} onClick={() => onSelect('terminal')} />
           <PanelCard icon={<WakuIcon className="size-[18px]" name="folder" />} label={t('right_panel.files')} description={t('right_panel.files_description')} onClick={() => onSelect('files')} />
           <PanelCard icon={<WakuIcon className="size-[18px]" name="fileDiff" />} label={t('right_panel.diff')} description={t('right_panel.diff_description')} onClick={() => onSelect('changes')} />

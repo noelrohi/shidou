@@ -16,8 +16,16 @@ use crate::usage::PlanUsage;
 use crate::usage_history::{UsageHistory, UsageWindow};
 use crate::workspace::{WorkspaceOperation, WorkspaceResult};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const MAX_WIRE_MESSAGE_BYTES: usize = 48 * 1024 * 1024;
+
+// Shared presentation values used by both native and web gallery clients.
+// The TypeScript binding generator exports these from the same source.
+pub const VISUAL_IMAGE_EXTENSIONS: &[&str] = &["gif", "jpeg", "jpg", "png", "svg", "webp"];
+pub const VISUAL_COMPACT_COLUMN_WIDTH: f32 = 112.0;
+pub const VISUAL_LARGE_COLUMN_WIDTH: f32 = 210.0;
+pub const VISUAL_GRID_HORIZONTAL_INSET: f32 = 16.0;
+
 pub const DAEMON_TOKEN_ENV: &str = "WAKU_DAEMON_TOKEN";
 pub const DAEMON_ADDRESS_ENV: &str = "WAKU_DAEMON_ADDRESS";
 pub const APP_EXECUTABLE_ENV: &str = "WAKU_APP_EXECUTABLE";
@@ -190,6 +198,13 @@ pub enum Command {
     ImportPathAttachment {
         #[ts(type = "string")]
         path: PathBuf,
+    },
+    /// Import many daemon-host paths in one round trip. Results align with
+    /// `paths`; a file that fails to import yields `null` in its slot so one
+    /// bad file cannot fail the whole batch.
+    ImportPathAttachments {
+        #[ts(type = "Array<string>")]
+        paths: Vec<PathBuf>,
     },
     ReadBlob {
         reference: String,
@@ -407,6 +422,9 @@ pub enum ResponsePayload {
     AttachmentStored {
         attachment: StoredAttachment,
     },
+    AttachmentsStored {
+        attachments: Vec<Option<StoredAttachment>>,
+    },
     BlobData {
         #[serde(with = "base64_bytes")]
         #[ts(type = "string")]
@@ -499,7 +517,7 @@ mod tests {
 
         assert_eq!(json["type"], "forkSessionFromResponse");
         assert_eq!(json["turnCount"], 7);
-        assert_eq!(PROTOCOL_VERSION, 3);
+        assert_eq!(PROTOCOL_VERSION, 4);
     }
 
     #[test]
@@ -508,7 +526,7 @@ mod tests {
 
         assert_eq!(json["type"], "rewindSessionToMessage");
         assert_eq!(json["turnCount"], 4);
-        assert_eq!(PROTOCOL_VERSION, 3);
+        assert_eq!(PROTOCOL_VERSION, 4);
     }
 
     #[test]

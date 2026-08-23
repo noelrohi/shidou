@@ -165,6 +165,51 @@ impl Waku {
             .clone()
     }
 
+    /// A square icon-only control with the shared focus, hover, tooltip, and
+    /// enter/space activation treatment used by toolbar and row buttons.
+    pub(super) fn render_icon_button(
+        &self,
+        id: impl Into<SharedString>,
+        icon_path: &'static str,
+        button_size: f32,
+        rounding: f32,
+        hover_bg: Hsla,
+        tooltip: String,
+        activate: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let theme = Theme::current(cx);
+        let id: SharedString = id.into();
+        let focus = self.transcript_control_focus(id.to_string(), cx);
+        let activate = Rc::new(activate);
+        let click_activate = activate.clone();
+        div()
+            .id(id)
+            .track_focus(&focus)
+            .tab_index(0)
+            .size(px(button_size))
+            .flex_none()
+            .rounded(px(rounding))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_default()
+            .focus_visible(|style| style.border_1().border_color(theme.accent))
+            .hover(move |style| style.bg(hover_bg))
+            .child(icon(icon_path, 12.0, theme.text_tertiary))
+            .tooltip(Tooltip::text(tooltip))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                click_activate(this, window, cx);
+            }))
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                    cx.stop_propagation();
+                    activate(this, window, cx);
+                }
+            }))
+    }
+
     pub(super) fn render_transcript(
         &self,
         window: &mut Window,
@@ -1276,12 +1321,12 @@ impl Waku {
                         .collect();
                     let attachments_can_reveal = !self.daemon.is_remote();
                     let menu = self.menu_handle(format!("message-{}", message.id), cx);
-                    let metrics = self.scaled_markdown_metrics(if message.role == MessageRole::User
-                    {
-                        MarkdownMetrics::USER_MESSAGE
-                    } else {
-                        MarkdownMetrics::BODY
-                    });
+                    let metrics =
+                        self.scaled_markdown_metrics(if message.role == MessageRole::User {
+                            MarkdownMetrics::USER_MESSAGE
+                        } else {
+                            MarkdownMetrics::BODY
+                        });
                     let animate_streaming = message.streaming && !cx.reduce_motion();
                     let ctx = self.markdown_ctx(
                         format!("message-{}", message.id),
@@ -2338,18 +2383,15 @@ impl Waku {
                                     )),
                             );
                         } else {
-                            section_view = section_view.child(
-                                div()
-                                    .w_full()
-                                    .min_w_0()
-                                    .child(md::render::plain_text(
-                                        content.clone(),
-                                        md::render::MONO_FAMILY,
-                                        FontWeight::NORMAL,
-                                        theme.text_secondary,
-                                        &ctx,
-                                    )),
-                            );
+                            section_view = section_view.child(div().w_full().min_w_0().child(
+                                md::render::plain_text(
+                                    content.clone(),
+                                    md::render::MONO_FAMILY,
+                                    FontWeight::NORMAL,
+                                    theme.text_secondary,
+                                    &ctx,
+                                ),
+                            ));
                         }
                     }
                     detail_card = detail_card.child(section_view);

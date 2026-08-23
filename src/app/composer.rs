@@ -1955,7 +1955,7 @@ impl Waku {
         true
     }
 
-    fn stage_daemon_attachment(
+    pub(super) fn stage_daemon_attachment(
         &mut self,
         path: PathBuf,
         name: String,

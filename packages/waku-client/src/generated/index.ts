@@ -1,4 +1,4 @@
-export { MAX_WIRE_MESSAGE_BYTES, PROTOCOL_VERSION } from "./constants";
+export { MAX_WIRE_MESSAGE_BYTES, PROTOCOL_VERSION, VISUAL_COMPACT_COLUMN_WIDTH, VISUAL_GRID_HORIZONTAL_INSET, VISUAL_IMAGE_EXTENSIONS, VISUAL_LARGE_COLUMN_WIDTH } from "./constants";
 export type { JsonValue } from "./serde_json/JsonValue";
 export type { ActivityFileChange } from "./ActivityFileChange";
 export type { ActivityFileChangeStatus } from "./ActivityFileChangeStatus";

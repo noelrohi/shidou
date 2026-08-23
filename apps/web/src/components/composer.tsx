@@ -26,6 +26,11 @@ import { PreviewableImage } from '@/components/image-preview'
 import { ModelPicker } from '@/components/model-picker'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  ATTACH_VISUAL_SELECTION_EVENT,
+  mergeVisualAttachments,
+  type AttachVisualSelectionDetail,
+} from '@/lib/visuals-presentation'
 import { FileTypeIcon, WakuIcon } from '@/components/waku-icon'
 import {
   useComposerCommands,
@@ -191,6 +196,9 @@ export function Composer({
   const mounted = useRef(true)
   const draftChange = useRef(onComposerDraftChange)
   draftChange.current = onComposerDraftChange
+  /** Lets the visual-gallery listener stage and count attachments synchronously. */
+  const latestAttachments = useRef(attachments)
+  latestAttachments.current = attachments
   const busy = ['connecting', 'working', 'waiting'].includes(session.status)
   const runningTurnId = [...session.turns].reverse().find((turn) => turn.status === 'running')?.id
   const escapeStopTarget = `${session.id}:${runningTurnId ?? ''}`
@@ -331,6 +339,20 @@ export function Composer({
   useEffect(() => {
     draftChange.current?.({ text: prompt, attachments })
   }, [attachments, prompt])
+
+  useEffect(() => {
+    const attachVisualSelection = (event: Event) => {
+      const detail = (event as CustomEvent<AttachVisualSelectionDetail>).detail
+      if (!detail || detail.sessionId !== session.id) return
+      const current = latestAttachments.current
+      const next = mergeVisualAttachments(current, detail.attachments)
+      latestAttachments.current = next
+      setAttachments(next)
+      detail.onAttached?.(next.length - current.length)
+    }
+    window.addEventListener(ATTACH_VISUAL_SELECTION_EVENT, attachVisualSelection)
+    return () => window.removeEventListener(ATTACH_VISUAL_SELECTION_EVENT, attachVisualSelection)
+  }, [session.id])
 
   async function activateDraft() {
     if (!draft) return session

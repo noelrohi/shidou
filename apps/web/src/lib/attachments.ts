@@ -56,6 +56,36 @@ export async function importDaemonPathAttachment(
   }
 }
 
+/**
+ * Batch counterpart of `importDaemonPathAttachment`: one round trip for many
+ * paths. Results align with `paths`; a file the daemon cannot import yields
+ * `null` in its slot instead of failing the whole batch.
+ */
+export async function importDaemonPathAttachments(
+  client: WakuClient,
+  paths: string[],
+): Promise<(MessageAttachment | null)[]> {
+  const response = await client.request({ type: 'importPathAttachments', paths })
+  if (response.type !== 'attachmentsStored') {
+    throw new Error(`Expected attachmentsStored, received ${response.type}`)
+  }
+  if (response.attachments.length !== paths.length) {
+    throw new Error('The daemon returned a mismatched attachment batch')
+  }
+  return paths.map((path, index) => {
+    const attachment = response.attachments[index]
+    if (!attachment) return null
+    return {
+      path: attachment.path,
+      mention: attachment.isDir && !path.endsWith('/') ? `${path}/` : path,
+      name: attachment.name,
+      is_dir: attachment.isDir,
+      is_image: !attachment.isDir && isImageName(attachment.name),
+      blob_reference: attachment.reference,
+    }
+  })
+}
+
 export async function readAttachmentImage(
   client: WakuClient,
   attachment: MessageAttachment,
