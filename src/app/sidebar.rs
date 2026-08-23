@@ -210,6 +210,8 @@ const SIDEBAR_SESSION_ROW_GAP: f32 = 1.0;
 const SIDEBAR_SESSION_ROW_HEIGHT: f32 = SIDEBAR_SESSION_CARD_HEIGHT + SIDEBAR_SESSION_ROW_GAP;
 const SIDEBAR_ACTION_ROW_HEIGHT: f32 = 32.0;
 const SIDEBAR_SEARCH_BOTTOM_GAP: f32 = 10.0;
+const SIDEBAR_GROUP_GUIDE_X: f32 = 15.0;
+const SIDEBAR_GROUP_CHILD_PADDING: f32 = 28.0;
 const SIDEBAR_PROJECT_RECENT_WINDOW_SECONDS: u64 = 3 * 24 * 60 * 60;
 const SIDEBAR_PROJECT_REVEAL_BATCH: usize = 30;
 
@@ -1266,9 +1268,13 @@ impl Waku {
         };
         match *row {
             SidebarRow::Search => self.render_sidebar_search(cx).into_any_element(),
-            SidebarRow::Header(group) => self
-                .render_sidebar_group_header(group, index == 1, cx)
-                .into_any_element(),
+            SidebarRow::Header(group) => {
+                let has_expanded_children = rows.get(index + 1).is_some_and(|row| {
+                    matches!(row, SidebarRow::Session(_) | SidebarRow::ShowMore(_))
+                });
+                self.render_sidebar_group_header(group, index == 1, has_expanded_children, cx)
+                    .into_any_element()
+            }
             SidebarRow::Session(session_id) => self
                 .render_sidebar_session_item(session_id, cx)
                 .into_any_element(),
@@ -1283,6 +1289,7 @@ impl Waku {
         &self,
         group: SidebarGroup,
         first: bool,
+        has_expanded_children: bool,
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = Theme::current(cx);
@@ -1387,6 +1394,7 @@ impl Waku {
             .tab_group()
             .tab_stop(true)
             .group(group_name)
+            .relative()
             .w_full()
             .rounded(px(6.0))
             .cursor_default()
@@ -1419,6 +1427,20 @@ impl Waku {
             .when(first, |element| {
                 element.child(self.render_sidebar_header_actions(cx))
             })
+            .when(
+                show_folder_icon && has_expanded_children,
+                |element| {
+                    element.child(
+                        div()
+                            .absolute()
+                            .left(px(SIDEBAR_GROUP_GUIDE_X))
+                            .top(px(19.0))
+                            .bottom(px(-2.0))
+                            .w(px(1.0))
+                            .bg(theme.border),
+                    )
+                },
+            )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.toggle_sidebar_group(group, cx);
             }))
@@ -1495,12 +1517,27 @@ impl Waku {
             }));
 
         div()
+            .relative()
             .w_full()
             .h(px(30.0))
-            .pl(px(28.0))
+            .pl(px(SIDEBAR_GROUP_CHILD_PADDING))
             .flex()
             .items_center()
             .child(button)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(SIDEBAR_GROUP_GUIDE_X))
+                    .top_0()
+                    .w(px(
+                        SIDEBAR_GROUP_CHILD_PADDING - SIDEBAR_GROUP_GUIDE_X - 4.0,
+                    ))
+                    .h(px(15.0))
+                    .border_l_1()
+                    .border_b_1()
+                    .rounded_bl(px(4.0))
+                    .border_color(theme.border),
+            )
     }
 
     fn show_more_project_sessions(&mut self, group: SidebarGroup, cx: &mut Context<Self>) {
@@ -1653,6 +1690,11 @@ impl Waku {
             .iter()
             .find(|project| project.id == session.project_id);
         let grouped_by_project = self.state.sidebar_grouping == SidebarGrouping::Project;
+        let left_padding = if grouped_by_project {
+            SIDEBAR_GROUP_CHILD_PADDING
+        } else {
+            8.0
+        };
         let detail_label = if grouped_by_project {
             persisted_sidebar_branch_label(&session.workspace)
                 .map(|branch| SharedString::from(branch.to_owned()))
@@ -1729,7 +1771,7 @@ impl Waku {
             .flex()
             .flex_col()
             .gap(px(4.0))
-            .pl(px(28.0))
+            .pl(px(left_padding))
             .pr(px(8.0))
             .py(px(7.0))
             .rounded(px(7.0))
@@ -1860,9 +1902,21 @@ impl Waku {
         };
 
         div()
+            .relative()
             .w_full()
             .pb(px(SIDEBAR_SESSION_ROW_GAP))
             .child(row)
+            .when(grouped_by_project, |element| {
+                element.child(
+                    div()
+                        .absolute()
+                        .left(px(SIDEBAR_GROUP_GUIDE_X))
+                        .top_0()
+                        .bottom_0()
+                        .w(px(1.0))
+                        .bg(theme.border),
+                )
+            })
             .into_any_element()
     }
 
