@@ -40,7 +40,6 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.29.0",
-    "@egoist/tailwindcss-icons": "^1.9.2",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/vite": "^4.2.2",
     "@types/d3-scale": "4.0.9",

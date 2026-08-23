@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pagesmith icon migration</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f5f5f3; --surface:#fff; --line:#deded9; --text:#20211f; --muted:#777973; --accent:#6256d9; --after:#f0effb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#171816; --surface:#20211f; --line:#353631; --text:#f1f1ed; --muted:#999b93; --accent:#a69cff; --after:#29273c; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif }
+  main { width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:44px 0 64px }
+  .hero { display:flex; align-items:end; justify-content:space-between; gap:24px; margin-bottom:24px }
+  h1 { margin:0 0 6px; font-size:26px; letter-spacing:-.035em }
+  .hero p { margin:0; color:var(--muted) }
+  .count { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted) }
+  input { width:240px; height:36px; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--text); padding:0 12px; outline:none }
+  input:focus { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 15%,transparent) }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px }
+  .card { overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--surface) }
+  .card header { padding:9px 11px; border-bottom:1px solid var(--line); color:var(--muted) }
+  code { font:11px ui-monospace,SFMono-Regular,Menlo,monospace }
+  .pair { display:grid; grid-template-columns:1fr 1fr; min-height:98px }
+  .sample { display:grid; place-items:center; align-content:center; gap:9px; padding:14px }
+  .sample + .sample { border-left:1px solid var(--line) }
+  .sample.after { background:var(--after) }
+  .sample span { color:var(--muted); font-size:10px; font-weight:650; letter-spacing:.08em; text-transform:uppercase }
+  .icon { width:28px; height:28px; color:var(--text) }
+  .icon svg { display:block; width:100%; height:100% }
+  [hidden] { display:none }
+  @media (max-width:620px) { main { width:min(100% - 20px,1180px); padding-top:24px } .hero { align-items:stretch; flex-direction:column } input { width:100% } }
+</style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div><h1>Shared icon migration</h1><p>Desktop asset → Tabler replacement used by both desktop and web.</p></div>
+    <div><input id="filter" type="search" placeholder="Filter icons…" aria-label="Filter icons"><div class="count" id="count">60 icons</div></div>
+  </section>
+  <section class="grid" id="grid"><article class="card" data-name="alert">
+      <header><code>alert</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 20h16a2 2 0 0 0 1.73-2Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0"></path><path d="M12 16h.01"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="appearance">
+      <header><code>appearance</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="#000" stroke="none"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M12 17a5 5 0 0 0 0 -10v10"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="arrow-down">
+      <header><code>arrow-down</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"></path><path d="M18 13l-6 6"></path><path d="M6 13l6 6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="arrow-left">
+      <header><code>arrow-left</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><path fill="currentColor" d="M6.238 28c0 .586.258 1.125.727 1.57l15.562 15.54c.492.445.985.656 1.524.656c1.172 0 2.062-.844 2.062-2.016c0-.562-.21-1.125-.586-1.477l-5.226-5.343l-7.922-7.196l5.695.352H47.7c1.219 0 2.063-.867 2.063-2.086s-.844-2.086-2.063-2.086H18.074l-5.672.352l7.899-7.196l5.226-5.343c.399-.376.586-.915.586-1.477c0-1.172-.89-2.016-2.062-2.016c-.54 0-1.055.188-1.57.704L6.964 26.43c-.469.445-.727.984-.727 1.57"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l14 0"></path><path d="M5 12l6 6"></path><path d="M5 12l6 -6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="arrow-right">
+      <header><code>arrow-right</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><path fill="currentColor" d="M49.762 28c0-.586-.234-1.125-.703-1.57L33.543 10.938c-.516-.516-1.031-.704-1.594-.704c-1.148 0-2.039.844-2.039 2.016c0 .563.188 1.101.563 1.477l5.25 5.343l7.898 7.196l-5.672-.352H8.301c-1.195 0-2.063.867-2.063 2.086s.867 2.086 2.063 2.086h29.648l5.696-.352l-7.922 7.196l-5.25 5.343c-.375.352-.563.914-.563 1.477c0 1.172.89 2.016 2.04 2.016c.562 0 1.054-.211 1.523-.657L49.059 29.57c.469-.445.703-.984.703-1.57"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l14 0"></path><path d="M13 18l6 -6"></path><path d="M13 6l6 6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="arrow-up">
+      <header><code>arrow-up</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"></path><path d="M18 11l-6 -6"></path><path d="M6 11l6 -6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="arrow-up-right">
+      <header><code>arrow-up-right</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M7 7h10v10"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 7l-10 10"></path><path d="M8 7l9 0l0 9"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="bot">
+      <header><code>bot</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></div></div>
+        <div class="sample after"><span>Tabler · robot-face</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2"></path><path d="M9 16c1 .667 2 1 3 1s2 -.333 3 -1"></path><path d="M9 7l-1 -4"></path><path d="M15 7l1 -4"></path><path d="M9 12v-1"></path><path d="M15 12v-1"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="chart-column">
+      <header><code>chart-column</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M13 17V9"/><path d="M18 17V5"/><path d="M8 17v-3"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -6"></path><path d="M15 9a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -10"></path><path d="M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14"></path><path d="M4 20h14"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="check">
+      <header><code>check</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5l10 -10"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="chevron-down">
+      <header><code>chevron-down</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6l6 -6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="chevron-right">
+      <header><code>chevron-right</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6l-6 6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="cloud-upload">
+      <header><code>cloud-upload</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="m8 17 4-4 4 4"/><path d="M20 16.58A5 5 0 0 0 18 7.26 7 7 0 0 0 4.33 8.3 4 4 0 0 0 6 16h1"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.6 4.4 0 0 1 0 -9a5 4.5 0 0 1 11 2h1a3.5 3.5 0 0 1 0 7h-1"></path><path d="M9 15l3 -3l3 3"></path><path d="M12 12l0 9"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="command">
+      <header><code>command</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><!-- Icon from Framework7 Icons by Vladimir Kharlampidi - https://github.com/framework7io/framework7-icons/blob/master/LICENSE --><path fill="currentColor" d="M18.93 22.539v10.945h-4.711c-4.594 0-8.367 3.633-8.367 8.274s3.773 8.39 8.367 8.39c4.617 0 8.367-3.75 8.367-8.39V37.07h10.805v4.688c0 4.64 3.773 8.39 8.39 8.39c4.594 0 8.367-3.75 8.367-8.39s-3.773-8.274-8.367-8.274h-4.734V22.54h4.734c4.594 0 8.367-3.633 8.367-8.273c0-4.641-3.773-8.414-8.367-8.414c-4.617 0-8.39 3.773-8.39 8.414v4.687H22.586v-4.687c0-4.641-3.75-8.414-8.367-8.414c-4.594 0-8.367 3.773-8.367 8.414c0 4.64 3.773 8.273 8.367 8.273ZM14.219 19c-2.555 0-4.711-2.133-4.711-4.734s2.156-4.758 4.71-4.758c2.579 0 4.712 2.156 4.712 4.758V19Zm27.562 0h-4.734v-4.734c0-2.602 2.156-4.758 4.734-4.758c2.555 0 4.711 2.156 4.711 4.758S44.336 19 41.782 19M22.586 33.531V22.492h10.805v11.04ZM14.219 37h4.71v4.734c0 2.602-2.132 4.735-4.71 4.735c-2.555 0-4.711-2.133-4.711-4.735c0-2.601 2.156-4.734 4.71-4.734m27.562 0c2.555 0 4.711 2.133 4.711 4.734s-2.156 4.735-4.71 4.735c-2.579 0-4.735-2.133-4.735-4.735V37Z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9a2 2 0 1 1 2 -2v10a2 2 0 1 1 -2 -2h10a2 2 0 1 1 -2 2v-10a2 2 0 1 1 2 2h-10"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="compose">
+      <header><code>compose</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 12 12"><!-- Icon from Fluent UI System Icons by Microsoft Corporation - https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE --><path fill="currentColor" d="M10.854 1.854a.5.5 0 0 0-.708-.708L5.293 6L5 7l1-.293zM6.5 2a.5.5 0 0 1 0 1H4a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1V5.5a.5.5 0 0 1 1 0V8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h-1a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-1"></path><path d="M20.385 6.585a2.1 2.1 0 0 0 -2.97 -2.97l-8.415 8.385v3h3l8.385 -8.415"></path><path d="M16 5l3 3"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="copy">
+      <header><code>copy</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666"></path><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="corner-down-right">
+      <header><code>corner-down-right</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="ellipsis">
+      <header><code>ellipsis</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="eye">
+      <header><code>eye</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"></path><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="eye-off">
+      <header><code>eye-off</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20"/><path d="M6.71 6.71C4.83 7.85 3.34 9.67 2.5 12c1.73 4.39 5.42 7 9.5 7 1.66 0 3.24-.43 4.62-1.21"/><path d="M10.73 5.08A9.72 9.72 0 0 1 12 5c4.08 0 7.77 2.61 9.5 7a11.2 11.2 0 0 1-1.8 3.06"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.585 10.587a2 2 0 0 0 2.829 2.828"></path><path d="M16.681 16.673a8.717 8.717 0 0 1 -4.681 1.327c-3.6 0 -6.6 -2 -9 -6c1.272 -2.12 2.712 -3.678 4.32 -4.674m2.86 -1.146a9.055 9.055 0 0 1 1.82 -.18c3.6 0 6.6 2 9 6c-.666 1.11 -1.379 2.067 -2.138 2.87"></path><path d="M3 3l18 18"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="file">
+      <header><code>file</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="file-diff">
+      <header><code>file-diff</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 13h6M12 10v6M9 19h6"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"></path><path d="M12 10l0 4"></path><path d="M10 12l4 0"></path><path d="M10 17l4 0"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="folder">
+      <header><code>folder</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M5.55957 2.14136C6.06503 2.14136 6.55801 2.30207 6.9668 2.59937L7.81836 3.21851C8.04761 3.38513 8.32401 3.47534 8.60742 3.47534H12.1338C13.4545 3.47559 14.5254 4.54621 14.5254 5.86694V11.4666C14.5254 12.7873 13.4545 13.8579 12.1338 13.8582H3.86621C2.54554 13.8579 1.47461 12.7873 1.47461 11.4666V4.53296C1.47486 3.21244 2.54569 2.1416 3.86621 2.14136H5.55957ZM2.52539 7.85718V11.4666C2.52539 12.2074 3.12544 12.8081 3.86621 12.8083H12.1338C12.8746 12.8081 13.4746 12.2074 13.4746 11.4666V7.85718H2.52539ZM3.86621 3.19214C3.12559 3.19238 2.52564 3.79234 2.52539 4.53296V6.8064H13.4746V5.86694C13.4746 5.12611 12.8746 4.52539 12.1338 4.52515H8.60742C8.10203 4.52515 7.60895 4.36534 7.2002 4.06812L6.34863 3.448C6.11937 3.28135 5.84301 3.19214 5.55957 3.19214H3.86621Z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="folder-new">
+      <header><code>folder-new</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><path fill="currentColor" d="M45.556 30.91C51.21 30.91 56 26.18 56 20.466s-4.728-10.443-10.444-10.443c-5.735 0-10.443 4.728-10.443 10.443c0 5.756 4.708 10.444 10.443 10.444M0 42.196c0 4.255 2.18 6.373 6.455 6.373h34.928c3.68 0 5.818-2.138 5.818-6.373v-8.573a11 11 0 0 1-1.645.123c-.575 0-1.11-.04-1.665-.102v8.408c0 2.117-1.15 3.207-3.186 3.207H6.517c-2.056 0-3.207-1.09-3.207-3.228v-16.96h29.788a11.4 11.4 0 0 1-.699-3.104H3.31v-5.18c0-2.036 1.09-3.064 3.043-3.064h4.605c1.357 0 2.18.329 3.228 1.233l1.254 1.028c1.336 1.11 2.426 1.522 4.461 1.522h12.746a12 12 0 0 1 1.234-3.31H20.764c-1.398 0-2.241-.35-3.27-1.213l-1.253-1.049c-1.357-1.13-2.405-1.52-4.44-1.52H5.673C2.076 10.413 0 12.468 0 16.621ZM45.556 27.25c-.72 0-1.336-.493-1.336-1.254V21.72h-3.947a1.273 1.273 0 0 1-1.254-1.254c0-.678.576-1.254 1.254-1.254h3.947v-4.255c0-.782.617-1.275 1.336-1.275s1.337.493 1.337 1.274v4.256h3.947c.678 0 1.254.576 1.254 1.254s-.576 1.254-1.254 1.254h-3.947v4.276c0 .76-.617 1.254-1.337 1.254"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h-7a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2h4l3 3h7a2 2 0 0 1 2 2v3.5"></path><path d="M16 19h6"></path><path d="M19 16v6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="fork">
+      <header><code>fork</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h9L21 2"/><path d="M13 2h8v8"/><path d="m13 14 8 8"/><path d="M13 22h8v-8"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M5 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M15 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M7 8v2a2 2 0 0 0 2 2h6a2 2 0 0 0 2 -2v-2"></path><path d="M12 12l0 4"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="gauge">
+      <header><code>gauge</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M13.41 10.59l2.59 -2.59"></path><path d="M7 12a5 5 0 0 1 5 -5"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="git-branch">
+      <header><code>git-branch</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M5 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M15 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M7 8l0 8"></path><path d="M9 18h6a2 2 0 0 0 2 -2v-5"></path><path d="M14 14l3 -3l3 3"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="git-commit-horizontal">
+      <header><code>git-commit-horizontal</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6m6 0h6"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M12 3l0 6"></path><path d="M12 15l0 6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="globe">
+      <header><code>globe</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 3.8 5.5 3.8 9S14.5 18.5 12 21c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3Z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M3.6 9h16.8"></path><path d="M3.6 15h16.8"></path><path d="M11.5 3a17 17 0 0 0 0 18"></path><path d="M12.5 3a17 17 0 0 1 0 18"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="github">
+      <header><code>github</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7A5.4 5.4 0 0 0 19.3 4 5 5 0 0 0 19.2.5S18 0 15 2a13.4 13.4 0 0 0-7 0C5 0 3.8.5 3.8.5A5 5 0 0 0 3.7 4a5.4 5.4 0 0 0-1.5 3.5c0 5.4 3.5 6.6 6.8 7A4.8 4.8 0 0 0 8 18v4"/><path d="M8 19c-3 .9-3-1.5-4-2"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4 -4.3 -2.5 -6 -3m12 5v-3.5c0 -1 .1 -1.4 -.5 -2c2.8 -.3 5.5 -1.4 5.5 -6a4.6 4.6 0 0 0 -1.3 -3.2a4.2 4.2 0 0 0 -.1 -3.2s-1.1 -.3 -3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4 -1.6 -3.5 -1.3 -3.5 -1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6 .6 -.6 1.2 -.5 2v3.5"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="info">
+      <header><code>info</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Lucide by Lucide Contributors - https://github.com/lucide-icons/lucide/blob/main/LICENSE --><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></g></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"></path><path d="M12 9h.01"></path><path d="M11 12h1v4h1"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="laptop">
+      <header><code>laptop</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19l18 0"></path><path d="M5 7a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v8a1 1 0 0 1 -1 1h-12a1 1 0 0 1 -1 -1l0 -8"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="list">
+      <header><code>list</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l11 0"></path><path d="M9 12l11 0"></path><path d="M9 18l11 0"></path><path d="M5 6l0 .01"></path><path d="M5 12l0 .01"></path><path d="M5 18l0 .01"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="list-filter">
+      <header><code>list-filter</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg></div></div>
+        <div class="sample after"><span>Tabler · filter-2</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"></path><path d="M6 12h12"></path><path d="M9 18h6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="loader-circle">
+      <header><code>loader-circle</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="lock">
+      <header><code>lock</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6"></path><path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0"></path><path d="M8 11v-4a4 4 0 1 1 8 0v4"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="lock-open">
+      <header><code>lock-open</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -6"></path><path d="M11 16a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M8 11v-5a4 4 0 0 1 8 0"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="package">
+      <header><code>package</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/><path d="m7.5 4.27 9 5.15"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5"></path><path d="M12 12l8 -4.5"></path><path d="M12 12l0 9"></path><path d="M12 12l-8 -4.5"></path><path d="M16 5.25l-8 4.5"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="paperclip">
+      <header><code>paperclip</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l-6.5 6.5a1.5 1.5 0 0 0 3 3l6.5 -6.5a3 3 0 0 0 -6 -6l-6.5 6.5a4.5 4.5 0 0 0 9 9l6.5 -6.5"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="panel-left">
+      <header><code>panel-left</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="M9 3v18"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12"></path><path d="M9 4l0 16"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="panel-right">
+      <header><code>panel-right</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="M15 3v18"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12"></path><path d="M15 4l0 16"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="pencil">
+      <header><code>pencil</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"></path><path d="M13.5 6.5l4 4"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="plus">
+      <header><code>plus</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg"  viewBox="0 0 56 56"><path fill="currentColor" d="M27.988 47.734c1.149 0 2.11-.914 2.11-2.039V30.11h15.14c1.125 0 2.11-.96 2.11-2.109c0-1.148-.985-2.086-2.11-2.086h-15.14v-15.61c0-1.124-.961-2.038-2.11-2.038c-1.148 0-2.086.914-2.086 2.039v15.61h-15.14c-1.125 0-2.11.937-2.11 2.085s.985 2.11 2.11 2.11h15.14v15.585c0 1.125.938 2.04 2.086 2.04"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l0 14"></path><path d="M5 12l14 0"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="queue">
+      <header><code>queue</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/><polyline points="15 10 20 15 15 20"/></svg></div></div>
+        <div class="sample after"><span>Tabler · arrow-forward</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 11l4 4l-4 4m4 -4h-11a4 4 0 0 1 0 -8h1"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="rotate-cw">
+      <header><code>rotate-cw</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"></path><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="rewind">
+      <header><code>rewind</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8l0 4l2 2"></path><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="search">
+      <header><code>search</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><path fill="currentColor" d="M23.957 41.77a18.02 18.02 0 0 0 10.477-3.376l11.109 11.11a2.66 2.66 0 0 0 1.898.773c1.524 0 2.625-1.172 2.625-2.672c0-.703-.234-1.359-.75-1.874L38.277 34.668c2.32-3.047 3.703-6.82 3.703-10.922c0-9.914-8.109-18.023-18.023-18.023c-9.937 0-18.023 8.109-18.023 18.023S14.02 41.77 23.957 41.77m0-3.891c-7.758 0-14.133-6.398-14.133-14.133S16.2 9.613 23.957 9.613c7.734 0 14.133 6.399 14.133 14.133c0 7.735-6.399 14.133-14.133 14.133"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="server">
+      <header><code>server</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3v-2"></path><path d="M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3l0 -2"></path><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="settings">
+      <header><code>settings</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065"></path><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="sparkle">
+      <header><code>sparkle</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="m4.206 7.5 15.588 9"/><path d="m19.794 7.5-15.588 9"/></svg></div></div>
+        <div class="sample after"><span>Tabler · sparkle-2</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c.375 0 .711 .231 .846 .581l1.65 4.29a2.85 2.85 0 0 0 1.632 1.633l4.291 1.65a.906 .906 0 0 1 0 1.692l-4.29 1.65a2.84 2.84 0 0 0 -1.633 1.632l-1.65 4.291a.906 .906 0 0 1 -1.692 0l-1.65 -4.29a2.84 2.84 0 0 0 -1.632 -1.633l-4.291 -1.65a.906 .906 0 0 1 0 -1.692l4.29 -1.65a2.84 2.84 0 0 0 1.633 -1.632l1.65 -4.291a.91 .91 0 0 1 .846 -.581"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="star">
+      <header><code>star</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2.5 2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.32l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.5z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.75l-6.172 3.245l1.179 -6.873l-5 -4.867l6.9 -1l3.086 -6.253l3.086 6.253l6.9 1l-5 4.867l1.179 6.873l-6.158 -3.245"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="star-filled">
+      <header><code>star-filled</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2.5 2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.32l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.5z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8.243 7.34l-6.38 .925l-.113 .023a1 1 0 0 0 -.44 1.684l4.622 4.499l-1.09 6.355l-.013 .11a1 1 0 0 0 1.464 .944l5.706 -3l5.693 3l.1 .046a1 1 0 0 0 1.352 -1.1l-1.091 -6.355l4.624 -4.5l.078 -.085a1 1 0 0 0 -.633 -1.62l-6.38 -.926l-2.852 -5.78a1 1 0 0 0 -1.794 0l-2.853 5.78z"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="stop">
+      <header><code>stop</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="#000"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="stop-filled">
+      <header><code>stop-filled</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Tabler Icons by Paweł Kuna - https://github.com/tabler/tabler-icons/blob/master/LICENSE --><path fill="currentColor" d="M17 4H7a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M19 2h-14a3 3 0 0 0 -3 3v14a3 3 0 0 0 3 3h14a3 3 0 0 0 3 -3v-14a3 3 0 0 0 -3 -3z"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="terminal">
+      <header><code>terminal</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l5 5l-5 5"></path><path d="M12 19l7 0"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="terminal-square">
+      <header><code>terminal-square</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><!-- Icon from Tabler Icons by Paweł Kuna - https://github.com/tabler/tabler-icons/blob/master/LICENSE --><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="m8 9l3 3l-3 3m5 0h3"/><path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></g></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3l-3 3"></path><path d="M13 15l3 0"></path><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="trash">
+      <header><code>trash</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l16 0"></path><path d="M10 11l0 6"></path><path d="M14 11l0 6"></path><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"></path><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="wrench">
+      <header><code>wrench</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10h3v-3l-3.5 -3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1 -3 3l-6 -6a6 6 0 0 1 -8 -8l3.5 3.5"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="x">
+      <header><code>x</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12"></path><path d="M6 6l12 12"></path></svg></div></div>
+      </div>
+    </article><article class="card" data-name="zap">
+      <header><code>zap</code></header>
+      <div class="pair">
+        <div class="sample"><span>Before</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9-11A.5.5 0 0 1 13 1.7l-1 6.8a1 1 0 0 0 1 1.15h6a1 1 0 0 1 .78 1.63l-9 11A.5.5 0 0 1 10 22.3l1-6.8a1 1 0 0 0-1-1.15z"/></svg></div></div>
+        <div class="sample after"><span>Tabler</span><div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11"></path></svg></div></div>
+      </div>
+    </article></section>
+</main>
+<script>
+  const filter = document.querySelector('#filter');
+  const cards = [...document.querySelectorAll('.card')];
+  const count = document.querySelector('#count');
+  filter.addEventListener('input', () => {
+    const query = filter.value.trim().toLowerCase();
+    let visible = 0;
+    for (const card of cards) {
+      const match = card.dataset.name.includes(query);
+      card.hidden = !match;
+      visible += Number(match);
+    }
+    count.textContent = `${visible} icon${visible === 1 ? '' : 's'}`;
+  });
+</script>
+</body>
+</html>
