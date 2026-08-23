@@ -16,6 +16,17 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.1.14]
+
+- Group sidebar tasks by project or update date, order them newest or oldest first, and collapse sections
+- Find in page: Search the full transcript by keywords using cmd-f or ctrl-f
+- Switch between recent tasks with Ctrl+Tab and Ctrl+Shift+Tab
+- Carry the current access mode into new tasks and remember it between launches
+- Fix OpenCode access-mode permissions and restore pending permission prompts when resuming sessions
+- Show Codex file reads, listings, and searches as file activity instead of raw commands
+- Keep long panel and background-work titles on one truncated line
+- Increase the minimum UI text size for better legibility
+
 ## [0.1.13]
 
 - Add Vercel Fx support
