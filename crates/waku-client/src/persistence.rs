@@ -18,7 +18,7 @@ use crate::{Command, DaemonExposureSettings, DaemonSettings, DaemonSupervisor, R
 use waku_protocol::computer_use::ComputerAppGrant;
 use waku_protocol::i18n::AppLanguage;
 use waku_protocol::identity::DATA_DIRECTORY_NAME;
-use waku_protocol::model::{AgentSession, FavoriteModel, Project, ProviderKind};
+use waku_protocol::model::{AgentSession, FavoriteModel, Project, ProviderKind, RuntimeMode};
 use waku_protocol::theme::ThemePreference;
 
 pub use waku_protocol::persistence::{
@@ -302,6 +302,8 @@ struct AppState {
     selected_session: Option<Uuid>,
     #[serde(default = "default_provider")]
     last_provider: ProviderKind,
+    #[serde(default)]
+    last_runtime_mode: RuntimeMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -344,6 +346,8 @@ pub struct PersistedState {
     pub selected_project: Option<Uuid>,
     pub selected_session: Option<Uuid>,
     pub last_provider: ProviderKind,
+    #[serde(default)]
+    pub last_runtime_mode: RuntimeMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -426,6 +430,7 @@ impl PersistedState {
             selected_project: None,
             selected_session: None,
             last_provider: ProviderKind::Codex,
+            last_runtime_mode: RuntimeMode::default(),
             last_model: None,
             last_reasoning_effort: None,
             last_service_tier: None,
@@ -469,6 +474,7 @@ impl PersistedState {
 
     pub fn new_session(&self, project_id: Uuid, provider: ProviderKind) -> AgentSession {
         let mut session = AgentSession::new(project_id, provider);
+        session.runtime_mode = self.last_runtime_mode;
         if provider == self.last_provider {
             session.model.clone_from(&self.last_model);
             session
@@ -570,6 +576,7 @@ impl PersistedState {
             selected_project: self.selected_project,
             selected_session: self.persistable_selected_session(),
             last_provider: self.last_provider,
+            last_runtime_mode: self.last_runtime_mode,
             last_model: self.last_model.clone(),
             last_reasoning_effort: self.last_reasoning_effort.clone(),
             last_service_tier: self.last_service_tier.clone(),
@@ -602,6 +609,7 @@ impl PersistedState {
         self.selected_project = app_state.selected_project;
         self.selected_session = app_state.selected_session;
         self.last_provider = app_state.last_provider;
+        self.last_runtime_mode = app_state.last_runtime_mode;
         self.last_model = app_state.last_model;
         self.last_reasoning_effort = app_state.last_reasoning_effort;
         self.last_service_tier = app_state.last_service_tier;
@@ -1100,6 +1108,18 @@ mod tests {
 
         assert_eq!(state.sidebar_grouping, SidebarGrouping::Updated);
         assert_eq!(state.sidebar_ordering, SidebarOrdering::Newest);
+        assert_eq!(state.last_runtime_mode, RuntimeMode::FullAccess);
+    }
+
+    #[test]
+    fn new_tasks_inherit_the_remembered_access_mode() {
+        let mut state = PersistedState::fresh(PathBuf::from("/tmp/project"));
+        state.last_runtime_mode = RuntimeMode::Ask;
+
+        let session = state.new_session(state.projects[0].id, ProviderKind::OpenCode);
+
+        assert_eq!(session.runtime_mode, RuntimeMode::Ask);
+        assert_eq!(state.app_state().last_runtime_mode, RuntimeMode::Ask);
     }
 
     #[test]
