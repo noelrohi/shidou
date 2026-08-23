@@ -166,6 +166,7 @@ impl Waku {
             self.store_selected_right_panel_state();
         }
         self.state.selected_session = Some(session_id);
+        self.task_switcher.record_access(session_id);
         if let Some((project_id, provider, model, reasoning_effort, service_tier, context_window)) =
             self.selected_session().map(|session| {
                 (
@@ -315,6 +316,7 @@ impl Waku {
             self.pending_session_activation = None;
         }
         self.session_navigation.remove(session_id);
+        self.task_switcher.remove(session_id);
         let project_still_used = self
             .state
             .sessions
@@ -737,6 +739,13 @@ impl Waku {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The switcher focus lands after its deferred overlay is painted.
+        // Route the root Escape action here too so an immediate press always
+        // cancels the provisional selection instead of reaching the session.
+        if self.task_switcher.is_open() {
+            self.cancel_task_switcher(window, cx);
+            return;
+        }
         if self.settings_page.take().is_some() {
             let focus_handle = self.composer_focus(cx);
             window.focus(&focus_handle, cx);

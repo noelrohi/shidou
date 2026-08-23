@@ -2347,6 +2347,7 @@ impl Waku {
     fn any_overlay_open(&self, cx: &App) -> bool {
         self.menus.borrow().values().any(ContextMenuHandle::is_open)
             || self.command_palette.is_open()
+            || self.task_switcher.is_open()
             || self.commit_dialog.is_some()
             || self.image_preview.is_some()
             || self.composer.read(cx).context_menu_open(cx)

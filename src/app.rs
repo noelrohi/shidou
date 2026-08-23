@@ -66,11 +66,12 @@ use crate::ui::{
     icon_button, motion, provider_color, provider_icon, status_color, toggle_switch,
 };
 use crate::{
-    CancelTurn, CloseFind, CloseWindow, CopySelection, FindNext, FindPrevious, FocusComposer,
-    NavigateBack, NavigateForward, NewProject, NewSession, OpenFind, OpenFindReplace, OpenSettings,
-    ReplaceAllMatches, SaveFile, ToggleCommandPalette, ToggleFindCaseSensitive, ToggleFindRegex,
-    ToggleFindWholeWord, ToggleFpsCounter, ToggleModelPicker, ToggleRightPanel, ToggleSidebar,
-    ToggleUsagePanel,
+    CancelTaskSwitch, CancelTurn, CloseFind, CloseWindow, ConfirmTaskSwitch, CopySelection,
+    FindNext, FindPrevious, FocusComposer, NavigateBack, NavigateForward, NewProject, NewSession,
+    OpenFind, OpenFindReplace, OpenSettings, ReplaceAllMatches, SaveFile, SelectFirstTask,
+    SelectLastTask, SwitchTaskBackward, SwitchTaskForward, ToggleCommandPalette,
+    ToggleFindCaseSensitive, ToggleFindRegex, ToggleFindWholeWord, ToggleFpsCounter,
+    ToggleModelPicker, ToggleRightPanel, ToggleSidebar, ToggleUsagePanel,
 };
 
 #[cfg(target_os = "macos")]
@@ -1171,6 +1172,7 @@ pub struct Waku {
     composer_draft_store: ComposerDraftStore,
     composer_draft_save_generation: u64,
     command_palette: command_palette::CommandPaletteUi,
+    task_switcher: task_switcher::TaskSwitcherUi,
     model_search: Entity<TextInput>,
     settings_search: Entity<TextInput>,
     daemon_port_input: Entity<TextInput>,
@@ -1712,6 +1714,7 @@ mod settings;
 mod sidebar;
 mod skills_page;
 mod streaming;
+mod task_switcher;
 mod transcript;
 mod transcript_search;
 mod transcript_view;
@@ -2365,6 +2368,19 @@ impl Waku {
             let onboarding_projectless_focus = cx.focus_handle();
             let updater_button_focus = cx.focus_handle();
             let model_picker_empty_focus = cx.focus_handle();
+            let task_switcher_focus = cx.focus_handle();
+            cx.on_focus_out(
+                &task_switcher_focus,
+                window,
+                |this: &mut Self, _, window, cx| {
+                    this.cancel_task_switcher(window, cx);
+                },
+            )
+            .detach();
+            let mut task_switcher = task_switcher::TaskSwitcherUi::new(task_switcher_focus);
+            if let Some(selected_session) = state.selected_session {
+                task_switcher.record_access(selected_session);
+            }
 
             cx.on_focus(&updater_button_focus, window, |this: &mut Self, _, cx| {
                 this.set_updater_button_focused(true, cx);
@@ -2785,6 +2801,7 @@ impl Waku {
                 composer_draft_store,
                 composer_draft_save_generation: 0,
                 command_palette: command_palette::CommandPaletteUi::new(command_palette_search),
+                task_switcher,
                 model_search,
                 branch_search,
                 branch_create_input,
