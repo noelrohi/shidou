@@ -1027,6 +1027,8 @@ export function WakuApp() {
           onAddProject={openProjectPicker}
           onMobileOpenChange={setMobileSidebar}
           onNewTask={() => startNewTask()}
+          onNewTaskInProject={(project) => startNewTask(project)}
+          onNewProjectlessTask={() => void createProjectlessTask()}
           onRemoveSession={removeSessionById}
           onRenameSession={renameSession}
           onSearch={() => setPaletteOpen(true)}

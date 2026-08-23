@@ -34,6 +34,7 @@ export const WAKU_ICONS = {
   info: 'i-waku-info',
   laptop: 'i-waku-laptop',
   list: 'i-waku-list',
+  listFilter: 'i-waku-list-filter',
   loaderCircle: 'i-waku-loader-circle',
   lock: 'i-waku-lock',
   lockOpen: 'i-waku-lock-open',

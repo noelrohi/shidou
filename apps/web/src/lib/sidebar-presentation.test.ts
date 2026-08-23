@@ -4,10 +4,10 @@ import {
   dateGroup,
   formatTimeAgo,
   formatWorkingElapsed,
-  groupSessions,
   nextSidebarUpdateDelay,
   sessionHasStarted,
   sessionTimeLabel,
+  sidebarGroups,
   sidebarRows,
 } from './sidebar-presentation'
 
@@ -20,17 +20,85 @@ describe('desktop sidebar presentation', () => {
     expect(dateGroup(atLocalNoon(2026, 7, 9), wednesday)).toBe('month')
   })
 
-  test('keeps Add Project in an empty history through the first group header', () => {
-    expect(sidebarRows([], new Set())).toEqual([
+  test('keeps header actions in an empty history through the first group header', () => {
+    const empty = sidebarGroups([], [], { grouping: 'updated', ordering: 'newest' })
+    expect(sidebarRows(empty, new Set())).toEqual([
       { kind: 'search', key: 'search' },
       {
         kind: 'group',
-        key: 'group:today',
-        group: { id: 'today', label: 'Today', sessions: [] },
+        key: 'group:updated:today',
+        group: {
+          key: 'updated:today',
+          kind: 'date',
+          dateId: 'today',
+          label: 'Today',
+          sessions: [],
+          showMore: false,
+        },
         collapsed: false,
         first: true,
       },
     ])
+    const emptyProjects = sidebarGroups([], [], { grouping: 'project', ordering: 'newest' })
+    expect(emptyProjects[0]?.kind).toBe('projectless')
+  })
+
+  test('groups by project in recency order with the projectless group last', () => {
+    const projects: Project[] = [
+      { id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1 },
+      { id: 'b', name: 'Beta', path: '/work/beta', created_at: 1 },
+      { id: 'p', name: 'No project', path: '/home/me/.waku/projects/x', created_at: 1 },
+    ]
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const sessions = [
+      session({ id: 'old-a', project_id: 'a', last_reply_at: nowSeconds - 9 * 86_400 }),
+      session({ id: 'new-b', project_id: 'b', last_reply_at: nowSeconds - 60 }),
+      session({ id: 'new-a', project_id: 'a', last_reply_at: nowSeconds - 120 }),
+      session({ id: 'loose', project_id: 'p', last_reply_at: nowSeconds - 30 }),
+    ]
+    const groups = sidebarGroups(projects, sessions, { grouping: 'project', ordering: 'newest', now })
+    expect(groups.map((group) => group.key)).toEqual(['project:b', 'project:a', 'projectless'])
+    expect(groups[2]?.label).toBe('No project')
+    const alpha = groups[1]!
+    expect(alpha.sessions.map((item) => item.session.id)).toEqual(['new-a'])
+    expect(alpha.showMore).toBe(true)
+    const revealed = sidebarGroups(projects, sessions, {
+      grouping: 'project',
+      ordering: 'newest',
+      now,
+      revealed: new Map([['project:a', 30]]),
+    })
+    expect(revealed[1]?.sessions.map((item) => item.session.id)).toEqual(['new-a', 'old-a'])
+    expect(revealed[1]?.showMore).toBe(false)
+  })
+
+  test('oldest ordering reverses sessions and date-group order', () => {
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const sessions = [
+      session({ id: 'today', last_reply_at: nowSeconds - 60 }),
+      session({ id: 'older', last_reply_at: nowSeconds - 30 * 86_400 }),
+    ]
+    const groups = sidebarGroups([], sessions, { grouping: 'updated', ordering: 'oldest', now })
+    expect(groups.map((group) => group.dateId)).toEqual(['year', 'today'])
+  })
+
+  test('project-grouped rows carry guides and show-more rows', () => {
+    const projects: Project[] = [{ id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1 }]
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const sessions = [
+      session({ id: 'fresh', project_id: 'a', last_reply_at: nowSeconds - 60 }),
+      session({ id: 'stale', project_id: 'a', last_reply_at: nowSeconds - 9 * 86_400 }),
+    ]
+    const groups = sidebarGroups(projects, sessions, { grouping: 'project', ordering: 'newest', now })
+    const rows = sidebarRows(groups, new Set())
+    expect(rows.map((row) => row.kind)).toEqual(['search', 'group', 'session', 'showMore', 'spacer'])
+    const sessionRow = rows[2]!
+    expect(sessionRow.kind === 'session' && sessionRow.guides).toBe(true)
+    expect(sidebarRows(groups, new Set(['project:a'])).map((row) => row.kind))
+      .toEqual(['search', 'group', 'spacer'])
   })
 
   test('matches desktop settled and live time labels', () => {
@@ -68,12 +136,16 @@ describe('desktop sidebar presentation', () => {
       path: '/home/me/.waku/projects/session',
       created_at: 1,
     }
-    const groups = groupSessions(
+    const groups = sidebarGroups(
       [project],
       [session({ messages: [{ id: 'message' } as never] })],
-      new Date(2026, 7, 15, 12),
-      'Unknown project',
-      'プロジェクトなし',
+      {
+        grouping: 'updated',
+        ordering: 'newest',
+        now: new Date(2026, 7, 15, 12),
+        unknownProject: 'Unknown project',
+        projectlessName: 'プロジェクトなし',
+      },
     )
     expect(groups[0]?.sessions[0]?.projectName).toBe('プロジェクトなし')
   })

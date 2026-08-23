@@ -1,21 +1,26 @@
-import type { AgentSession } from '@waku/client'
+import type { AgentSession, Project } from '@waku/client'
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Virtuoso } from 'react-virtuoso'
 import { Button } from '@/components/ui/button'
+import { ControlMenu } from '@/components/control-menu'
 import { Input } from '@/components/ui/input'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
 import { WakuIcon } from '@/components/waku-icon'
+import { useWorkspaceBranches } from '@/hooks/use-daemon-data'
 import { displayTitle, type TaskState } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
 import { useI18n } from '@/lib/i18n'
 import {
-  groupSessions,
   nextSidebarUpdateDelay,
   sessionTimeLabel,
+  sidebarGroups,
   sidebarRows,
+  PROJECT_REVEAL_BATCH,
   type DateGroup,
   type SessionItem,
+  type SidebarGrouping,
+  type SidebarOrdering,
 } from '@/lib/sidebar-presentation'
 import { cn } from '@/lib/utils'
 import wakuAppIconUrl from '../../../../website/public/app-icon.png'
@@ -30,6 +35,8 @@ interface SidebarProps {
   onToggleSidebar: () => void
   onWidthChange: (width: number) => void
   onNewTask: () => void
+  onNewTaskInProject?: (project: Project) => void
+  onNewProjectlessTask?: () => void
   onAddProject: () => void
   onSelectSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, title: string) => Promise<void>
@@ -59,6 +66,8 @@ export function Sidebar({
   onToggleSidebar,
   onWidthChange,
   onNewTask,
+  onNewTaskInProject,
+  onNewProjectlessTask,
   onAddProject,
   onSelectSession,
   onRenameSession,
@@ -67,22 +76,51 @@ export function Sidebar({
   onSettings,
 }: SidebarProps) {
   const { t } = useI18n()
-  const [collapsed, setCollapsed] = useState<Set<DateGroup>>(new Set())
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [grouping, setGrouping] = useState<SidebarGrouping>(() => readStoredChoice('waku.sidebarGrouping', 'updated', ['updated', 'project']))
+  const [ordering, setOrdering] = useState<SidebarOrdering>(() => readStoredChoice('waku.sidebarOrdering', 'newest', ['newest', 'oldest']))
+  const [revealed, setRevealed] = useState<ReadonlyMap<string, number>>(new Map())
   const [liveWidth, setLiveWidth] = useState(width)
   const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1_000))
-  const groups = groupSessions(
-    taskState.projects,
-    taskState.sessions,
-    new Date(nowSeconds * 1_000),
-    t('sidebar.unknown_project'),
-    t('project.no_project_name'),
-  )
+  const groups = sidebarGroups(taskState.projects, taskState.sessions, {
+    grouping,
+    ordering,
+    now: new Date(nowSeconds * 1_000),
+    revealed,
+    unknownProject: t('sidebar.unknown_project'),
+    projectlessName: t('project.no_project_name'),
+  })
   const rows = sidebarRows(groups, collapsed)
+  const groupKeys = useRef<string[]>([])
+  useEffect(() => {
+    groupKeys.current = groups.map((group) => group.key)
+  })
+
+  function chooseGrouping(next: SidebarGrouping) {
+    setGrouping(next)
+    storeChoice('waku.sidebarGrouping', next)
+  }
+
+  function chooseOrdering(next: SidebarOrdering) {
+    setOrdering(next)
+    storeChoice('waku.sidebarOrdering', next)
+  }
+
+  function toggleGroup(key: string, force?: boolean) {
+    setCollapsed((current) => {
+      const next = new Set(current)
+      const collapse = force ?? !next.has(key)
+      if (collapse) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
 
   useEffect(() => setLiveWidth(width), [width])
   useEffect(() => {
     if (!collapseGroupsSignal) return
-    setCollapsed(new Set<DateGroup>(['today', 'yesterday', 'week', 'month', 'year', 'more']))
+    setCollapsed(new Set(groupKeys.current))
+    setRevealed(new Map())
   }, [collapseGroupsSignal])
   useEffect(() => {
     const delay = nextSidebarUpdateDelay(taskState.sessions, nowSeconds)
@@ -162,59 +200,119 @@ export function Sidebar({
               }
               if (row.kind === 'spacer') return <div className="h-2.5" />
               if (row.kind === 'group') {
+                const folder = row.group.kind !== 'date'
+                const label = row.group.kind === 'date'
+                  ? t(GROUP_TRANSLATION_KEYS[row.group.dateId!])
+                  : row.group.label
+                const compose = folder
+                  ? row.group.kind === 'projectless'
+                    ? onNewProjectlessTask
+                    : row.group.project && onNewTaskInProject
+                      ? () => onNewTaskInProject(row.group.project!)
+                      : undefined
+                  : undefined
                 return (
                   <div className="px-2.5">
-                    <div className="flex h-7 items-center justify-between px-2">
+                    <div className="group/header relative flex h-7 items-center justify-between px-2">
                       <button
                         aria-expanded={!row.collapsed}
-                        className="group flex h-[22px] items-center gap-[5px] rounded px-1 text-[12.5px] font-medium text-[var(--text-tertiary)] outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                        className={cn(
+                          'group flex h-[22px] min-w-0 items-center gap-[5px] rounded px-1 text-[12.5px] font-medium text-[var(--text-tertiary)] outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring',
+                          folder && 'text-[var(--text-secondary)]',
+                        )}
                         type="button"
-                        onClick={() => {
-                          setCollapsed((current) => {
-                            const next = new Set(current)
-                            if (next.has(row.group.id)) next.delete(row.group.id)
-                            else next.add(row.group.id)
-                            return next
-                          })
-                        }}
+                        onClick={() => toggleGroup(row.group.key)}
                         onKeyDown={(event) => {
                           if (event.key === 'ArrowLeft' && !row.collapsed) {
                             event.preventDefault()
-                            setCollapsed((current) => new Set(current).add(row.group.id))
+                            toggleGroup(row.group.key, true)
                           } else if (event.key === 'ArrowRight' && row.collapsed) {
                             event.preventDefault()
-                            setCollapsed((current) => {
-                              const next = new Set(current)
-                              next.delete(row.group.id)
-                              return next
-                            })
+                            toggleGroup(row.group.key, false)
                           }
                         }}
                       >
-                        {t(GROUP_TRANSLATION_KEYS[row.group.id])}
+                        {folder && <WakuIcon className="size-3.5 shrink-0" name="folder" />}
+                        <span className="min-w-0 truncate">{label}</span>
                         <WakuIcon
-                          className="size-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+                          className="size-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
                           name={row.collapsed ? 'chevronRight' : 'chevronDown'}
                         />
                       </button>
-                      {row.first && (
-                        <Button
-                          aria-label={t('sidebar.add_project')}
-                          className="text-[var(--text-tertiary)]"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={onAddProject}
-                        >
-                          <WakuIcon name="folderNew" />
-                        </Button>
+                      <span className="flex shrink-0 items-center">
+                        {compose && (
+                          <Button
+                            aria-label={t('menu.new_task')}
+                            className="text-[var(--text-tertiary)] opacity-0 focus-visible:opacity-100 group-hover/header:opacity-100"
+                            size="icon-sm"
+                            variant="ghost"
+                            onClick={() => {
+                              compose()
+                              onMobileOpenChange(false)
+                            }}
+                          >
+                            <WakuIcon name="pencil" />
+                          </Button>
+                        )}
+                        {row.first && (
+                          <>
+                            <SidebarOptionsMenu
+                              grouping={grouping}
+                              ordering={ordering}
+                              t={t}
+                              onGrouping={chooseGrouping}
+                              onOrdering={chooseOrdering}
+                            />
+                            <Button
+                              aria-label={t('sidebar.add_project')}
+                              className="text-[var(--text-tertiary)]"
+                              size="icon-sm"
+                              variant="ghost"
+                              onClick={onAddProject}
+                            >
+                              <WakuIcon name="folderNew" />
+                            </Button>
+                          </>
+                        )}
+                      </span>
+                      {folder && !row.collapsed && row.group.sessions.length > 0 && (
+                        <span aria-hidden className="absolute -bottom-0.5 left-[15px] top-[19px] w-px bg-border" />
                       )}
                     </div>
                   </div>
                 )
               }
+              if (row.kind === 'showMore') {
+                return (
+                  <div className="px-2.5">
+                    <div className="relative flex h-[30px] items-center pl-7">
+                      <span
+                        aria-hidden
+                        className="absolute left-[15px] top-0 h-[15px] w-[9px] rounded-bl border-b border-l border-border"
+                      />
+                      <button
+                        className="rounded px-1 text-[12px] text-[var(--text-tertiary)] outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                        type="button"
+                        onClick={() => setRevealed((current) => {
+                          const next = new Map(current)
+                          next.set(row.group.key, (next.get(row.group.key) ?? 0) + PROJECT_REVEAL_BATCH)
+                          return next
+                        })}
+                      >
+                        {t('sidebar.show_more')}
+                      </button>
+                    </div>
+                  </div>
+                )
+              }
               return (
-                <div className="px-2.5 pb-px">
+                <div className="relative px-2.5 pb-px">
+                  {row.guides && (
+                    <span aria-hidden className="absolute bottom-0 left-[25px] top-0 w-px bg-border" />
+                  )}
+                  <div className={cn(row.guides && 'pl-[18px]')}>
                   <SessionRow
+                    guides={row.guides}
                     item={row.item}
                     nowSeconds={nowSeconds}
                     selected={selectedSessionId === row.item.session.id}
@@ -226,6 +324,7 @@ export function Sidebar({
                       onMobileOpenChange(false)
                     }}
                   />
+                  </div>
                 </div>
               )
             }}
@@ -284,6 +383,7 @@ function SidebarAction({
 
 function SessionRow({
   item,
+  guides = false,
   nowSeconds,
   selected,
   onSelect,
@@ -292,6 +392,7 @@ function SessionRow({
   t,
 }: {
   item: SessionItem
+  guides?: boolean
   nowSeconds: number
   selected: boolean
   onSelect: (sessionId: string) => void
@@ -371,7 +472,7 @@ function SessionRow({
               />
               <SessionStatus status={item.session.status} t={t} />
             </span>
-            <SessionMetadata item={item} nowSeconds={nowSeconds} t={t} />
+            <SessionMetadata guides={guides} item={item} nowSeconds={nowSeconds} t={t} />
           </div>
         ) : (
           <button
@@ -395,7 +496,7 @@ function SessionRow({
               </span>
               <SessionStatus status={item.session.status} t={t} />
             </span>
-            <SessionMetadata item={item} nowSeconds={nowSeconds} t={t} />
+            <SessionMetadata guides={guides} item={item} nowSeconds={nowSeconds} t={t} />
           </button>
         )}
       </ContextMenu.Trigger>
@@ -435,12 +536,34 @@ function SessionRow({
   )
 }
 
-function SessionMetadata({ item, nowSeconds, t }: { item: SessionItem; nowSeconds: number; t: Translator }) {
+function SessionMetadata({
+  item,
+  guides = false,
+  nowSeconds,
+  t,
+}: {
+  item: SessionItem
+  guides?: boolean
+  nowSeconds: number
+  t: Translator
+}) {
   const timeLabel = sessionTimeLabel(item.session, nowSeconds, t)
   return (
     <span className="flex w-full min-w-0 items-center gap-1.5 text-[11.5px] leading-[15px] text-[var(--text-tertiary)]">
-      <WakuIcon className="size-[11px] shrink-0" name="folder" />
-      <span className="min-w-0 flex-1 truncate">{item.projectName}</span>
+      {guides ? (
+        item.branch ? (
+          <BranchLabel branch={item.branch} />
+        ) : (item.session.workspace ?? { kind: 'local' }).kind === 'local' && item.projectPath ? (
+          <ProjectBranchLabel path={item.projectPath} />
+        ) : (
+          <span className="min-w-0 flex-1" />
+        )
+      ) : (
+        <>
+          <WakuIcon className="size-[11px] shrink-0" name="folder" />
+          <span className="min-w-0 flex-1 truncate">{item.projectName}</span>
+        </>
+      )}
       {timeLabel && (
         <span className={cn(
           'shrink-0 text-[var(--text-ghost)]',
@@ -464,6 +587,22 @@ function SessionStatus({ status, t }: { status: AgentSession['status']; t: Trans
   return <WakuIcon label={t('sidebar.status_failed')} className="size-3 text-destructive" name="x" />
 }
 
+function BranchLabel({ branch }: { branch: string }) {
+  return (
+    <>
+      <WakuIcon className="size-[11px] shrink-0" name="gitBranch" />
+      <span className="min-w-0 flex-1 truncate">{branch}</span>
+    </>
+  )
+}
+
+function ProjectBranchLabel({ path }: { path: string }) {
+  const branches = useWorkspaceBranches(path)
+  const current = branches.data?.current ?? branches.data?.detached_head ?? null
+  if (!current) return <span className="min-w-0 flex-1" />
+  return <BranchLabel branch={current} />
+}
+
 function ConnectionDot() {
   const { t } = useI18n()
   const { phase } = useDaemon()
@@ -478,4 +617,76 @@ function ConnectionDot() {
       role="img"
     />
   )
+}
+
+function SidebarOptionsMenu({
+  grouping,
+  ordering,
+  t,
+  onGrouping,
+  onOrdering,
+}: {
+  grouping: SidebarGrouping
+  ordering: SidebarOrdering
+  t: Translator
+  onGrouping: (grouping: SidebarGrouping) => void
+  onOrdering: (ordering: SidebarOrdering) => void
+}) {
+  return (
+    <ControlMenu
+      caret={false}
+      highlightTriggerWhenOpen
+      items={[
+        {
+          id: 'grouping-project',
+          section: t('sidebar.grouping'),
+          label: t('sidebar.grouping_project'),
+          selected: grouping === 'project',
+          onSelect: () => onGrouping('project'),
+        },
+        {
+          id: 'grouping-updated',
+          section: t('sidebar.grouping'),
+          label: t('sidebar.grouping_updated'),
+          selected: grouping === 'updated',
+          onSelect: () => onGrouping('updated'),
+        },
+        {
+          id: 'ordering-newest',
+          section: t('sidebar.ordering'),
+          label: t('sidebar.ordering_newest'),
+          selected: ordering === 'newest',
+          separatorBefore: true,
+          onSelect: () => onOrdering('newest'),
+        },
+        {
+          id: 'ordering-oldest',
+          section: t('sidebar.ordering'),
+          label: t('sidebar.ordering_oldest'),
+          selected: ordering === 'oldest',
+          onSelect: () => onOrdering('oldest'),
+        },
+      ]}
+      label={t('sidebar.options')}
+      placement="below"
+      triggerClassName="size-7 justify-center px-0 text-[var(--text-tertiary)]"
+    >
+      <WakuIcon className="size-3.5" name="listFilter" />
+    </ControlMenu>
+  )
+}
+
+function readStoredChoice<Choice extends string>(
+  key: string,
+  fallback: Choice,
+  choices: readonly Choice[],
+): Choice {
+  if (typeof window === 'undefined') return fallback
+  const stored = window.localStorage.getItem(key)
+  return choices.includes(stored as Choice) ? stored as Choice : fallback
+}
+
+function storeChoice(key: string, value: string) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(key, value)
 }
