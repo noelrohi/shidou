@@ -46,6 +46,12 @@ visuals.folder_hint: 通过主输入框生成图片，然后刷新此画廊。
 visuals.select_image: "选择 %{name}"
 visuals.preview_image: "预览 %{name}"
 visuals.load_failed: "无法加载工作区图片：%{error}"
+visuals.attach: 附加
+visuals.clear: 清除
+visuals.context_preview: 预览图片
+visuals.context_attach: 附加到输入框
+visuals.copy_path: 复制路径
+visuals.image_attached: "已将 %{name} 附加到输入框"
 updater.update: 更新
 updater.updating: 正在更新…
 updater.up_to_date: Waku 已是最新版本
@@ -779,6 +785,7 @@ files.could_not_save: "无法保存 %{path}：%{error}"
 files.preview_markdown: 预览 Markdown
 files.edit_markdown_source: 编辑源码
 files.open_in_browser: 在浏览器中打开
+files.open_in_visuals: 在视觉素材中打开
 files.browser_preview_remote: 无法在浏览器中预览远程守护进程上的文件
 files.browser_preview_unsaved: 请先保存文件，再在浏览器中打开
 files.browser_preview_failed: 无法在浏览器中打开此文件

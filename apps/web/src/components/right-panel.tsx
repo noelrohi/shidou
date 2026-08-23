@@ -20,7 +20,7 @@ import { toast } from 'sonner'
 import { ControlMenu } from '@/components/control-menu'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
 import { Button } from '@/components/ui/button'
-import { VisualsPanel } from '@/components/visuals-panel'
+import { VisualsPanel, type VisualsRevealRequest } from '@/components/visuals-panel'
 import { FileTypeIcon, WakuIcon, type WakuIconName } from '@/components/waku-icon'
 import type { CodeDiffSurfaceHandle, DiffSurfaceFile } from '@/components/code-surfaces'
 import {
@@ -49,6 +49,7 @@ import {
   type TreeNavigationKey,
 } from '@/lib/right-panel-state'
 import { formatWorkingElapsed, type Translator } from '@/lib/transcript-presentation'
+import { isSupportedVisualPath } from '@/lib/visuals-presentation'
 import {
   useRuntime,
   type BackgroundWorkItem,
@@ -117,6 +118,7 @@ export function RightPanel({
   })
   const [fileBuffers, setFileBuffers] = useState<Record<string, FileBuffer>>({})
   const [diffSource, setDiffSource] = useState<ReviewDiffSource>('uncommitted')
+  const [visualsReveal, setVisualsReveal] = useState<VisualsRevealRequest | null>(null)
   const tabStrip = useRef<HTMLDivElement>(null)
   const [tabOverflow, setTabOverflow] = useState({ start: false, end: false })
   const viewportWidth = useViewportWidth()
@@ -192,6 +194,11 @@ export function RightPanel({
       openSurface(requestedSurface, requestedDiffSource, requestedBackgroundWorkKey, requestedFile)
     }
   }, [openSurface, requestedBackgroundWorkKey, requestedDiffSource, requestedFile, requestedSurface, requestSignal])
+
+  const revealInVisuals = useCallback((path: string) => {
+    openSurface('visuals')
+    setVisualsReveal((current) => ({ path, token: (current?.token ?? 0) + 1 }))
+  }, [openSurface])
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs.at(-1)
 
@@ -402,6 +409,7 @@ export function RightPanel({
           {tab.surface === 'visuals' && (
             <VisualsPanel
               panelWidth={fittedPanelWidth}
+              revealRequest={visualsReveal}
               sessionId={session?.id ?? null}
               workspaceRoot={bufferRoot}
             />
@@ -418,6 +426,7 @@ export function RightPanel({
               tabId={tab.id}
               onDirtyChange={setTabDirty}
               onOpenFile={openFile}
+              onOpenInVisuals={revealInVisuals}
             />
           )}
           {tab.surface === 'changes' && (
@@ -595,6 +604,7 @@ function FilesPanel({
   setBuffers,
   onDirtyChange,
   onOpenFile,
+  onOpenInVisuals,
 }: {
   active: boolean
   buffers: Record<string, FileBuffer>
@@ -606,6 +616,7 @@ function FilesPanel({
   setBuffers: Dispatch<SetStateAction<Record<string, FileBuffer>>>
   onDirtyChange: (tabId: string, dirty: boolean) => void
   onOpenFile: (tabId: string, path: string, treeWidth: number) => void
+  onOpenInVisuals: (path: string) => void
 }) {
   const { t } = useI18n()
   const { client, config, phase } = useDaemon()
@@ -887,6 +898,16 @@ function FilesPanel({
         <div className="flex h-[42px] shrink-0 items-center gap-2 border-b px-4 text-[11px] text-[var(--text-secondary)]">
           <FileTypeIcon className="size-[13px]" path={selected} />
           <span className="min-w-0 flex-1 truncate">{selected}</span>
+          {isSupportedVisualPath(selected) && (
+            <button
+              className="flex h-6 shrink-0 items-center gap-1.5 rounded-[6px] px-[7px] text-[11px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
+              type="button"
+              onClick={() => onOpenInVisuals(selected)}
+            >
+              <WakuIcon className="size-[11px] text-[var(--text-tertiary)]" name="sparkle" />
+              {t('files.open_in_visuals')}
+            </button>
+          )}
         </div>
         {!buffer && file.isPending
           ? <PanelMessage title={t('files.loading_file')} detail={t('files.reading_from_daemon')} />

@@ -11,6 +11,8 @@ export interface ControlMenuItem {
   selected?: boolean
   disabled?: boolean
   suffix?: string
+  /** Tree depth for indented listings (folder trees); shifts the item's left padding. */
+  indent?: number
   section?: string
   separatorBefore?: boolean
   onSelect: () => void
@@ -107,6 +109,7 @@ export function ControlMenu({
                   )}
                   disabled={item.disabled}
                   role={selectionMode === 'choice' ? 'menuitemradio' : 'menuitem'}
+                  style={item.indent ? { paddingLeft: `${8 + item.indent * 14}px` } : undefined}
                   onClick={() => {
                     setOpen(false)
                     item.onSelect()

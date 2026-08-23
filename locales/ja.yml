@@ -47,6 +47,12 @@ visuals.folder_hint: メイン入力欄から画像を生成し、このギャ�
 visuals.select_image: "%{name}を選択"
 visuals.preview_image: "%{name}をプレビュー"
 visuals.load_failed: "ワークスペース画像を読み込めませんでした：%{error}"
+visuals.attach: 添付
+visuals.clear: クリア
+visuals.context_preview: 画像をプレビュー
+visuals.context_attach: 入力欄に添付
+visuals.copy_path: パスをコピー
+visuals.image_attached: "%{name}を入力欄に添付しました"
 
 updater.update: アップデート
 updater.updating: アップデート中…
@@ -823,6 +829,7 @@ files.could_not_save: "%{path} を保存できませんでした：%{error}"
 files.preview_markdown: Markdown をプレビュー
 files.edit_markdown_source: ソースを編集
 files.open_in_browser: ブラウザで開く
+files.open_in_visuals: ビジュアルで開く
 files.browser_preview_remote: リモートデーモン上のファイルはブラウザでプレビューできません
 files.browser_preview_unsaved: ブラウザで開く前にファイルを保存してください
 files.browser_preview_failed: このファイルをブラウザで開けませんでした

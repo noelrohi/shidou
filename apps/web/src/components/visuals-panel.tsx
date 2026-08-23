@@ -1,8 +1,15 @@
+import { ContextMenu } from '@base-ui/react/context-menu'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MessageAttachment } from '@waku/client'
-import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { Virtuoso } from 'react-virtuoso'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { toast } from 'sonner'
 import { ControlMenu, type ControlMenuItem } from '@/components/control-menu'
 import { WakuIcon } from '@/components/waku-icon'
@@ -10,35 +17,51 @@ import { importDaemonPathAttachments, readAttachmentImage } from '@/lib/attachme
 import { daemonKeys, listComposerFiles } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
 import { useI18n } from '@/lib/i18n'
+import type { Translator } from '@/lib/transcript-presentation'
 import { cn } from '@/lib/utils'
 import {
   ATTACH_VISUAL_SELECTION_EVENT,
+  buildVisualRowPlan,
   galleryAttachment,
   type AttachVisualSelectionDetail,
   toggleVisualSelection,
-  visualColumns,
   visualFilesInFolder,
-  visualFolders,
-  visualGridIndex,
+  visualFolder,
+  visualFolderChoices,
+  visualFolderDisplay,
+  visualPlanIndex,
+  visualRowContaining,
   VISUAL_LAYOUTS,
   workspacePath,
   type VisualGridKey,
   type VisualLayout,
 } from '@/lib/visuals-presentation'
 
+/** One daemon round trip per slice keeps the first screen of a big folder fast. */
+const IMPORT_CHUNK = 32
+
 interface GalleryImage {
   relativePath: string
-  attachment: MessageAttachment | null
+  name: string
+  /** `null` while the daemon import is in flight; `missing` when it failed. */
+  attachment: MessageAttachment | null | 'missing'
+}
+
+export interface VisualsRevealRequest {
+  path: string
+  token: number
 }
 
 export function VisualsPanel({
   sessionId,
   panelWidth,
   workspaceRoot,
+  revealRequest,
 }: {
   sessionId: string | null
   panelWidth: number
   workspaceRoot?: string
+  revealRequest?: VisualsRevealRequest | null
 }) {
   const { client, config, phase } = useDaemon()
   const { t } = useI18n()
@@ -46,10 +69,12 @@ export function VisualsPanel({
   const [folder, setFolder] = useState<string | null>(null)
   const [layout, setLayout] = useState<VisualLayout>('compact')
   const [images, setImages] = useState<GalleryImage[]>([])
+  const [sizes, setSizes] = useState<Record<string, { width: number, height: number }>>({})
   const [selected, setSelected] = useState<string[]>([])
   const [focused, setFocused] = useState(0)
+  const [pendingReveal, setPendingReveal] = useState<string | null>(null)
   const [preview, setPreview] = useState<{ name: string, source: string } | null>(null)
-  const columns = visualColumns(panelWidth, layout)
+  const gallery = useRef<VirtuosoHandle>(null)
 
   const files = useQuery({
     queryKey: daemonKeys.composerFiles(config?.address ?? 'disconnected', workspaceRoot ?? 'none'),
@@ -57,7 +82,7 @@ export function VisualsPanel({
     enabled: phase === 'connected' && Boolean(client && config && workspaceRoot),
     placeholderData: keepPreviousData,
   })
-  const folders = useMemo(() => visualFolders(files.data ?? []), [files.data])
+  const folders = useMemo(() => visualFolderChoices(files.data ?? []), [files.data])
   const folderFiles = useMemo(
     () => folder === null ? [] : visualFilesInFolder(files.data ?? [], folder),
     [files.data, folder],
@@ -66,16 +91,17 @@ export function VisualsPanel({
   useEffect(() => {
     setFolder(null)
     setImages([])
+    setSizes({})
     setSelected([])
     setFocused(0)
   }, [workspaceRoot])
 
   useEffect(() => {
-    if (folder === null || folders.includes(folder)) return
+    if (folder === null || files.data === undefined || folders.includes(folder)) return
     setFolder(null)
     setImages([])
     setSelected([])
-  }, [folder, folders])
+  }, [files.data, folder, folders])
 
   useEffect(() => {
     setSelected([])
@@ -84,55 +110,116 @@ export function VisualsPanel({
       setImages([])
       return
     }
+    // The grid shows a pending card per file immediately; imports land one
+    // slice at a time so a large folder never blocks the first rows.
     let active = true
-    const pending = folderFiles.map((entry) => ({ relativePath: entry.path, attachment: null }))
-    setImages(pending)
-    void importDaemonPathAttachments(
-      client,
-      folderFiles.map((entry) => workspacePath(workspaceRoot, entry.path)),
-    ).then((stored) => {
+    setImages(folderFiles.map((entry) => ({
+      relativePath: entry.path,
+      name: fileName(entry.path),
+      attachment: null,
+    })))
+    void (async () => {
+      for (let start = 0; start < folderFiles.length; start += IMPORT_CHUNK) {
+        const slice = folderFiles.slice(start, start + IMPORT_CHUNK)
+        const stored = await importDaemonPathAttachments(
+          client,
+          slice.map((entry) => workspacePath(workspaceRoot, entry.path)),
+        )
+        if (!active) return
+        setImages((current) => current.map((image, index) => {
+          if (index < start || index >= start + slice.length) return image
+          const attachment = stored[index - start]
+          return {
+            ...image,
+            attachment: attachment
+              ? galleryAttachment(attachment, image.relativePath)
+              : 'missing',
+          }
+        }))
+      }
+    })().catch((error: unknown) => {
       if (!active) return
-      // A file the daemon could not import comes back as null; skip it the
-      // way the desktop gallery does instead of leaving a spinner card.
-      setImages(folderFiles.flatMap((entry, index) => {
-        const attachment = stored[index]
-        return attachment
-          ? [{ relativePath: entry.path, attachment: galleryAttachment(attachment, entry.path) }]
-          : []
-      }))
-    }).catch((error) => {
-      if (!active) return
-      setImages(pending)
       toast.error(t('visuals.load_failed', { error: errorMessage(error) }))
     })
     return () => { active = false }
   }, [client, folder, folderFiles, t, workspaceRoot])
 
-  const selectedAttachments = images.flatMap((image) => (
-    selected.includes(image.relativePath) && image.attachment ? [image.attachment] : []
+  const visible = useMemo(
+    () => images.filter((image) => image.attachment !== 'missing'),
+    [images],
+  )
+  const plan = useMemo(
+    () => buildVisualRowPlan(
+      visible.length,
+      (index) => sizes[visible[index]?.relativePath ?? ''],
+      layout,
+      panelWidth,
+    ),
+    [layout, panelWidth, sizes, visible],
+  )
+
+  // Jump requests from elsewhere in the app (the file editor's "Open in
+  // Visuals"): switch to the image's folder, then select, scroll to, and
+  // focus its card once the folder's images land.
+  useEffect(() => {
+    if (!revealRequest) return
+    const target = visualFolder(revealRequest.path)
+    setFolder((current) => current === target ? current : target)
+    setPendingReveal(revealRequest.path)
+  }, [revealRequest])
+
+  useEffect(() => {
+    if (pendingReveal === null) return
+    const index = visible.findIndex((image) => image.relativePath === pendingReveal)
+    if (index < 0) return
+    const path = pendingReveal
+    setPendingReveal(null)
+    setSelected((current) => current.includes(path) ? current : [...current, path])
+    setFocused(index)
+    gallery.current?.scrollIntoView({
+      index: Math.max(0, visualRowContaining(plan, index)),
+      done: () => window.requestAnimationFrame(() => document.getElementById(cardId(index))?.focus()),
+    })
+  }, [pendingReveal, plan, visible])
+
+  const selectedAttachments = visible.flatMap((image) => (
+    selected.includes(image.relativePath) && image.attachment && image.attachment !== 'missing'
+      ? [image.attachment]
+      : []
   ))
-  const rows = Math.ceil(images.length / columns)
+
+  function dispatchAttachments(attachments: MessageAttachment[]): number {
+    let attached = 0
+    const detail: AttachVisualSelectionDetail = {
+      sessionId,
+      attachments,
+      onAttached: (count) => { attached = count },
+    }
+    window.dispatchEvent(new CustomEvent(ATTACH_VISUAL_SELECTION_EVENT, { detail }))
+    return attached
+  }
 
   function attachSelection() {
     if (!selectedAttachments.length) {
       toast.error(t('visuals.select_first'))
       return
     }
-    let attached = 0
-    const detail: AttachVisualSelectionDetail = {
-      sessionId,
-      attachments: selectedAttachments,
-      onAttached: (count) => { attached = count },
-    }
-    window.dispatchEvent(new CustomEvent(ATTACH_VISUAL_SELECTION_EVENT, { detail }))
+    const attached = dispatchAttachments(selectedAttachments)
     if (attached > 0) toast.success(t('visuals.attached', { count: attached }))
   }
 
+  function attachImage(image: GalleryImage) {
+    if (!image.attachment || image.attachment === 'missing') return
+    if (dispatchAttachments([image.attachment]) > 0) {
+      toast.success(t('visuals.image_attached', { name: image.name }))
+    }
+  }
+
   async function openPreview(image: GalleryImage) {
-    if (!client || !image.attachment) return
+    if (!client || !image.attachment || image.attachment === 'missing') return
     try {
       setPreview({
-        name: image.attachment.name,
+        name: image.name,
         source: await readAttachmentImage(client, image.attachment),
       })
     } catch (error) {
@@ -141,19 +228,38 @@ export function VisualsPanel({
   }
 
   function moveFocus(key: VisualGridKey) {
-    const next = visualGridIndex(images.length, columns, focused, key)
+    const next = visualPlanIndex(plan, visible.length, focused, key)
     if (next < 0) return
     setFocused(next)
-    window.requestAnimationFrame(() => document.getElementById(cardId(next))?.focus())
+    gallery.current?.scrollIntoView({
+      index: Math.max(0, visualRowContaining(plan, next)),
+      done: () => window.requestAnimationFrame(() => document.getElementById(cardId(next))?.focus()),
+    })
   }
 
-  const folderItems: ControlMenuItem[] = folders.map((path) => ({
-    id: path || '.',
-    label: path || '.',
-    icon: 'folder',
-    selected: path === folder,
-    onSelect: () => setFolder(path),
-  }))
+  function reportSize(path: string, width: number, height: number) {
+    if (width <= 0 || height <= 0) return
+    setSizes((current) => {
+      const known = current[path]
+      if (known && known.width === width && known.height === height) return current
+      return { ...current, [path]: { width, height } }
+    })
+  }
+
+  // The chip shows only the folder's own name: deep paths truncate at the
+  // tail, which hides exactly the segment that distinguishes them. The
+  // dropdown carries the context as an indented tree instead.
+  const folderItems: ControlMenuItem[] = folders.map((path) => {
+    const { depth, name } = visualFolderDisplay(path)
+    return {
+      id: path || '.',
+      label: name,
+      icon: 'folder',
+      indent: depth,
+      selected: path === folder,
+      onSelect: () => setFolder(path),
+    }
+  })
   const layoutItems: ControlMenuItem[] = VISUAL_LAYOUTS.map((value) => ({
     id: value,
     label: t(`visuals.layout_${value}`),
@@ -172,7 +278,9 @@ export function VisualsPanel({
           triggerClassName="h-7 min-w-0 max-w-[55%] px-2 text-[12px]"
         >
           <WakuIcon className="size-3" name="folder" />
-          <span className="truncate">{folder === null ? t('visuals.choose_folder') : folder || '.'}</span>
+          <span className="truncate">
+            {folder === null ? t('visuals.choose_folder') : visualFolderDisplay(folder).name}
+          </span>
         </ControlMenu>
         <ControlMenu
           align="right"
@@ -202,41 +310,51 @@ export function VisualsPanel({
               ? <EmptyGallery title={t('visuals.no_folders')} hint={t('visuals.folder_hint')} />
               : folder === null
                 ? <EmptyGallery title={t('visuals.choose_folder')} hint={t('visuals.folder_hint')} />
-                : images.length === 0
+                : visible.length === 0
                   ? <EmptyGallery title={t('visuals.no_images')} hint={t('visuals.folder_hint')} />
                   : (
                     <div aria-label={t('visuals.folder')} className="min-h-0 flex-1" role="listbox" aria-multiselectable="true">
                       <Virtuoso
                         className="h-full"
-                        totalCount={rows}
-                        itemContent={(row) => (
-                          <div
-                            className={cn(
-                              'grid gap-1.5 px-2',
-                              row === 0 ? 'pt-2' : 'pt-1.5',
-                              row === rows - 1 && 'pb-2',
-                            )}
-                            style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-                          >
-                            {images.slice(row * columns, (row + 1) * columns).map((image, offset) => {
-                              const index = row * columns + offset
-                              return (
-                                <GalleryCard
-                                  active={focused === index}
-                                  image={image}
-                                  index={index}
-                                  key={image.relativePath}
-                                  layout={layout}
-                                  selected={selected.includes(image.relativePath)}
-                                  onFocus={() => setFocused(index)}
-                                  onMove={moveFocus}
-                                  onOpen={() => void openPreview(image)}
-                                  onToggle={() => setSelected((current) => toggleVisualSelection(current, image.relativePath))}
-                                />
-                              )
-                            })}
-                          </div>
-                        )}
+                        ref={gallery}
+                        totalCount={plan.length}
+                        itemContent={(rowIndex) => {
+                          const row = plan[rowIndex]
+                          if (!row) return null
+                          return (
+                            <div
+                              className={cn(
+                                'flex gap-1.5 px-2',
+                                rowIndex === 0 ? 'pt-2' : 'pt-1.5',
+                                rowIndex === plan.length - 1 && 'pb-2',
+                              )}
+                            >
+                              {row.widths.map((width, offset) => {
+                                const index = row.start + offset
+                                const image = visible[index]
+                                if (!image) return null
+                                return (
+                                  <GalleryCard
+                                    image={image}
+                                    imageHeight={row.imageHeight}
+                                    index={index}
+                                    key={image.relativePath}
+                                    layout={layout}
+                                    selected={selected.includes(image.relativePath)}
+                                    t={t}
+                                    width={width}
+                                    onAttach={() => attachImage(image)}
+                                    onFocus={() => setFocused(index)}
+                                    onMove={moveFocus}
+                                    onOpen={() => void openPreview(image)}
+                                    onSize={(width, height) => reportSize(image.relativePath, width, height)}
+                                    onToggle={() => setSelected((current) => toggleVisualSelection(current, image.relativePath))}
+                                  />
+                                )
+                              })}
+                            </div>
+                          )
+                        }}
                       />
                     </div>
                     )}
@@ -275,34 +393,37 @@ export function VisualsPanel({
   )
 }
 
-function GalleryCard({ image, index, layout, selected, active, onToggle, onOpen, onFocus, onMove }: {
+function GalleryCard({ image, index, layout, width, imageHeight, selected, t, onToggle, onOpen, onAttach, onFocus, onMove, onSize }: {
   image: GalleryImage
   index: number
   layout: VisualLayout
+  width: number
+  imageHeight: number
   selected: boolean
-  active: boolean
+  t: Translator
   onToggle: () => void
   onOpen: () => void
+  onAttach: () => void
   onFocus: () => void
   onMove: (key: VisualGridKey) => void
+  onSize: (width: number, height: number) => void
 }) {
   const { client } = useDaemon()
-  const { t } = useI18n()
   const [source, setSource] = useState<string | null>(null)
+  const attachment = image.attachment === 'missing' ? null : image.attachment
   useEffect(() => {
-    if (!client || !image.attachment) {
+    if (!client || !attachment) {
       setSource(null)
       return
     }
-    let active = true
-    void readAttachmentImage(client, image.attachment)
-      .then((value) => active && setSource(value))
-      .catch(() => active && setSource(null))
-    return () => { active = false }
-  }, [client, image.attachment])
-  const name = image.relativePath.split(/[\\/]/).at(-1) ?? image.relativePath
+    let live = true
+    void readAttachmentImage(client, attachment)
+      .then((value) => live && setSource(value))
+      .catch(() => live && setSource(null))
+    return () => { live = false }
+  }, [client, attachment])
 
-  function onKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
       event.preventDefault()
       onMove(event.key as VisualGridKey)
@@ -315,33 +436,105 @@ function GalleryCard({ image, index, layout, selected, active, onToggle, onOpen,
     }
   }
 
+  // Ring selection: an accent border offset from the image is the only
+  // selected treatment — no fill, no badge. Hover (or keyboard focus within
+  // the card) reveals the name scrim and preview button.
   return (
-    <button
-      aria-label={t('visuals.select_image', { name })}
-      aria-selected={selected}
-      className={cn(
-        'group relative min-w-0 overflow-hidden rounded-lg border bg-[var(--inset)] p-[3px] text-left outline-none',
-        selected ? 'border-primary bg-accent' : 'border-transparent hover:border-[var(--input)]',
-        active && 'ring-1 ring-ring',
-      )}
-      id={cardId(index)}
-      role="option"
-      title={name}
-      type="button"
-      onClick={onToggle}
-      onDoubleClick={onOpen}
-      onFocus={onFocus}
-      onKeyDown={onKeyDown}
-    >
-      {source
-        ? <img alt="" className={cn('w-full rounded-[5px]', layout === 'fit' ? 'max-h-[420px] object-contain' : 'aspect-square object-cover')} src={source} />
-        : <span className={cn('grid w-full place-items-center rounded-[5px]', layout === 'fit' ? 'h-52' : 'aspect-square')}><WakuIcon className="size-3.5 animate-spin text-[var(--text-ghost)]" name="loaderCircle" /></span>}
-      <span className="flex h-6 items-center gap-1.5 px-1.5 text-[10.5px] text-[var(--text-tertiary)]">
-        <span className="min-w-0 flex-1 truncate">{name}</span>
-        {selected && <WakuIcon className="size-2.5 text-primary" name="check" />}
-        <span aria-label={t('visuals.preview_image', { name })} className="sr-only" />
-      </span>
-    </button>
+    <ContextMenu.Root>
+      <ContextMenu.Trigger
+        className="block min-w-0 shrink-0 outline-none"
+        style={{ width: `${width + 8}px` }}
+      >
+        <div
+          aria-label={t('visuals.select_image', { name: image.name })}
+          aria-selected={selected}
+          className={cn(
+            'group relative min-w-0 overflow-hidden rounded-lg border-2 p-[2px] text-left outline-none',
+            selected ? 'border-primary' : 'border-transparent',
+            'focus-visible:border-foreground',
+          )}
+          id={cardId(index)}
+          role="option"
+          tabIndex={0}
+          title={image.name}
+          onClick={onToggle}
+          onDoubleClick={onOpen}
+          onFocus={onFocus}
+          onKeyDown={onKeyDown}
+        >
+          {source
+            ? (
+              <img
+                alt=""
+                className={cn('w-full rounded-[5px]', layout === 'fit' ? 'object-contain' : 'object-cover')}
+                draggable={false}
+                src={source}
+                style={{ height: `${imageHeight}px` }}
+                onLoad={(event) => onSize(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)}
+              />
+              )
+            : (
+              <span
+                className="grid w-full place-items-center rounded-[5px] bg-[var(--inset)]"
+                style={{ height: `${imageHeight}px` }}
+              >
+                <WakuIcon className="size-3.5 animate-spin text-[var(--text-ghost)]" name="loaderCircle" />
+              </span>
+              )}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-[2px] bottom-[2px] rounded-b-[5px] bg-gradient-to-b from-transparent to-black/60 px-2 pb-[5px] pt-3.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          >
+            <span className="block min-w-0 truncate text-[10.5px] text-white/90">{image.name}</span>
+          </span>
+          {source && (
+            <button
+              aria-label={t('visuals.preview_image', { name: image.name })}
+              className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md bg-[var(--raised)]/80 text-[var(--text-secondary)] opacity-0 outline-none hover:bg-[var(--raised)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring"
+              title={t('visuals.preview_image', { name: image.name })}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpen()
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+            >
+              <WakuIcon className="size-[11px]" name="eye" />
+            </button>
+          )}
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Positioner className="z-[100] outline-none">
+          <ContextMenu.Popup className="waku-menu-surface" finalFocus={false}>
+            <ContextMenu.Item
+              className="waku-menu-item"
+              disabled={!source}
+              onClick={onOpen}
+            >
+              <WakuIcon className="size-3 text-current" name="eye" />
+              {t('visuals.context_preview')}
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className="waku-menu-item"
+              disabled={!attachment}
+              onClick={onAttach}
+            >
+              <WakuIcon className="size-3 text-current" name="paperclip" />
+              {t('visuals.context_attach')}
+            </ContextMenu.Item>
+            <ContextMenu.Separator className="waku-menu-separator" />
+            <ContextMenu.Item
+              className="waku-menu-item"
+              onClick={() => void navigator.clipboard.writeText(image.relativePath)}
+            >
+              <WakuIcon className="size-3 text-current" name="copy" />
+              {t('visuals.copy_path')}
+            </ContextMenu.Item>
+          </ContextMenu.Popup>
+        </ContextMenu.Positioner>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   )
 }
 
@@ -369,6 +562,10 @@ function ToolbarButton({ icon, label, onClick }: { icon: 'rotateCw', label: stri
 
 function cardId(index: number) {
   return `visual-gallery-card-${index}`
+}
+
+function fileName(path: string) {
+  return path.split(/[\\/]/).at(-1) ?? path
 }
 
 function requireClient<T>(client: T | null): T {
