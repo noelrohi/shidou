@@ -23,6 +23,10 @@ fn main() {
 /// The Windows updater verifies the same EdDSA signatures `generate_appcast`
 /// writes, against the same key. Reading the plist here rather than repeating
 /// the key in Rust means the two cannot drift into a feed the app rejects.
+///
+/// Pagesmith ships no release feed yet, so the plist carries no key and the
+/// constant is empty. That is not an error: the updater refuses to run without
+/// a feed anyway, and an empty key would fail verification even if it did.
 fn export_sparkle_public_key() {
     const PLIST: &str = "resources/Info.plist";
     const KEY: &str = "<key>SUPublicEDKey</key>";
@@ -36,7 +40,7 @@ fn export_sparkle_public_key() {
         .and_then(|(_, rest)| rest.split_once("</string>"))
         .map(|(value, _)| value.trim())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| panic!("{PLIST} has no SUPublicEDKey"));
+        .unwrap_or_default();
 
     println!("cargo:rustc-env=WAKU_SPARKLE_PUBLIC_ED_KEY={value}");
 }

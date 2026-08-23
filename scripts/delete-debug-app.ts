@@ -83,15 +83,16 @@ addCandidate("/Applications/Waku Debug.app");
 
 // Debug-only app data. The release app uses Waku/sh.waku and is not included.
 addCandidate(join(library, "Application Support", "Waku Debug"));
-addCandidate(
-  join(
-    library,
-    "Application Support",
-    "Waku",
-    "Computer Use",
-    "Waku Debug Computer Use.app",
-  ),
-);
+// The helper bundle is named after the app executable, so a checkout built
+// before the Pagesmith rename may have left the old name behind.
+for (const helperName of [
+  "Pagesmith Debug Computer Use.app",
+  "Waku Debug Computer Use.app",
+]) {
+  addCandidate(
+    join(library, "Application Support", "Waku", "Computer Use", helperName),
+  );
+}
 addCandidate(join(library, "Caches", "Waku Debug"));
 addCandidate(join(library, "Logs", "Waku Debug"));
 
@@ -148,7 +149,12 @@ for (const target of targets) {
   console.log(`  [${target.kind}] ${target.path}`);
 }
 
-const runningProcesses = ["Waku Debug", "Waku Debug Computer Use"].filter(
+const runningProcesses = [
+  "Pagesmith Debug",
+  "Pagesmith Debug Computer Use",
+  "Waku Debug",
+  "Waku Debug Computer Use",
+].filter(
   (name) =>
     Bun.spawnSync(["/usr/bin/pgrep", "-x", name], {
       stdout: "ignore",

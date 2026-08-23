@@ -781,7 +781,7 @@ mod macos {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
             let library = target_dir
-                .join("debug/Waku Debug.app/Contents/Frameworks/Sparkle.framework/Sparkle");
+                .join("debug/Pagesmith Debug.app/Contents/Frameworks/Sparkle.framework/Sparkle");
             if !library.exists() {
                 return;
             }
@@ -985,16 +985,22 @@ mod windows {
     use super::feed::{self, AppcastItem};
     use super::{UpdateStatus, UpdaterEvent};
 
-    /// One feed per architecture. A Sparkle appcast has no way to say which
-    /// binary an item is for, and guessing from the enclosure filename would
-    /// be a contract hiding in a string.
-    #[cfg(target_arch = "aarch64")]
-    const FEED_URL: &str = "https://releases.waku.sh/appcast-windows-aarch64.xml";
-    #[cfg(not(target_arch = "aarch64"))]
-    const FEED_URL: &str = "https://releases.waku.sh/appcast-windows-x86_64.xml";
+    /// The appcast to check, once there is one.
+    ///
+    /// Pagesmith publishes no releases yet, so there is no feed to name and
+    /// the check is disabled rather than aimed at a domain that cannot
+    /// resolve — the same reason `resources/Info.plist` carries no `SUFeedURL`
+    /// for Sparkle on macOS.
+    ///
+    /// Restore this as one URL per architecture (a Sparkle appcast has no way
+    /// to say which binary an item is for, and guessing from the enclosure
+    /// filename would be a contract hiding in a string), together with a
+    /// freshly generated `SUPublicEDKey` in the plist.
+    const FEED_URL: Option<&str> = None;
 
     /// Read out of `resources/Info.plist` by the build script, so macOS and
-    /// Windows cannot end up trusting different keys.
+    /// Windows cannot end up trusting different keys. Empty until Pagesmith
+    /// owns a signing key; see `FEED_URL`.
     const PUBLIC_ED_KEY: &str = env!("WAKU_SPARKLE_PUBLIC_ED_KEY");
 
     /// Windows 10 1803 and later ship curl in System32. The absolute path
@@ -1034,6 +1040,12 @@ mod windows {
             // with a production install.
             let forced = std::env::var_os("WAKU_FORCE_UPDATER").is_some_and(|value| value == "1");
             if cfg!(debug_assertions) && !forced {
+                return None;
+            }
+            // No feed means nothing to check. Returning None here keeps the
+            // sidebar footer and the Settings toggle out of the UI entirely,
+            // which is what Sparkle does on macOS without an SUFeedURL.
+            if FEED_URL.is_none() {
                 return None;
             }
             if verifying_key().is_none() {
@@ -1233,7 +1245,10 @@ mod windows {
 
     /// Resolve the feed, and stage the installer when it names a newer build.
     fn fetch_and_stage() -> anyhow::Result<Option<PathBuf>> {
-        let document = http_get(FEED_URL)?;
+        let Some(feed_url) = FEED_URL else {
+            anyhow::bail!("no update feed is configured for this build");
+        };
+        let document = http_get(feed_url)?;
         let Some(item) = feed::newest_item(&document) else {
             anyhow::bail!("the update feed has no signed release");
         };

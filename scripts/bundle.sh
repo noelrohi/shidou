@@ -38,15 +38,15 @@ else
 fi
 case "$profile" in
   debug)
-    app_name="Waku Debug"
-    helper_name="Waku Debug Computer Use"
-    bundle_identifier="sh.waku.dev"
+    app_name="Pagesmith Debug"
+    helper_name="Pagesmith Debug Computer Use"
+    bundle_identifier="dev.pagesmith.debug"
     icon_file="AppIconDev.icns"
     ;;
   release)
-    app_name="Waku"
-    helper_name="Waku Computer Use"
-    bundle_identifier="sh.waku"
+    app_name="Pagesmith"
+    helper_name="Pagesmith Computer Use"
+    bundle_identifier="dev.pagesmith"
     icon_file="AppIcon.icns"
     ;;
   *)
