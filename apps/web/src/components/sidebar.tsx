@@ -25,6 +25,7 @@ interface SidebarProps {
   selectedSessionId?: string
   mobileOpen: boolean
   width: number
+  collapseGroupsSignal?: number
   onMobileOpenChange: (open: boolean) => void
   onToggleSidebar: () => void
   onWidthChange: (width: number) => void
@@ -53,6 +54,7 @@ export function Sidebar({
   selectedSessionId,
   mobileOpen,
   width,
+  collapseGroupsSignal = 0,
   onMobileOpenChange,
   onToggleSidebar,
   onWidthChange,
@@ -78,6 +80,10 @@ export function Sidebar({
   const rows = sidebarRows(groups, collapsed)
 
   useEffect(() => setLiveWidth(width), [width])
+  useEffect(() => {
+    if (!collapseGroupsSignal) return
+    setCollapsed(new Set<DateGroup>(['today', 'yesterday', 'week', 'month', 'year', 'more']))
+  }, [collapseGroupsSignal])
   useEffect(() => {
     const delay = nextSidebarUpdateDelay(taskState.sessions, nowSeconds)
     const timer = window.setTimeout(

@@ -35,6 +35,7 @@ export interface CommandPaletteActions {
   focusComposer: () => void
   toggleUsage: () => void
   toggleSidebar: () => void
+  collapseSidebarGroups: () => void
   toggleRightPanel: () => void
   openSettings: (page: SettingsPageId) => void
   selectTask: (sessionId: string) => void
@@ -365,6 +366,7 @@ function buildItems({
       commands.push(command('toggle-usage', 'commands', t('menu.toggle_usage_panel'), 'gauge', shortcut('⌘U', 'Ctrl+U'), `toggle usage limits rate quota panel ${t('menu.toggle_usage_panel')}`, actions.toggleUsage))
     }
     commands.push(
+      command('collapse-sidebar-groups', 'commands', t('command_palette.collapse_sidebar_groups'), 'command', undefined, 'collapse close fold all sidebar groups projects dates history', actions.collapseSidebarGroups),
       command('toggle-sidebar', 'commands', t(sidebarVisible ? 'command_palette.hide_sidebar' : 'command_palette.show_sidebar'), 'panelLeft', shortcut('⌘B', 'Ctrl+B'), 'toggle show hide left sidebar history tasks', actions.toggleSidebar),
       command('toggle-right-panel', 'commands', t(rightPanelVisible ? 'command_palette.hide_right_panel' : 'command_palette.show_right_panel'), 'panelRight', shortcut('⇧⌘B', 'Ctrl+Shift+B'), 'toggle show hide right panel files review diff terminal', actions.toggleRightPanel),
     )

@@ -23,6 +23,7 @@ import { RightPanel, type PanelSurface } from '@/components/right-panel'
 import { Sidebar } from '@/components/sidebar'
 import { StartupScreen } from '@/components/startup-screen'
 import type { SettingsPageId } from '@/components/settings-view'
+import { TaskSwitcher } from '@/components/task-switcher'
 import { Transcript } from '@/components/transcript'
 import { WakuIcon } from '@/components/waku-icon'
 import {
@@ -67,6 +68,13 @@ import {
   writeRememberedNavigation,
   type RememberedNavigation,
 } from '@/lib/navigation-memory'
+import { sessionHasStarted } from '@/lib/sidebar-presentation'
+import {
+  cycleHighlightIndex,
+  initialHighlightIndex,
+  orderedTaskIds,
+  recordTaskAccess,
+} from '@/lib/task-switcher'
 import { transcriptLinkRoute } from '@/lib/transcript-links'
 import { shouldShowInitialDestination } from '@/lib/workspace-presentation'
 import { agentPresetIdLabel } from '@/lib/agent-preset-presentation'
@@ -114,6 +122,9 @@ export function WakuApp() {
   const retainedPanelSessions = useRef(new Map<string, RetainedPanelSession>())
   const [retainedPanelSessionIds, setRetainedPanelSessionIds] = useState<string[]>([])
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [taskSwitcher, setTaskSwitcher] = useState<{ order: string[]; highlighted: number } | null>(null)
+  const recentTaskIds = useRef<string[]>([])
+  const [collapseSidebarGroupsSignal, setCollapseSidebarGroupsSignal] = useState(0)
   const [focusComposerSignal, setFocusComposerSignal] = useState(0)
   const [modelPickerSignal, setModelPickerSignal] = useState(0)
   const [usagePanelSignal, setUsagePanelSignal] = useState(0)
@@ -462,6 +473,79 @@ export function WakuApp() {
     window.addEventListener('keydown', keyDown)
     return () => window.removeEventListener('keydown', keyDown)
   })
+
+  useEffect(() => {
+    if (search.session) {
+      recentTaskIds.current = recordTaskAccess(recentTaskIds.current, search.session)
+    }
+  }, [search.session])
+
+  // Ctrl+` cycles tasks (Ctrl+Tab also works where the browser lets pages
+  // capture it, e.g. installed PWAs). The snapshot order never reshuffles
+  // while open; releasing Ctrl commits once.
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent) => {
+      const trigger = event.ctrlKey && !event.metaKey && !event.altKey
+        && (event.key === 'Tab' || event.code === 'Backquote')
+      if (trigger) {
+        if (!taskState.data) return
+        event.preventDefault()
+        const reverse = event.shiftKey
+        if (!taskSwitcher) {
+          const startedIds = taskState.data.sessions.filter(sessionHasStarted).map((session) => session.id)
+          const order = orderedTaskIds(current?.id, recentTaskIds.current, startedIds)
+          const initial = initialHighlightIndex(order, current?.id, reverse)
+          if (initial === null) return
+          setTaskSwitcher({ order, highlighted: initial })
+        } else {
+          setTaskSwitcher({
+            order: taskSwitcher.order,
+            highlighted: cycleHighlightIndex(taskSwitcher.highlighted, taskSwitcher.order.length, reverse),
+          })
+        }
+        return
+      }
+      if (!taskSwitcher) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setTaskSwitcher(null)
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault()
+        setTaskSwitcher({
+          order: taskSwitcher.order,
+          highlighted: event.key === 'Home' ? 0 : taskSwitcher.order.length - 1,
+        })
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault()
+        setTaskSwitcher({
+          order: taskSwitcher.order,
+          highlighted: cycleHighlightIndex(
+            taskSwitcher.highlighted,
+            taskSwitcher.order.length,
+            event.key === 'ArrowLeft',
+          ),
+        })
+      }
+    }
+    const keyUp = (event: KeyboardEvent) => {
+      if (taskSwitcher && event.key === 'Control') commitTaskSwitch(taskSwitcher.highlighted)
+    }
+    const cancel = () => setTaskSwitcher(null)
+    window.addEventListener('keydown', keyDown, true)
+    window.addEventListener('keyup', keyUp, true)
+    window.addEventListener('blur', cancel)
+    return () => {
+      window.removeEventListener('keydown', keyDown, true)
+      window.removeEventListener('keyup', keyUp, true)
+      window.removeEventListener('blur', cancel)
+    }
+  })
+
+  function commitTaskSwitch(index: number) {
+    const target = taskSwitcher?.order[index]
+    setTaskSwitcher(null)
+    if (target && target !== current?.id) selectSession(target)
+  }
 
   const composerDraftsReady = Boolean(config && composerDraftAddress === config.address)
   if (!taskState.data || !composerDraftsReady) {
@@ -907,6 +991,7 @@ export function WakuApp() {
       setUsagePanelSignal((value) => value + 1)
     },
     toggleSidebar: () => setSidebarVisible((value) => !value),
+    collapseSidebarGroups: () => setCollapseSidebarGroupsSignal((value) => value + 1),
     toggleRightPanel,
     openSettings,
     selectTask: (sessionId) => {
@@ -937,6 +1022,7 @@ export function WakuApp() {
     <div className="flex h-dvh w-full overflow-hidden bg-background">
       {sidebarVisible && (
         <Sidebar
+          collapseGroupsSignal={collapseSidebarGroupsSignal}
           mobileOpen={mobileSidebar}
           onAddProject={openProjectPicker}
           onMobileOpenChange={setMobileSidebar}
@@ -1167,6 +1253,17 @@ export function WakuApp() {
         />
       )}
       {palette}
+      {taskSwitcher && taskState.data && (
+        <TaskSwitcher
+          highlighted={taskSwitcher.highlighted}
+          order={taskSwitcher.order}
+          projects={taskState.data.projects}
+          sessions={taskState.data.sessions}
+          t={t}
+          onCommit={commitTaskSwitch}
+          onHighlight={(index) => setTaskSwitcher((value) => value ? { order: value.order, highlighted: index } : value)}
+        />
+      )}
     </div>
   )
 }

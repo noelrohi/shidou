@@ -387,3 +387,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+::highlight(transcript-find) {
+  background-color: color-mix(in srgb, var(--ring) 28%, transparent);
+}
+
+::highlight(transcript-find-current) {
+  background-color: color-mix(in srgb, var(--ring) 60%, transparent);
+  color: #fff;
+}

@@ -51,7 +51,20 @@ import {
   activeNavigationTurn,
   firstVisibleTranscriptItem,
 } from '@/lib/transcript-navigation'
+import { TranscriptFindBar } from '@/components/transcript-find'
+import {
+  collectSearchRanges,
+  findTranscriptMatches,
+  reconcileSearchCurrent,
+  stepSearchMatch,
+  type TranscriptSearchMatch,
+} from '@/lib/transcript-search'
 import { cn } from '@/lib/utils'
+
+const FIND_HIGHLIGHT_NAME = 'transcript-find'
+const FIND_CURRENT_HIGHLIGHT_NAME = 'transcript-find-current'
+
+const highlightRegistry = typeof CSS !== 'undefined' && 'highlights' in CSS ? CSS.highlights : null
 
 const NAVIGATION_RAIL_MIN_WIDTH = 872
 const NAVIGATION_RAIL_PITCH = 12
@@ -128,7 +141,26 @@ export function Transcript({
   const [railFits, setRailFits] = useState(false)
   const [activeTurnIndex, setActiveTurnIndex] = useState(() => Math.max(0, session.turns.length - 1))
   const [messageEdit, setMessageEdit] = useState<MessageEdit | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findCurrent, setFindCurrent] = useState<number | null>(null)
+  const [findFocusSignal, setFindFocusSignal] = useState(0)
+  const findHighlightFrame = useRef<number | null>(null)
+  const findStateRef = useRef<{ open: boolean; query: string; match: TranscriptSearchMatch | null }>({
+    open: false,
+    query: '',
+    match: null,
+  })
+  const findSyncRef = useRef({ query: '', count: 0 })
   const items = buildTranscriptItems(session, expandedTurns, new Set(rewindTurnCounts))
+  const findMatches = findOpen && findQuery
+    ? findTranscriptMatches(
+        items.map((item) => item.kind === 'message'
+          ? { key: item.key, text: item.message.display_content ?? item.message.content }
+          : null),
+        findQuery,
+      )
+    : { matches: [], limited: false }
   const itemIndexesByMessage = new Map<string, number>()
   items.forEach((item, index) => {
     if (item.kind === 'message' && item.message.role === 'user') {
@@ -179,11 +211,106 @@ export function Transcript({
     if (activeTurnFrame.current !== null) cancelAnimationFrame(activeTurnFrame.current)
   }, [scheduleActiveTurnUpdate])
 
+  const applyFindHighlights = useCallback(() => {
+    findHighlightFrame.current = null
+    if (!highlightRegistry) return
+    const { open, query, match } = findStateRef.current
+    const scroller = transcriptScroller.current
+    if (!open || !query || !scroller) {
+      highlightRegistry.delete(FIND_HIGHLIGHT_NAME)
+      highlightRegistry.delete(FIND_CURRENT_HIGHLIGHT_NAME)
+      return
+    }
+    const ranges = collectSearchRanges(scroller, query)
+    highlightRegistry.set(FIND_HIGHLIGHT_NAME, new Highlight(...ranges))
+    let currentRange: Range | null = null
+    if (match) {
+      const row = scroller.querySelector(`[data-transcript-key="${CSS.escape(match.itemKey)}"]`)
+      if (row) {
+        const rowRanges = collectSearchRanges(row, query)
+        currentRange = rowRanges[match.ordinal] ?? rowRanges[0] ?? null
+      }
+    }
+    if (currentRange) highlightRegistry.set(FIND_CURRENT_HIGHLIGHT_NAME, new Highlight(currentRange))
+    else highlightRegistry.delete(FIND_CURRENT_HIGHLIGHT_NAME)
+  }, [])
+
+  const scheduleFindHighlights = useCallback(() => {
+    if (!highlightRegistry || findHighlightFrame.current !== null) return
+    findHighlightFrame.current = requestAnimationFrame(applyFindHighlights)
+  }, [applyFindHighlights])
+
+  const revealFindMatch = useCallback((match: TranscriptSearchMatch) => {
+    wasNearBottom.current = false
+    transcript.current?.scrollToIndex({ index: match.itemIndex, align: 'center', behavior: 'auto' })
+    scheduleFindHighlights()
+  }, [scheduleFindHighlights])
+
+  // Runs after every render: keeps the refs the highlight pass reads in sync,
+  // and reconciles the current match when the query or the transcript changes
+  // underneath it (streaming appends, folds toggling).
+  useEffect(() => {
+    const previous = findSyncRef.current
+    const queryChanged = previous.query !== findQuery
+    const countChanged = previous.count !== findMatches.matches.length
+    findSyncRef.current = { query: findQuery, count: findMatches.matches.length }
+    if (findOpen && queryChanged) {
+      const next = findMatches.matches.length ? 0 : null
+      setFindCurrent(next)
+      if (next !== null) revealFindMatch(findMatches.matches[0]!)
+    } else if (findOpen && countChanged) {
+      setFindCurrent(reconcileSearchCurrent(findStateRef.current.match, findMatches.matches))
+    }
+    findStateRef.current = {
+      open: findOpen,
+      query: findQuery,
+      match: findCurrent !== null ? findMatches.matches[findCurrent] ?? null : null,
+    }
+    scheduleFindHighlights()
+  })
+
+  useEffect(() => () => {
+    if (findHighlightFrame.current !== null) cancelAnimationFrame(findHighlightFrame.current)
+    highlightRegistry?.delete(FIND_HIGHLIGHT_NAME)
+    highlightRegistry?.delete(FIND_CURRENT_HIGHLIGHT_NAME)
+  }, [])
+
+  const findAvailable = session.messages.length > 0
+  useEffect(() => {
+    if (!findAvailable) return
+    const keyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key.toLowerCase() !== 'f') return
+      event.preventDefault()
+      const selection = window.getSelection()?.toString() ?? ''
+      if (selection && !selection.includes('\n')) setFindQuery(selection)
+      setFindOpen(true)
+      setFindFocusSignal((value) => value + 1)
+    }
+    window.addEventListener('keydown', keyDown)
+    return () => window.removeEventListener('keydown', keyDown)
+  }, [findAvailable])
+
+  function navigateFind(backward: boolean) {
+    const next = stepSearchMatch(findCurrent, findMatches.matches.length, backward)
+    setFindCurrent(next)
+    if (next !== null) revealFindMatch(findMatches.matches[next]!)
+  }
+
+  function closeFind() {
+    setFindOpen(false)
+    setFindCurrent(null)
+    scheduleFindHighlights()
+  }
+
   useEffect(() => {
     if (expandedSession.current === session.id) return
     expandedSession.current = session.id
     setExpandedTurns(new Set())
     setMessageEdit(null)
+    setFindOpen(false)
+    setFindQuery('')
+    setFindCurrent(null)
     wasNearBottom.current = true
     setAtBottom(true)
     setActiveTurnIndex(Math.max(0, navigationTurns.length - 1))
@@ -234,8 +361,10 @@ export function Transcript({
           itemsRendered={(nextItems) => {
             renderedItems.current = nextItems
             scheduleActiveTurnUpdate()
+            scheduleFindHighlights()
           }}
           itemContent={(_, item) => (
+            <div data-transcript-key={item.key}>
             <TranscriptItemView
               backgroundWork={backgroundWork}
               item={item}
@@ -280,6 +409,7 @@ export function Transcript({
                 return next
               })}
             />
+            </div>
           )}
           key={session.id}
           minOverscanItemCount={{ top: 2, bottom: 3 }}
@@ -294,6 +424,19 @@ export function Transcript({
               })
             }
           }}
+        />
+      )}
+      {findOpen && (
+        <TranscriptFindBar
+          current={findCurrent}
+          key={findFocusSignal}
+          limited={findMatches.limited}
+          query={findQuery}
+          t={t}
+          total={findMatches.matches.length}
+          onClose={closeFind}
+          onNavigate={navigateFind}
+          onQueryChange={setFindQuery}
         />
       )}
       {railFits && !(atTop && atBottom) && navigationTurns.length >= 2 && (
