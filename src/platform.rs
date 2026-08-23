@@ -264,12 +264,16 @@ pub struct ExternalApp {
 /// terminals, IDEs. An entry lists every bundle id it ships under; the first
 /// installed one wins.
 #[cfg(target_os = "macos")]
+const TERMY_BUNDLE_ID: &str = "com.lassevestergaard.termy";
+
+#[cfg(target_os = "macos")]
 const OPEN_IN_CATALOG: &[(&str, &str, &[&str])] = &[
     ("vscode", "VS Code", &["com.microsoft.VSCode"]),
     ("cursor", "Cursor", &["com.todesktop.230313mzl4w4u92"]),
     ("zed", "Zed", &["dev.zed.Zed", "dev.zed.Zed-Preview"]),
     ("finder", "Finder", &["com.apple.finder"]),
     ("terminal", "Terminal", &["com.apple.Terminal"]),
+    ("termy", "Termy", &[TERMY_BUNDLE_ID]),
     ("iterm2", "iTerm2", &["com.googlecode.iterm2"]),
     ("kitty", "Kitty", &["net.kovidgoyal.kitty"]),
     ("ghostty", "Ghostty", &["com.mitchellh.ghostty"]),
@@ -325,13 +329,30 @@ pub fn open_path_in_app(path: &std::path::Path, bundle_id: &str) {
     else {
         return;
     };
-    let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+    let url = if bundle_id == TERMY_BUNDLE_ID {
+        // Termy rejects folder file URLs; its public new-tab route accepts the
+        // working directory as an encoded query parameter instead.
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(&termy_open_url(path))) else {
+            return;
+        };
+        url
+    } else {
+        NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
+    };
     workspace.openURLs_withApplicationAtURL_configuration_completionHandler(
         &NSArray::from_retained_slice(&[url]),
         &application_url,
         &NSWorkspaceOpenConfiguration::configuration(),
         None,
     );
+}
+
+#[cfg(target_os = "macos")]
+fn termy_open_url(path: &std::path::Path) -> String {
+    let mut url = url::Url::parse("termy://new").expect("static Termy URL should be valid");
+    url.query_pairs_mut()
+        .append_pair("dir", &path.to_string_lossy());
+    url.into()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -632,5 +653,25 @@ mod tests {
         let icon = super::linux_app_icon().expect("embedded PNG should decode");
 
         assert_eq!(icon.dimensions(), (256, 256));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use std::{borrow::Cow, path::Path};
+
+    use super::termy_open_url;
+
+    #[test]
+    fn termy_projects_use_the_new_tab_deeplink() {
+        let url = url::Url::parse(&termy_open_url(Path::new("/tmp/project +%")))
+            .expect("Termy deeplink should be valid");
+
+        assert_eq!(url.scheme(), "termy");
+        assert_eq!(url.host_str(), Some("new"));
+        assert_eq!(
+            url.query_pairs().collect::<Vec<_>>(),
+            vec![(Cow::Borrowed("dir"), Cow::Borrowed("/tmp/project +%"))]
+        );
     }
 }
