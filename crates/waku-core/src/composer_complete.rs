@@ -1421,12 +1421,8 @@ mod tests {
             Some("/skill:deploy-runbook staging")
         );
         assert_eq!(
-            resolved_submission(
-                ProviderKind::OhMyPi,
-                "/deploy-runbook staging",
-                &commands
-            )
-            .as_deref(),
+            resolved_submission(ProviderKind::OhMyPi, "/deploy-runbook staging", &commands)
+                .as_deref(),
             Some("/skill:deploy-runbook staging")
         );
         assert_eq!(

@@ -232,9 +232,8 @@ impl Waku {
         };
         self.branch_snapshots.invalidate(&workspace_path);
         self.sidebar_branch_scan_fingerprint.set(None);
-        self.sidebar_branch_scan_generation.set(
-            self.sidebar_branch_scan_generation.get().wrapping_add(1),
-        );
+        self.sidebar_branch_scan_generation
+            .set(self.sidebar_branch_scan_generation.get().wrapping_add(1));
         self.refresh_workspace_surfaces(cx);
         self.invalidate_composer_sources(cx);
     }

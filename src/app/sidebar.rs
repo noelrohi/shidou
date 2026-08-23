@@ -1420,11 +1420,7 @@ impl Waku {
         } else {
             self.sidebar_collapsed_groups.remove(&group)
         };
-        let reveal_reset = collapsed
-            && self
-                .sidebar_project_reveal_counts
-                .remove(&group)
-                .is_some();
+        let reveal_reset = collapsed && self.sidebar_project_reveal_counts.remove(&group).is_some();
         if collapse_changed || reveal_reset {
             self.sidebar_rows_fingerprint.set(None);
             cx.notify();

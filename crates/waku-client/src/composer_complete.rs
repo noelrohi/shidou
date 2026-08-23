@@ -437,12 +437,8 @@ mod tests {
                 let skill = command(name, CommandScope::Skill);
                 let expected = format!("/skill:{name} carefully");
                 assert_eq!(
-                    resolved_skill_submission(
-                        provider,
-                        &format!("/{name} carefully"),
-                        &[skill]
-                    )
-                    .as_deref(),
+                    resolved_skill_submission(provider, &format!("/{name} carefully"), &[skill])
+                        .as_deref(),
                     Some(expected.as_str())
                 );
             }
