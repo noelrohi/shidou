@@ -3,6 +3,8 @@
 //! The coding agent creates image files in the workspace. Visuals only indexes,
 //! previews, selects, and attaches those files; it owns no generation lifecycle.
 
+use std::collections::BTreeSet;
+
 use super::*;
 
 const VISUAL_GALLERY_GAP: f32 = 6.0;
@@ -190,20 +192,62 @@ fn visual_folder(path: &str) -> String {
         .unwrap_or_default()
 }
 
-fn visual_columns(width: f32, layout: VisualGalleryLayout) -> usize {
-    if layout == VisualGalleryLayout::Fit {
-        return 1;
+/// Whether `key` (a direct image folder from the index) lies at or beneath the
+/// selected `folder`. The empty folder is the workspace root and contains
+/// everything.
+fn visual_folder_contains(folder: &str, key: &str) -> bool {
+    folder.is_empty()
+        || key == folder
+        || (key.len() > folder.len()
+            && key.starts_with(folder)
+            && key.as_bytes()[folder.len()] == b'/')
+}
+
+/// Every selectable folder: the direct image folders plus all of their
+/// ancestors up to the workspace root, so a parent like `assets/v3` can be
+/// chosen to browse its subfolders together. Sorted component-wise so each
+/// folder is immediately followed by its descendants — the order an indented
+/// tree needs — which plain string order breaks (`pages-x` < `pages/…`).
+fn visual_folder_choices<'a>(keys: impl Iterator<Item = &'a String>) -> Vec<String> {
+    let mut folders: BTreeSet<Vec<&str>> = BTreeSet::new();
+    for key in keys {
+        let mut components = if key.is_empty() {
+            Vec::new()
+        } else {
+            key.split('/').collect::<Vec<_>>()
+        };
+        loop {
+            folders.insert(components.clone());
+            if components.pop().is_none() {
+                break;
+            }
+        }
     }
-    let target = if layout == VisualGalleryLayout::Compact {
-        waku_protocol::VISUAL_COMPACT_COLUMN_WIDTH
-    } else {
-        waku_protocol::VISUAL_LARGE_COLUMN_WIDTH
-    };
-    (((width - waku_protocol::VISUAL_GRID_HORIZONTAL_INSET).max(1.0) / target).floor() as usize)
-        .max(1)
+    folders
+        .into_iter()
+        .map(|components| components.join("/"))
+        .collect()
+}
+
+/// Tree depth and display name for one folder row: the workspace root is `.`
+/// at depth zero, every other folder shows only its own final segment.
+fn visual_folder_display(folder: &str) -> (usize, &str) {
+    if folder.is_empty() {
+        return (0, ".");
+    }
+    let name = folder.rsplit('/').next().unwrap_or(folder);
+    (folder.matches('/').count() + 1, name)
 }
 
 impl Waku {
+    /// Index of the masonry row containing image `index`, if any.
+    fn visual_row_containing(&self, index: usize) -> Option<usize> {
+        self.visual_gallery
+            .row_plan
+            .iter()
+            .position(|row| index >= row.start && index < row.start + row.widths.len())
+    }
+
     pub(super) fn refresh_visual_gallery(&mut self, cx: &mut Context<Self>) {
         let Some(workspace_path) = self.selected_workspace_path().map(Path::to_path_buf) else {
             self.visual_gallery.clear();
@@ -287,12 +331,13 @@ impl Waku {
                     }
                 }
                 this.visual_gallery.index = index;
-                if this
-                    .visual_gallery
-                    .folder
-                    .as_ref()
-                    .is_some_and(|folder| !this.visual_gallery.index.contains_key(folder))
-                {
+                if this.visual_gallery.folder.as_ref().is_some_and(|folder| {
+                    !this
+                        .visual_gallery
+                        .index
+                        .keys()
+                        .any(|key| visual_folder_contains(folder, key))
+                }) {
                     this.visual_gallery.clear_folder();
                 }
                 this.visual_gallery.loading = false;
@@ -321,13 +366,23 @@ impl Waku {
     /// until the fresh set lands — used by refocus-driven refreshes, where
     /// blanking an unchanged gallery reads as a spurious reload.
     fn load_visual_gallery_folder(&mut self, folder: String, quiet: bool, cx: &mut Context<Self>) {
-        let Some(files) = self.visual_gallery.index.get(&folder).cloned() else {
+        // A folder selects itself and everything beneath it, so a parent like
+        // `assets/v3` browses all of its subfolders in one gallery.
+        let mut files = self
+            .visual_gallery
+            .index
+            .iter()
+            .filter(|(key, _)| visual_folder_contains(&folder, key))
+            .flat_map(|(_, files)| files.iter().cloned())
+            .collect::<Vec<_>>();
+        if files.is_empty() {
             self.visual_gallery.images.clear();
             self.visual_gallery.loading = false;
             self.visual_gallery.list_state.reset(0);
             cx.notify();
             return;
-        };
+        }
+        files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
         self.visual_gallery.generation = self.visual_gallery.generation.wrapping_add(1);
         let generation = self.visual_gallery.generation;
         if !quiet {
@@ -561,26 +616,17 @@ impl Waku {
         let theme = Theme::current(cx);
         let folder_menu = self.menu_handle("visuals-folder-menu", cx);
         let layout_menu = self.menu_handle("visuals-layout-menu", cx);
-        let mut folders = self
-            .visual_gallery
-            .index
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        folders.sort();
+        let folders = visual_folder_choices(self.visual_gallery.index.keys());
         let active_folder = self.visual_gallery.folder.clone();
         let weak = cx.entity().downgrade();
+        // The chip shows only the folder's own name: deep paths truncate at
+        // the tail, which hides exactly the segment that distinguishes them.
+        // The dropdown carries the context as an indented tree instead.
         let folder_trigger = MenuChip::new("visuals-folder-trigger")
             .icon("icons/folder.svg", theme.text_ghost)
             .label(active_folder.clone().map_or_else(
                 || tr!("visuals.choose_folder"),
-                |folder| {
-                    if folder.is_empty() {
-                        ".".into()
-                    } else {
-                        folder
-                    }
-                },
+                |folder| visual_folder_display(&folder).1.to_owned(),
             ))
             .selected(folder_menu.is_open())
             .max_w(px((panel_width * 0.55).max(120.0)));
@@ -595,20 +641,45 @@ impl Waku {
                     .map(|folder| {
                         let weak = weak.clone();
                         let selected_folder = folder.clone();
-                        MenuItem::new(
-                            if folder.is_empty() {
-                                ".".into()
+                        let selected = active_folder.as_deref() == Some(folder.as_str());
+                        let (depth, name) = visual_folder_display(folder);
+                        let name = SharedString::from(name.to_owned());
+                        MenuItem::custom(move |_, cx| {
+                            let theme = Theme::current(cx);
+                            let color = if selected {
+                                theme.text
                             } else {
-                                folder.clone()
-                            },
-                            move |_, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.select_visual_gallery_folder(selected_folder.clone(), cx);
-                                });
-                            },
-                        )
-                        .selected(active_folder.as_deref() == Some(folder.as_str()))
-                        .icon("icons/folder.svg")
+                                theme.text_secondary
+                            };
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .pl(px(depth as f32 * 14.0))
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(icon("icons/folder.svg", 12.0, color))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_color(color)
+                                        .when(selected, |label| {
+                                            label.font_weight(FontWeight::MEDIUM)
+                                        })
+                                        .child(name.clone()),
+                                )
+                                .when(selected, |row| {
+                                    row.child(icon("icons/check.svg", 11.0, theme.text_tertiary))
+                                })
+                                .into_any_element()
+                        })
+                        .on_click(move |_, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.select_visual_gallery_folder(selected_folder.clone(), cx);
+                            });
+                        })
                     })
                     .collect()
             },
@@ -1182,11 +1253,33 @@ mod tests {
     }
 
     #[test]
-    fn gallery_layouts_choose_columns_from_available_width() {
-        assert_eq!(visual_columns(700.0, VisualGalleryLayout::Compact), 6);
-        assert_eq!(visual_columns(700.0, VisualGalleryLayout::Large), 3);
-        assert_eq!(visual_columns(700.0, VisualGalleryLayout::Fit), 1);
-        assert_eq!(visual_columns(280.0, VisualGalleryLayout::Large), 1);
+    fn parent_folders_select_their_descendants() {
+        assert!(visual_folder_contains("assets", "assets"));
+        assert!(visual_folder_contains("assets", "assets/hero"));
+        assert!(visual_folder_contains("", "assets/hero"));
+        assert!(!visual_folder_contains("assets", "assets-old"));
+        assert!(!visual_folder_contains("assets/hero", "assets"));
+
+        let keys = ["assets/v3/01".to_owned(), "assets/v3/02".to_owned()];
+        assert_eq!(
+            visual_folder_choices(keys.iter()),
+            ["", "assets", "assets/v3", "assets/v3/01", "assets/v3/02"]
+        );
+
+        // Component-wise order keeps a folder's descendants directly beneath
+        // it even when a sibling would string-sort between them.
+        let keys = ["pages-extra".to_owned(), "pages/hero".to_owned()];
+        assert_eq!(
+            visual_folder_choices(keys.iter()),
+            ["", "pages", "pages/hero", "pages-extra"]
+        );
+    }
+
+    #[test]
+    fn folder_rows_show_depth_and_final_segment() {
+        assert_eq!(visual_folder_display(""), (0, "."));
+        assert_eq!(visual_folder_display("brand"), (1, "brand"));
+        assert_eq!(visual_folder_display("pages/mouth-breathing/v3"), (3, "v3"));
     }
 
     fn image(reference: &str) -> VisualGalleryImage {
