@@ -1639,6 +1639,21 @@ mod tests {
     }
 
     #[test]
+    fn right_panel_tab_titles_stay_on_one_line() {
+        let source = include_str!("right_panel.rs");
+        let header = source
+            .split_once("\n    fn render_right_panel_header(")
+            .expect("right panel header renderer")
+            .1
+            .split_once("\n    fn render_right_panel_chooser(")
+            .expect("right panel header renderer end")
+            .0;
+
+        assert!(header.contains(".truncate()"));
+        assert!(!header.contains(".line_clamp(1)"));
+    }
+
+    #[test]
     fn only_reuses_single_instance_surface_tabs() {
         let browser = RightPanelSurface::new_browser();
         let terminal = RightPanelSurface::new_terminal();
@@ -2504,8 +2519,7 @@ impl Waku {
                         div()
                             .min_w_0()
                             .flex_1()
-                            .line_clamp(1)
-                            .text_ellipsis()
+                            .truncate()
                             .text_size(sp(12.5))
                             .text_color(if active {
                                 theme.text

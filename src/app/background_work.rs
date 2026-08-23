@@ -1705,8 +1705,7 @@ fn render_background_summary_row(
             div()
                 .min_w_0()
                 .flex_1()
-                .line_clamp(1)
-                .text_ellipsis()
+                .truncate()
                 .text_size(px(if is_process { 12.5 } else { 13.5 }))
                 .text_color(if is_process {
                     theme.text_secondary
@@ -1780,6 +1779,21 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn info_popover_background_titles_stay_on_one_line() {
+        let source = include_str!("background_work.rs");
+        let row = source
+            .split_once("\nfn render_background_summary_row(")
+            .expect("background summary row renderer")
+            .1
+            .split_once("\n#[cfg(test)]")
+            .expect("background summary row renderer end")
+            .0;
+
+        assert!(row.contains(".truncate()"));
+        assert!(!row.contains(".line_clamp(1)"));
     }
 
     #[test]
