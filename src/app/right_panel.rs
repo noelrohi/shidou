@@ -2821,7 +2821,10 @@ impl Waku {
             let absolute_path = entry.absolute_path.clone();
             let is_dir = entry.is_dir;
             let selected = selected_path == Some(relative_path.as_str());
+            // Images route to the Visuals gallery instead of the browser.
+            let is_image = !is_dir && super::visuals::supported_visual_path(&relative_path);
             let can_preview = !is_dir
+                && !is_image
                 && !self.daemon.is_remote()
                 && cfg!(any(target_os = "macos", target_os = "windows"))
                 && browser_preview_supported_file(&relative_path);
@@ -2885,6 +2888,21 @@ impl Waku {
                         },
                         cx,
                     ))
+                })
+                .when(is_image, |row| {
+                    let open_path = preview_relative_path.clone();
+                    row.child(self.render_icon_button(
+                        format!("right-panel-file-open-visuals-{preview_relative_path}"),
+                        "icons/sparkle.svg",
+                        22.0,
+                        5.0,
+                        theme.overlay_strong,
+                        tr!("files.open_in_visuals"),
+                        move |this, _, cx| {
+                            this.reveal_visual_in_gallery(open_path.clone(), cx);
+                        },
+                        cx,
+                    ))
                 });
             list = if is_dir {
                 list.child(row.on_click(cx.listener(move |this, _, _, cx| {
@@ -2900,7 +2918,7 @@ impl Waku {
                 let row = row.on_click(cx.listener(move |this, _, _, cx| {
                     this.open_right_panel_file(open_path.clone(), cx);
                 }));
-                if can_preview {
+                if can_preview || is_image {
                     let weak = cx.entity().downgrade();
                     let menu_path = relative_path.clone();
                     list.child(context_menu(
@@ -2912,18 +2930,32 @@ impl Waku {
                         move |_| {
                             let weak = weak.clone();
                             let path = menu_path.clone();
-                            vec![
-                                MenuItem::new(tr!("files.open_in_browser"), move |window, cx| {
-                                    let _ = weak.update(cx, |this, cx| {
-                                        this.open_workspace_file_in_browser(
-                                            path.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                })
-                                .icon("icons/globe.svg"),
-                            ]
+                            if is_image {
+                                vec![
+                                    MenuItem::new(tr!("files.open_in_visuals"), move |_, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            this.reveal_visual_in_gallery(path.clone(), cx);
+                                        });
+                                    })
+                                    .icon("icons/sparkle.svg"),
+                                ]
+                            } else {
+                                vec![
+                                    MenuItem::new(
+                                        tr!("files.open_in_browser"),
+                                        move |window, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                this.open_workspace_file_in_browser(
+                                                    path.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        },
+                                    )
+                                    .icon("icons/globe.svg"),
+                                ]
+                            }
                         },
                     ))
                 } else {
@@ -3025,7 +3057,9 @@ impl Waku {
             )
         });
 
-        let browser_preview = (!self.daemon.is_remote()
+        let file_is_image = super::visuals::supported_visual_path(&relative_path);
+        let browser_preview = (!file_is_image
+            && !self.daemon.is_remote()
             && cfg!(any(target_os = "macos", target_os = "windows"))
             && browser_preview_supported_file(&relative_path))
         .then(|| {
@@ -3042,6 +3076,23 @@ impl Waku {
                 },
                 cx,
             )
+        })
+        .or_else(|| {
+            file_is_image.then(|| {
+                let open_path = relative_path.clone();
+                self.render_icon_button(
+                    "file-open-in-visuals",
+                    "icons/sparkle.svg",
+                    26.0,
+                    7.0,
+                    theme.overlay,
+                    tr!("files.open_in_visuals"),
+                    move |this, _, cx| {
+                        this.reveal_visual_in_gallery(open_path.clone(), cx);
+                    },
+                    cx,
+                )
+            })
         });
 
         let editor = div()
@@ -4326,7 +4377,13 @@ impl Waku {
                 let path = file.path.clone();
                 let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
                 let selected = self.right_panel_diff_selected_file == Some(file_index);
+                // Changed images route to the Visuals gallery, not the
+                // browser: the row shows only the git badge, and hovering
+                // swaps that badge for the open-in-Visuals button.
+                let is_image = !matches!(file.status, crate::review_diff::FileStatus::Deleted)
+                    && super::visuals::supported_visual_path(&path);
                 let can_preview = !matches!(file.status, crate::review_diff::FileStatus::Deleted)
+                    && !is_image
                     && !self.daemon.is_remote()
                     && cfg!(any(target_os = "macos", target_os = "windows"))
                     && browser_preview_supported_file(&path);
@@ -4358,6 +4415,7 @@ impl Waku {
                             .items_center()
                             .gap(px(6.0))
                             .cursor_default()
+                            .group("review-diff-file-row")
                             .when(selected && cursor, |row| row.bg(theme.overlay_strong))
                             .when(selected ^ cursor, |row| row.bg(theme.overlay))
                             .when(!selected && !cursor, |row| {
@@ -4402,8 +4460,8 @@ impl Waku {
                                     cx,
                                 ))
                             })
-                            .child(
-                                div()
+                            .child({
+                                let badge = div()
                                     .w(px(18.0))
                                     .h(px(18.0))
                                     .flex_none()
@@ -4416,8 +4474,53 @@ impl Waku {
                                     .text_size(sp(12.5))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(status_color)
-                                    .child(status),
-                            )
+                                    .child(status);
+                                if is_image {
+                                    let open_path = path.clone();
+                                    div()
+                                        .relative()
+                                        .w(px(18.0))
+                                        .h(px(18.0))
+                                        .flex_none()
+                                        .child(badge.group_hover("review-diff-file-row", |badge| {
+                                            badge.invisible()
+                                        }))
+                                        .child(
+                                            self.render_icon_button(
+                                                SharedString::from(format!(
+                                                    "review-diff-open-visuals-{file_index}"
+                                                )),
+                                                "icons/sparkle.svg",
+                                                18.0,
+                                                4.0,
+                                                theme.overlay_strong,
+                                                tr!("files.open_in_visuals"),
+                                                move |this, _, cx| {
+                                                    this.reveal_visual_in_gallery(
+                                                        open_path.clone(),
+                                                        cx,
+                                                    );
+                                                },
+                                                cx,
+                                            )
+                                            .absolute()
+                                            .inset_0()
+                                            .invisible()
+                                            .group_hover("review-diff-file-row", |button| {
+                                                button.visible()
+                                            })
+                                            .focus_visible(|button| {
+                                                button
+                                                    .visible()
+                                                    .border_1()
+                                                    .border_color(theme.accent)
+                                            }),
+                                        )
+                                        .into_any_element()
+                                } else {
+                                    badge.into_any_element()
+                                }
+                            })
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 let focus =
                                     this.transcript_control_focus("right-panel-diff-tree", cx);
@@ -4426,7 +4529,7 @@ impl Waku {
                                 this.select_right_panel_diff_file(file_index, cx);
                             })),
                     );
-                if can_preview {
+                if can_preview || is_image {
                     let weak = cx.entity().downgrade();
                     let menu_path = path.clone();
                     context_menu(
@@ -4438,18 +4541,32 @@ impl Waku {
                         move |_| {
                             let weak = weak.clone();
                             let path = menu_path.clone();
-                            vec![
-                                MenuItem::new(tr!("files.open_in_browser"), move |window, cx| {
-                                    let _ = weak.update(cx, |this, cx| {
-                                        this.open_workspace_file_in_browser(
-                                            path.clone(),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                })
-                                .icon("icons/globe.svg"),
-                            ]
+                            if is_image {
+                                vec![
+                                    MenuItem::new(tr!("files.open_in_visuals"), move |_, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            this.reveal_visual_in_gallery(path.clone(), cx);
+                                        });
+                                    })
+                                    .icon("icons/sparkle.svg"),
+                                ]
+                            } else {
+                                vec![
+                                    MenuItem::new(
+                                        tr!("files.open_in_browser"),
+                                        move |window, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                this.open_workspace_file_in_browser(
+                                                    path.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        },
+                                    )
+                                    .icon("icons/globe.svg"),
+                                ]
+                            }
                         },
                     )
                 } else {

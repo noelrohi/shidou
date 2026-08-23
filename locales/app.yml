@@ -1611,6 +1611,8 @@ files.edit_markdown_source:
   en: Edit source
 files.open_in_browser:
   en: Open in Browser
+files.open_in_visuals:
+  en: Open in Visuals
 files.browser_preview_remote:
   en: Browser preview is unavailable for files on a remote daemon
 files.browser_preview_unsaved:

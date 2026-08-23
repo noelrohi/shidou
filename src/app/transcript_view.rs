@@ -1581,6 +1581,43 @@ impl Waku {
             .border_t_1()
             .border_color(theme.border);
         for file in files.iter().take(visible_count) {
+            // A changed image jumps to itself in the Visuals gallery.
+            let is_image = super::visuals::supported_visual_path(&file.path);
+            let mut path_cell = div()
+                .id(SharedString::from(format!(
+                    "changed-file-path-{turn_id}-{}",
+                    file.path
+                )))
+                .min_w_0()
+                .flex_1()
+                .truncate()
+                .text_size(sp(12.5))
+                .text_color(theme.text_secondary)
+                .tooltip(Tooltip::text(file.path.clone()))
+                .child(file.path.clone());
+            if is_image {
+                let path_focus = self.transcript_control_focus(
+                    format!("changed-file-path-{turn_id}-{}", file.path),
+                    cx,
+                );
+                let click_path = file.path.clone();
+                let key_path = file.path.clone();
+                path_cell = path_cell
+                    .track_focus(&path_focus)
+                    .tab_index(0)
+                    .cursor_default()
+                    .hover(|style| style.text_color(theme.text))
+                    .focus_visible(|style| style.text_color(theme.text))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.reveal_visual_in_gallery(click_path.clone(), cx);
+                    }))
+                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                        if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                            this.reveal_visual_in_gallery(key_path.clone(), cx);
+                            cx.stop_propagation();
+                        }
+                    }));
+            }
             file_rows = file_rows.child(
                 div()
                     .h(px(31.0))
@@ -1588,20 +1625,7 @@ impl Waku {
                     .flex()
                     .items_center()
                     .gap(px(8.0))
-                    .child(
-                        div()
-                            .id(SharedString::from(format!(
-                                "changed-file-path-{turn_id}-{}",
-                                file.path
-                            )))
-                            .min_w_0()
-                            .flex_1()
-                            .truncate()
-                            .text_size(sp(12.5))
-                            .text_color(theme.text_secondary)
-                            .tooltip(Tooltip::text(file.path.clone()))
-                            .child(file.path.clone()),
-                    )
+                    .child(path_cell)
                     .child(
                         div()
                             .flex_none()

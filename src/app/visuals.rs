@@ -178,7 +178,7 @@ impl VisualGalleryLayout {
     }
 }
 
-fn supported_visual_path(path: &str) -> bool {
+pub(super) fn supported_visual_path(path: &str) -> bool {
     path_extension_lowercase(path)
         .as_deref()
         .is_some_and(|extension| waku_protocol::VISUAL_IMAGE_EXTENSIONS.contains(&extension))
@@ -351,6 +351,25 @@ impl Waku {
             });
         })
         .detach();
+    }
+
+    /// Jump to one workspace image from elsewhere in the app: open the
+    /// Visuals surface, switch to the image's folder, and — once its images
+    /// land — select it, scroll it into view, and focus its card.
+    pub(super) fn reveal_visual_in_gallery(
+        &mut self,
+        relative_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let folder = visual_folder(&relative_path);
+        if self.visual_gallery.folder.as_deref() != Some(folder.as_str()) {
+            self.visual_gallery.folder = Some(folder.clone());
+            self.visual_gallery.selected.clear();
+            self.load_visual_gallery_folder(folder, false, cx);
+        }
+        self.visual_gallery.selected.insert(relative_path.clone());
+        self.visual_gallery.pending_reveal = Some(relative_path);
+        self.open_right_panel_surface(RightPanelSurface::Visuals, cx);
     }
 
     fn select_visual_gallery_folder(&mut self, folder: String, cx: &mut Context<Self>) {
@@ -610,7 +629,7 @@ impl Waku {
     pub(super) fn render_visuals_surface(
         &mut self,
         panel_width: f32,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let theme = Theme::current(cx);
@@ -764,6 +783,24 @@ impl Waku {
                 let old_rows = self.visual_gallery.list_state.item_count();
                 self.visual_gallery.list_state.splice(0..old_rows, rows);
             }
+        }
+
+        // A pending reveal waits here until its folder's images have landed;
+        // this runs at most once per reveal, not per frame.
+        if let Some(path) = self.visual_gallery.pending_reveal.clone()
+            && !self.visual_gallery.loading
+            && let Some(index) = self
+                .visual_gallery
+                .images
+                .iter()
+                .position(|image| image.relative_path == path)
+        {
+            self.visual_gallery.pending_reveal = None;
+            self.visual_gallery
+                .list_state
+                .scroll_to_reveal_item(self.visual_row_containing(index).unwrap_or(0));
+            let focus = self.transcript_control_focus(format!("visual-gallery-card-{index}"), cx);
+            window.on_next_frame(move |window, cx| window.focus(&focus, cx));
         }
 
         let content = if self.selected_workspace_path().is_none() {
