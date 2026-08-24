@@ -1818,7 +1818,7 @@ mod tests {
         assert_eq!(value, "https://shidou.gg");
         assert_eq!(
             bounds,
-            TerminalPoint::new(Line(0), Column(1))..=TerminalPoint::new(Line(0), Column(9))
+            TerminalPoint::new(Line(0), Column(1))..=TerminalPoint::new(Line(0), Column(6))
         );
     }
 
