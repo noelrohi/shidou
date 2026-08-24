@@ -251,7 +251,10 @@ else
     note "public key: $SPARKLE_PUBLIC_KEY"
     plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_KEY" "$INFO_PLIST"
     printf '  %s✓ wrote%s SUPublicEDKey → %s\n' "$GREEN" "$RESET" "$INFO_PLIST"
-    key_file=$(mktemp)
+    # generate_keys -x refuses an existing file, so hand it a fresh path
+    # inside a private directory rather than a pre-created mktemp file.
+    key_dir=$(mktemp -d)
+    key_file="$key_dir/sparkle_private_key"
     if "$GENERATE_KEYS" -x "$key_file" && [[ -s "$key_file" ]]; then
       set_secret SPARKLE_PRIVATE_KEY "$(cat "$key_file")"
       warn "Back up the private key NOW: it is in your login keychain under"
@@ -261,7 +264,7 @@ else
       warn "could not export the private key"
       SKIPPED+=("GitHub secret SPARKLE_PRIVATE_KEY: export failed; run generate_keys -x and gh secret set by hand")
     fi
-    rm -f "$key_file"
+    rm -rf "$key_dir"
     pause "Backed up? Press Enter to continue"
   fi
 fi
