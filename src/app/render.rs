@@ -240,6 +240,7 @@ impl Render for Shidou {
         if self.settings_page.is_some() {
             let command_palette = self.render_command_palette(window, cx);
             let commit_dialog = self.render_commit_dialog(cx);
+            let session_delete_dialog = self.render_session_delete_dialog(cx);
             let toast = self.render_active_toast(cx);
             let content = div()
                 .relative()
@@ -256,6 +257,7 @@ impl Render for Shidou {
                 .children(toast)
                 .children(command_palette)
                 .children(commit_dialog)
+                .children(session_delete_dialog)
                 .children(image_preview)
                 .children(task_switcher)
                 .into_any_element();
@@ -271,6 +273,7 @@ impl Render for Shidou {
         let computer_use = self.render_computer_use_overlay(cx);
         let command_palette = self.render_command_palette(window, cx);
         let commit_dialog = self.render_commit_dialog(cx);
+        let session_delete_dialog = self.render_session_delete_dialog(cx);
         let toast = self.render_active_toast(cx);
         let content = div()
             .key_context("Shidou")
@@ -401,6 +404,7 @@ impl Render for Shidou {
             })
             .children(command_palette)
             .children(commit_dialog)
+            .children(session_delete_dialog)
             .children(image_preview)
             .children(task_switcher)
             .into_any_element();

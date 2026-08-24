@@ -1324,6 +1324,10 @@ pub struct Shidou {
     /// Window-modal Git commit/push UI. Its repository snapshot is filled
     /// off-thread; frames only read this in-memory value.
     commit_dialog: Option<commit_dialog::CommitDialogState>,
+    /// Window-modal confirmation guarding sidebar task removal. Removal is
+    /// irreversible — it drops the row, its refs on disk, and its blobs — so
+    /// the one-keystroke path is gated behind this.
+    session_delete_dialog: Option<session_delete_dialog::SessionDeleteDialogState>,
     /// Commit-message generation and Git mutation outlive the modal that
     /// started them. Keeping the operation on the app also lets every
     /// Environment surface reflect and gate the same in-flight action.
@@ -1420,6 +1424,13 @@ pub struct Shidou {
     /// Groups the user has folded in either sidebar view. This is
     /// intentionally runtime-only, like transcript disclosure state.
     sidebar_collapsed_groups: HashSet<SidebarGroup>,
+    /// Sidebar rows highlighted by a Shift or Cmd click, for bulk removal.
+    /// Empty means "no marked set"; the active task alone reads as selected,
+    /// exactly as it did before multi-selection existed.
+    sidebar_selection: HashSet<Uuid>,
+    /// The row a Shift click extends from, in the Finder sense: set by the
+    /// last plain or Cmd click, never moved by the range selection itself.
+    sidebar_selection_anchor: Option<Uuid>,
     /// Number of older sessions revealed inside each project section. This is
     /// runtime-only so every launch starts with the recent three-day view.
     sidebar_project_reveal_counts: HashMap<SidebarGroup, usize>,
@@ -1713,6 +1724,7 @@ mod image_preview;
 mod render;
 mod right_panel;
 mod runtime;
+mod session_delete_dialog;
 mod sessions;
 mod settings;
 mod sidebar;
@@ -1735,6 +1747,7 @@ pub use command_palette::init as init_command_palette;
 pub use commit_dialog::init as init_commit_dialog_keys;
 use components::*;
 pub use image_preview::init as init_image_preview_keys;
+pub use session_delete_dialog::init as init_session_delete_dialog_keys;
 pub use settings::init as init_settings_keys;
 pub use sidebar::init as init_sidebar_keys;
 use sidebar::{SidebarGroup, SidebarRow};
@@ -2890,6 +2903,7 @@ impl Shidou {
                 visible_branch_snapshot: None,
                 branch_operation_pending: false,
                 commit_dialog: None,
+                session_delete_dialog: None,
                 commit_operation: None,
                 // Providers × workspaces; both scans are small, the cache
                 // only exists to keep them off the frame path.
@@ -2931,6 +2945,8 @@ impl Shidou {
                 session_rename: None,
                 session_rename_input,
                 sidebar_collapsed_groups: HashSet::new(),
+                sidebar_selection: HashSet::new(),
+                sidebar_selection_anchor: None,
                 sidebar_project_reveal_counts: HashMap::new(),
                 sidebar_group_header_focuses: RefCell::new(HashMap::new()),
                 sidebar_group_compose_focuses: RefCell::new(HashMap::new()),

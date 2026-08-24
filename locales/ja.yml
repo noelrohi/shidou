@@ -245,6 +245,11 @@ common.remove: 削除
 common.rename: 名前を変更
 
 session.new_task: 新規タスク
+session.remove_one_title: "このタスクを削除しますか？"
+session.remove_many_title: "%{count} 件のタスクを削除しますか？"
+session.remove_body: "記録と保存された状態を完全に削除します。元に戻せません。"
+session.remove_overflow: "他 %{count} 件"
+session.remove_count: "%{count} 件のタスクを削除"
 
 sidebar.today: 今日
 sidebar.search: 検索

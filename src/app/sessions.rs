@@ -320,6 +320,10 @@ impl Shidou {
             .workspace_path_for_session(&self.state.sessions[index])
             .map(std::path::Path::to_path_buf);
         let was_selected = self.state.selected_session == Some(session_id);
+        self.sidebar_selection.remove(&session_id);
+        if self.sidebar_selection_anchor == Some(session_id) {
+            self.sidebar_selection_anchor = None;
+        }
         self.submission_preparations.remove(&session_id);
         self.reset_session_runtime(session_id);
         self.background_work.remove(&session_id);

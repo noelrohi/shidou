@@ -1690,6 +1690,103 @@ impl Shidou {
         cx.notify();
     }
 
+    /// The tasks a removal gesture on `session_id` applies to.
+    ///
+    /// A gesture that lands inside the marked set acts on the whole set;
+    /// anywhere else it acts on that one row, so a stale selection can never
+    /// widen a removal the user aimed at a single task.
+    pub(super) fn session_removal_targets(&self, session_id: Uuid) -> Vec<Uuid> {
+        if self.sidebar_selection.len() > 1 && self.sidebar_selection.contains(&session_id) {
+            self.marked_sessions_in_row_order()
+        } else {
+            vec![session_id]
+        }
+    }
+
+    /// The marked set in the order the sidebar draws it, so the confirmation
+    /// lists tasks the way the user sees them.
+    fn marked_sessions_in_row_order(&self) -> Vec<Uuid> {
+        self.sidebar_row_cache
+            .borrow()
+            .iter()
+            .filter_map(|row| match row {
+                SidebarRow::Session(id) if self.sidebar_selection.contains(id) => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether `session_id` belongs to a marked multi-selection. A lone mark
+    /// is just the active task, which already has its own treatment.
+    fn sidebar_session_marked(&self, session_id: Uuid) -> bool {
+        self.sidebar_selection.len() > 1 && self.sidebar_selection.contains(&session_id)
+    }
+
+    /// Finder's click routing: plain activates and resets, Shift extends the
+    /// range from the anchor, and the primary modifier toggles one row.
+    /// Only a plain click switches the transcript — extending a selection
+    /// must not drag the user away from the task they are reading.
+    fn click_sidebar_session(
+        &mut self,
+        session_id: Uuid,
+        modifiers: gpui::Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        if modifiers.shift {
+            self.extend_sidebar_selection(session_id, cx);
+        } else if modifiers.secondary() {
+            self.toggle_sidebar_selection(session_id, cx);
+        } else {
+            self.sidebar_selection.clear();
+            self.sidebar_selection_anchor = Some(session_id);
+            self.select_session(session_id, cx);
+        }
+    }
+
+    fn extend_sidebar_selection(&mut self, session_id: Uuid, cx: &mut Context<Self>) {
+        let anchor = self
+            .sidebar_selection_anchor
+            .or(self.state.selected_session)
+            .unwrap_or(session_id);
+        let order = self
+            .sidebar_row_cache
+            .borrow()
+            .iter()
+            .filter_map(|row| match row {
+                SidebarRow::Session(id) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let Some(range) = sidebar_selection_range(&order, anchor, session_id) else {
+            return;
+        };
+        self.sidebar_selection = range;
+        // The anchor deliberately stays put, so dragging the range back and
+        // forth across it keeps growing from the same origin.
+        self.sidebar_selection_anchor = Some(anchor);
+        cx.notify();
+    }
+
+    fn toggle_sidebar_selection(&mut self, session_id: Uuid, cx: &mut Context<Self>) {
+        if self.sidebar_selection.is_empty() {
+            // Seed from the active task so the first modified click adds to
+            // what already reads as selected rather than replacing it.
+            self.sidebar_selection.extend(self.state.selected_session);
+        }
+        if !self.sidebar_selection.remove(&session_id) {
+            self.sidebar_selection.insert(session_id);
+        }
+        if self.sidebar_selection.len() <= 1
+            && self.sidebar_selection.iter().next().copied() == self.state.selected_session
+        {
+            // Back to a plain single selection; drop the marked set so the
+            // active row keeps its ordinary treatment.
+            self.sidebar_selection.clear();
+        }
+        self.sidebar_selection_anchor = Some(session_id);
+        cx.notify();
+    }
+
     fn render_sidebar_session_item(&self, session_id: Uuid, cx: &mut Context<Self>) -> AnyElement {
         let theme = Theme::current(cx);
         let Some(session) = self
@@ -1706,6 +1803,7 @@ impl Shidou {
                 .map(|pending| pending.session_id),
             session_id,
         );
+        let marked = self.sidebar_session_marked(session_id);
         let working = matches!(
             session.status,
             SessionStatus::Connecting | SessionStatus::Working
@@ -1886,6 +1984,12 @@ impl Shidou {
                 .into_any_element()
         };
         let shidou = cx.entity().downgrade();
+        let marked_count = self.session_removal_targets(session_id).len();
+        let remove_label = if marked_count > 1 {
+            tr!("session.remove_count", count = marked_count)
+        } else {
+            tr!("common.remove")
+        };
         let menu = self.menu_handle(format!("session-{session_id}"), cx);
         let row_focus = menu.trigger_focus_handle().clone();
         let keyboard_menu = menu.clone();
@@ -1901,9 +2005,10 @@ impl Shidou {
             .py(px(7.0))
             .rounded(px(7.0))
             .cursor_default()
-            .when(selected, |element| {
+            .when(selected && !marked, |element| {
                 element.bg(theme.sidebar_item_background)
             })
+            .when(marked, |element| element.bg(theme.accent.opacity(0.16)))
             .hover(|element| element.bg(theme.sidebar_item_background))
             .active(|element| element.bg(theme.sidebar_item_background))
             .child(content)
@@ -1920,10 +2025,14 @@ impl Shidou {
                         } else if key == "f10" && event.keystroke.modifiers.shift {
                             keyboard_menu.open_context_menu(window, cx);
                             cx.stop_propagation();
+                        } else if key == "backspace" && event.keystroke.modifiers.secondary() {
+                            let targets = this.session_removal_targets(session_id);
+                            this.confirm_session_removal(targets, window, cx);
+                            cx.stop_propagation();
                         }
                     }))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select_session(session_id, cx);
+                    .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                        this.click_sidebar_session(session_id, event.modifiers(), cx);
                     }))
             });
         let row = if renaming {
@@ -1944,6 +2053,7 @@ impl Shidou {
                 move |_| {
                     let rename_shidou = shidou.clone();
                     let remove_shidou = shidou.clone();
+                    let remove_label = remove_label.clone();
                     vec![
                         MenuItem::new(tr!("common.rename"), move |window, cx| {
                             let _ = rename_shidou.update(cx, |shidou, cx| {
@@ -1951,9 +2061,11 @@ impl Shidou {
                             });
                         }),
                         MenuItem::Separator,
-                        MenuItem::new(tr!("common.remove"), move |_, cx| {
-                            let _ = remove_shidou
-                                .update(cx, |shidou, cx| shidou.remove_session(session_id, cx));
+                        MenuItem::new(remove_label, move |window, cx| {
+                            let _ = remove_shidou.update(cx, |shidou, cx| {
+                                let targets = shidou.session_removal_targets(session_id);
+                                shidou.confirm_session_removal(targets, window, cx);
+                            });
                         }),
                     ]
                 },
@@ -2332,13 +2444,23 @@ impl Shidou {
     }
 }
 
-fn localized_session_title(session: &AgentSession) -> String {
+pub(super) fn localized_session_title(session: &AgentSession) -> String {
     let title = session.display_title();
     if title == AgentSession::DEFAULT_TITLE {
         tr!("session.new_task")
     } else {
         title.to_owned()
     }
+}
+
+/// The inclusive run of rows between `anchor` and `target` in draw order.
+/// `None` when either row has scrolled out of the snapshot, in which case the
+/// existing selection is better left alone than replaced with a guess.
+fn sidebar_selection_range(order: &[Uuid], anchor: Uuid, target: Uuid) -> Option<HashSet<Uuid>> {
+    let from = order.iter().position(|id| *id == anchor)?;
+    let to = order.iter().position(|id| *id == target)?;
+    let range = if from <= to { from..=to } else { to..=from };
+    Some(order[range].iter().copied().collect())
 }
 
 fn sidebar_session_selected(
@@ -2354,6 +2476,29 @@ fn sidebar_session_selected(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shift_selection_spans_rows_in_either_direction() {
+        let order = (0..5).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+
+        let downward = sidebar_selection_range(&order, order[1], order[3]).unwrap();
+        assert_eq!(downward, order[1..=3].iter().copied().collect());
+
+        // Shift-clicking above the anchor selects the same run, not an empty
+        // one — the range is inclusive in both directions.
+        let upward = sidebar_selection_range(&order, order[3], order[1]).unwrap();
+        assert_eq!(upward, downward);
+
+        let single = sidebar_selection_range(&order, order[2], order[2]).unwrap();
+        assert_eq!(single, HashSet::from([order[2]]));
+    }
+
+    #[test]
+    fn shift_selection_ignores_rows_outside_the_snapshot() {
+        let order = (0..3).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+        assert!(sidebar_selection_range(&order, Uuid::new_v4(), order[1]).is_none());
+        assert!(sidebar_selection_range(&order, order[1], Uuid::new_v4()).is_none());
+    }
 
     #[test]
     fn groups_sessions_by_calendar_period() {
