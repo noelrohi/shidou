@@ -16,6 +16,12 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.0]
+
+- Shidou's first release as its own app: new name, icon, and bundle identity, forked from Waku
+- Automatic updates now come from Shidou's own signed feed at releases.shidou.dev
+- Workspace Visuals gallery for reviewing and attaching images the agent generates with the local ima2 runtime
+
 ## [0.1.14]
 
 - Group sidebar tasks by project or update date, order them newest or oldest first, and collapse sections
