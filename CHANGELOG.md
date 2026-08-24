@@ -16,6 +16,13 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.4]
+
+- Paste screenshots directly into the composer
+- Select and remove multiple sidebar tasks with a confirmation step
+- Keep Command-Enter steering working while an agent response is in progress
+- Parse skill descriptions with YAML frontmatter correctly
+
 ## [0.2.3]
 
 - Generate Conventional Commit subjects from the commit dialog when enabled in General settings
