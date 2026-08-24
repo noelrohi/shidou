@@ -77,9 +77,9 @@ export function SkillsSettings({ projects }: { projects: Project[] }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full bg-background">
-      <section className="flex w-[264px] shrink-0 flex-col border-r" aria-label={t('skills.library')}>
-        <div className="flex shrink-0 flex-col gap-[7px] px-2.5 pb-2 pt-[22px]">
+    <div className="flex h-full min-h-0 w-full flex-col bg-background lg:flex-row">
+      <section className="flex h-[42%] w-full shrink-0 flex-col border-b lg:h-full lg:w-[264px] lg:border-b-0 lg:border-r" aria-label={t('skills.library')}>
+        <div className="flex shrink-0 flex-col gap-[7px] px-2.5 pb-2 pt-3 sm:pt-[22px]">
           <label className="flex h-7 items-center gap-2 rounded-md border bg-[var(--inset)] px-2.5 focus-within:border-ring">
             <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name="search" />
             <input
@@ -164,7 +164,7 @@ export function SkillsSettings({ projects }: { projects: Project[] }) {
             : `${t(catalog.length === 1 ? 'skills.count_one' : 'skills.count_many', { count: catalog.length })}${disabled ? ` · ${t('skills.count_disabled', { count: disabled })}` : ''}`}
         </div>
       </section>
-      <section className="min-w-0 flex-1" aria-label={t('skills.details')}>
+      <section className="min-h-0 min-w-0 flex-1" aria-label={t('skills.details')}>
         {selected ? (
           <SkillDetail
             key={selected.rowKey}
@@ -220,7 +220,7 @@ function SkillDetail({
     : ''
 
   return (
-    <div className="h-full overflow-y-auto px-6 pb-5 pt-[18px]">
+    <div className="h-full overflow-y-auto px-4 pb-5 pt-4 sm:px-6 sm:pt-[18px]">
       <div className="mx-auto max-w-[680px]">
         <div className="flex items-center gap-3">
           <div className="grid size-[38px] shrink-0 place-items-center rounded-[9px] bg-[var(--inset)]">

@@ -94,8 +94,8 @@ export function SettingsView({
   }, [query])
 
   return (
-    <div className="flex h-dvh min-w-0 flex-1 bg-background">
-      <aside className="flex h-full w-[252px] shrink-0 flex-col bg-sidebar pt-3">
+    <div className="flex h-dvh min-w-0 flex-1 flex-col bg-background md:flex-row">
+      <aside className="flex h-auto w-full shrink-0 flex-col border-b bg-sidebar pt-2 md:h-full md:w-[252px] md:border-b-0 md:pt-3">
         <div className="px-3">
           <button
             className="flex h-[34px] w-full items-center gap-[9px] rounded-lg px-[9px] text-[13px] text-[var(--text-secondary)] outline-none hover:bg-sidebar-accent active:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
@@ -125,12 +125,12 @@ export function SettingsView({
             />
           </label>
         </div>
-        <nav aria-label={t('common.settings')} className="mt-[18px] flex flex-col gap-[3px] px-3">
+        <nav aria-label={t('common.settings')} className="mt-1 flex gap-1 overflow-x-auto px-3 pb-2 md:mt-[18px] md:flex-col md:gap-[3px] md:overflow-visible md:pb-0">
           {pages.map((candidate) => (
             <button
               aria-current={page === candidate.id ? 'page' : undefined}
               className={cn(
-                'flex h-9 items-center gap-2.5 rounded-lg px-[11px] text-[13px] text-[var(--text-secondary)] outline-none hover:bg-sidebar-accent focus-visible:ring-1 focus-visible:ring-ring',
+                'flex h-9 shrink-0 items-center gap-2.5 rounded-lg px-[11px] text-[13px] text-[var(--text-secondary)] outline-none hover:bg-sidebar-accent focus-visible:ring-1 focus-visible:ring-ring',
                 page === candidate.id && 'bg-sidebar-accent text-foreground',
               )}
               key={candidate.id}
@@ -144,8 +144,8 @@ export function SettingsView({
         </nav>
       </aside>
       <main className={cn(
-        'min-w-0 flex-1 border-l bg-background',
-        page === 'skills' ? 'overflow-hidden' : 'overflow-y-auto px-8 pb-12 pt-5',
+        'min-h-0 min-w-0 flex-1 bg-background md:border-l',
+        page === 'skills' ? 'overflow-hidden' : 'overflow-y-auto px-4 pb-8 pt-4 sm:px-6 md:px-8 md:pb-12 md:pt-5',
       )}>
         {page === 'skills' ? (
           <SkillsSettings projects={projects} />
@@ -233,7 +233,7 @@ function AppearanceSettings() {
   const themeLabel = t(`settings.theme_${theme}`)
   return (
     <div className="mt-[15px] w-full overflow-hidden rounded-[13px] bg-[var(--raised)]">
-      <div className="flex min-h-[60px] items-center gap-6 px-5 py-3">
+      <div className="flex min-h-[60px] flex-col items-stretch gap-3 px-5 py-3 sm:flex-row sm:items-center sm:gap-6">
         <SettingText title={t('settings.theme')} description={t('settings.theme_description')} />
         <ControlMenu
           align="right"
@@ -246,11 +246,11 @@ function AppearanceSettings() {
           label={themeLabel}
           menuClassName="w-[140px]"
           placement="below"
-          triggerClassName="h-8 w-[116px] max-w-none justify-between border bg-background px-3 text-[12px]"
+          triggerClassName="h-8 w-full max-w-none justify-between border bg-background px-3 text-[12px] sm:w-[116px]"
         />
       </div>
       <div className="mx-5 border-t" />
-      <div className="flex min-h-[60px] items-center gap-6 px-5 py-3">
+      <div className="flex min-h-[60px] flex-col items-stretch gap-3 px-5 py-3 sm:flex-row sm:items-center sm:gap-6">
         <SettingText title={t('language.title')} description={t('language.description')} />
         <ControlMenu
           align="right"
@@ -263,7 +263,7 @@ function AppearanceSettings() {
           label={languageLabel(language, locale)}
           menuClassName="w-[160px]"
           placement="below"
-          triggerClassName="h-8 w-[116px] max-w-none justify-between border bg-background px-3 text-[12px]"
+          triggerClassName="h-8 w-full max-w-none justify-between border bg-background px-3 text-[12px] sm:w-[116px]"
         />
       </div>
     </div>
@@ -323,14 +323,14 @@ function ProvidersSettings() {
 
   return (
     <div className="mt-[15px] overflow-hidden rounded-[13px] bg-[var(--raised)] px-5 py-[14px]">
-      <div className="flex items-start gap-5">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:gap-5">
         <div className="min-w-0 flex-1">
           <div className="text-[13.5px] font-medium">{t('providers.coding_agents')}</div>
           <p className="mt-[5px] text-[12px] leading-[18px] text-[var(--text-secondary)]">
             {t('providers.web_description')}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <div className="flex shrink-0 flex-row items-center justify-between gap-2 sm:flex-col sm:items-end sm:justify-start sm:gap-1.5">
           <button
             className="flex h-7 items-center gap-1.5 rounded-[7px] border border-input px-[11px] text-[10.5px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
             disabled={probes.isFetching}
@@ -403,7 +403,7 @@ function ProvidersSettings() {
                 )}
               </div>
               {open && settings.data && (
-                <div className="mb-[11px] ml-[42px] flex flex-col gap-[5px]">
+                <div className="mb-[11px] flex flex-col gap-[5px] sm:ml-[42px]">
                   <label className="text-[11.5px] font-medium">{t('providers.binary_path')}</label>
                   <p className="text-[10.5px] leading-[15px] text-[var(--text-tertiary)]">
                     {t('providers.binary_path_description', { provider: provider.shortName })}
@@ -538,7 +538,7 @@ function DaemonSettings() {
 
 function SettingsCard({ children, row = false }: { children: ReactNode; row?: boolean }) {
   return (
-    <section className={cn('mt-[15px] w-full rounded-[13px] bg-[var(--raised)] px-5 py-[14px]', row && 'flex items-center gap-6')}>
+    <section className={cn('mt-[15px] w-full rounded-[13px] bg-[var(--raised)] px-5 py-[14px]', row && 'flex items-center gap-4 sm:gap-6')}>
       {children}
     </section>
   )
@@ -586,9 +586,9 @@ function DetailRow({
   const copyFeedback = useCopyFeedback()
   const [revealed, setRevealed] = useState(false)
   return (
-    <div className="flex min-h-12 items-center gap-4 text-[11.5px]">
-      <span className="w-28 shrink-0 text-[var(--text-tertiary)]">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono">
+    <div className="flex min-h-12 flex-wrap items-center gap-2 py-2 text-[11.5px] sm:flex-nowrap sm:gap-4 sm:py-0">
+      <span className="w-full shrink-0 text-[var(--text-tertiary)] sm:w-28">{label}</span>
+      <span className="min-w-0 flex-1 basis-[160px] truncate font-mono">
         {secret && !revealed ? '••••••••••••••••••••••••' : value}
       </span>
       {secret && (

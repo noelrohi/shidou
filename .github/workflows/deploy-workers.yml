@@ -8,7 +8,6 @@ on:
       - "apps/web/**"
       - "packages/**"
       - "bun.lock"
-      - ".github/workflows/deploy-workers.yml"
   workflow_dispatch:
 
 permissions:
@@ -19,18 +18,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    name: Select changed workers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select workers
+        id: select
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            web=true
+            website=true
+          else
+            web=false
+            website=false
+            while IFS= read -r file; do
+              case "$file" in
+                apps/web/*) web=true ;;
+                website/*) website=true ;;
+                packages/*|bun.lock)
+                  web=true
+                  website=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          fi
+
+          if [ "$web" = true ] && [ "$website" = true ]; then
+            matrix='{"include":[{"workspace":"website","directory":"website"},{"workspace":"@shidou/web","directory":"apps/web"}]}'
+          elif [ "$web" = true ]; then
+            matrix='{"include":[{"workspace":"@shidou/web","directory":"apps/web"}]}'
+          else
+            matrix='{"include":[{"workspace":"website","directory":"website"}]}'
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: Deploy ${{ matrix.workspace }}
+    needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - workspace: website
-            directory: website
-          - workspace: "@shidou/web"
-            directory: apps/web
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
