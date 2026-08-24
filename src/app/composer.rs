@@ -803,6 +803,7 @@ impl Shidou {
             return div()
                 .h(px(24.0))
                 .px(px(7.0))
+                .min_w_0()
                 .flex()
                 .items_center()
                 .gap(px(6.0))
@@ -813,6 +814,7 @@ impl Shidou {
                 ))
                 .child(
                     div()
+                        .min_w_0()
                         .max_w(px(210.0))
                         .truncate()
                         .text_color(theme.text_secondary)
@@ -1604,7 +1606,11 @@ impl Shidou {
         ))
     }
 
-    pub(super) fn render_access_control(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_access_control(
+        &self,
+        compact: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = Theme::current(cx);
         let selected_mode = self
             .selected_session()
@@ -1617,6 +1623,7 @@ impl Shidou {
             MenuChip::new("runtime-mode")
                 .icon(selected_mode.icon(), theme.text_tertiary)
                 .label(selected_mode.label())
+                .label_hidden(compact)
                 .caret(false)
                 .selected(handle.is_open()),
             "runtime-mode-menu",
@@ -1682,7 +1689,11 @@ impl Shidou {
         )
     }
 
-    pub(super) fn render_agent_preset_control(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn render_agent_preset_control(
+        &self,
+        compact: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let session = self
             .selected_session()
             .filter(|session| session.provider == ProviderKind::DeepSeek)?;
@@ -1711,6 +1722,7 @@ impl Shidou {
         let trigger = MenuChip::new("agent-preset")
             .icon("icons/bot.svg", theme.text_tertiary)
             .label(selected_label)
+            .label_hidden(compact)
             .caret(false)
             .selected(handle.is_open());
 
@@ -1798,7 +1810,11 @@ impl Shidou {
         ))
     }
 
-    pub(super) fn render_interaction_mode_control(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_interaction_mode_control(
+        &self,
+        compact: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = Theme::current(cx);
         let mode = self
             .selected_session()
@@ -1830,6 +1846,7 @@ impl Shidou {
             .h(px(24.0))
             .px(px(7.0))
             .rounded(px(6.0))
+            .min_w_0()
             .flex()
             .items_center()
             .gap(px(6.0))
@@ -1854,7 +1871,9 @@ impl Shidou {
                     theme.text_tertiary
                 },
             ))
-            .child(mode.label())
+            .when(!compact, |element| {
+                element.child(div().min_w_0().truncate().child(mode.label()))
+            })
             .when(interactive, |element| {
                 element
                     .hover(|element| element.bg(theme.overlay))
@@ -2594,6 +2613,12 @@ impl Shidou {
         // compositing over it.
         let drop_wash = theme.composer.blend(theme.overlay_strong);
         let drop_ring = theme.accent.opacity(0.7);
+        // Below this card width the control labels stop fitting alongside the
+        // send button; chips collapse to their icons and the row scrolls. The
+        // model and effort chips keep their words — a provider glyph names a
+        // family, not a model, and the effort icon alone says nothing.
+        let compact_controls =
+            (self.chat_viewport_width(window) - 40.0).min(CONTENT_MAX_WIDTH) < 480.0;
         div().flex_none().px(px(20.0)).child(
             div()
                 .w_full()
@@ -2651,15 +2676,29 @@ impl Shidou {
                         .gap(px(4.0))
                         .text_size(sp(12.5))
                         .line_height(sp(14.0))
-                        .child(self.render_provider_model_control(cx))
-                        .children(self.render_model_traits_control(cx))
-                        .children(self.render_agent_preset_control(cx))
-                        .child(self.render_access_control(cx))
-                        .child(self.render_interaction_mode_control(cx))
-                        .child(div().flex_1())
+                        .child(
+                            // The chip cluster scrolls (no scrollbar — it
+                            // stays a one-line strip) instead of crushing the
+                            // send button when the card gets narrow.
+                            div()
+                                .id("composer-controls")
+                                .min_w_0()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .overflow_x_scroll()
+                                .track_scroll(&self.composer_controls_scroll_handle)
+                                .child(self.render_provider_model_control(cx))
+                                .children(self.render_model_traits_control(cx))
+                                .children(self.render_agent_preset_control(compact_controls, cx))
+                                .child(self.render_access_control(compact_controls, cx))
+                                .child(self.render_interaction_mode_control(compact_controls, cx)),
+                        )
                         .child(match submit_action {
                             ComposerSubmitAction::Preparing => div()
                                 .id("send-or-stop")
+                                .flex_none()
                                 .w(px(26.0))
                                 .h(px(26.0))
                                 .rounded_full()
@@ -2676,6 +2715,7 @@ impl Shidou {
                                 .tooltip(Tooltip::text(tr!("composer.preparing_task"))),
                             ComposerSubmitAction::Stop => div()
                                 .id("working-actions")
+                                .flex_none()
                                 .flex()
                                 .items_center()
                                 .gap(px(6.0))
@@ -2743,6 +2783,7 @@ impl Shidou {
                                 }),
                             ComposerSubmitAction::Send => div()
                                 .id("send-or-stop")
+                                .flex_none()
                                 .w(px(26.0))
                                 .h(px(26.0))
                                 .rounded_full()

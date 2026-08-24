@@ -29,6 +29,7 @@ export function ControlMenu({
   caret = true,
   menuClassName,
   triggerClassName,
+  labelClassName,
   highlightTriggerWhenOpen = true,
   selectionMode = 'choice',
   onOpenChange,
@@ -44,6 +45,7 @@ export function ControlMenu({
   caret?: boolean
   menuClassName?: string
   triggerClassName?: string
+  labelClassName?: string
   highlightTriggerWhenOpen?: boolean
   selectionMode?: 'choice' | 'status'
   onOpenChange?: (open: boolean) => void
@@ -65,14 +67,14 @@ export function ControlMenu({
       <Menu.Trigger
         aria-label={label}
         className={cn(
-          'flex h-6 max-w-44 shrink-0 items-center gap-1.5 rounded-[6px] px-[7px] text-[11.5px] leading-[14px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-45',
+          'flex h-6 min-w-0 max-w-44 items-center gap-1.5 rounded-[6px] px-[7px] text-[11.5px] leading-[14px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-45',
           highlightTriggerWhenOpen && open && 'bg-accent text-foreground',
           triggerClassName,
         )}
       >
-        {icon && <ShidouIcon className="size-[11px] text-[var(--text-tertiary)]" name={icon} />}
-        {children ?? <span className="truncate">{label}</span>}
-        {caret && <ShidouIcon className="size-2.5 text-[var(--text-ghost)]" name="chevronDown" />}
+        {icon && <ShidouIcon className="size-[11px] shrink-0 text-[var(--text-tertiary)]" name={icon} />}
+        {children ?? <span className={cn('truncate', labelClassName)}>{label}</span>}
+        {caret && <ShidouIcon className="size-2.5 shrink-0 text-[var(--text-ghost)]" name="chevronDown" />}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner

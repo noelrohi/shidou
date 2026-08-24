@@ -662,7 +662,7 @@ export function Composer({
             />
           )}
           <section
-            className="rounded-[13px] border bg-card p-2.5 focus-within:border-input"
+            className="@container/composer rounded-[13px] border bg-card p-2.5 focus-within:border-input"
             onDragOver={(event) => {
               event.preventDefault()
               event.dataTransfer.dropEffect = 'copy'
@@ -711,6 +711,9 @@ export function Composer({
             className="mt-2 flex min-w-0 items-center gap-1 pb-px text-[11.5px] leading-[14px]"
             onMouseDown={preserveComposerFocusOnMouseDown}
           >
+            {/* The chip strip scrolls (scrollbar hidden) rather than crowding
+                the send button; menus escape the clip through portals. */}
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <ModelPicker
               currentProbe={probe.data}
               openSignal={modelPickerSignal}
@@ -753,8 +756,8 @@ export function Composer({
             />
             <AccessControl returnFocus={composerInput} session={session} onPatch={savePatch} />
             <InteractionModeControl session={session} onPatch={savePatch} />
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
               {busy && (
                 <Button
                   aria-label={t(escapeStopArmed ? 'composer.stop_confirm' : 'composer.stop')}
@@ -1351,6 +1354,7 @@ function AgentPresetControl({
         }),
       }))}
       label={selected ? agentPresetLabel(selected, t) : t('agent_preset.standard')}
+      labelClassName="@max-[480px]/composer:hidden"
       menuClassName="w-80"
       returnFocus={returnFocus}
     />
@@ -1394,6 +1398,7 @@ function AccessControl({
         onSelect: () => onPatch({ runtime_mode: mode.id }),
       }))}
       label={t(selected.labelKey)}
+      labelClassName="@max-[480px]/composer:hidden"
       menuClassName="w-[304px]"
       returnFocus={returnFocus}
     />
@@ -1416,7 +1421,7 @@ function InteractionModeControl({
     <button
       aria-label={t('mode.switch_to', { mode: t(plan ? 'mode.build' : 'mode.plan') })}
       className={cn(
-        'flex h-6 shrink-0 items-center gap-1.5 rounded-md px-[7px] text-[11.5px] text-[var(--text-secondary)] outline-none focus-visible:ring-1 focus-visible:ring-ring',
+        'flex h-6 min-w-0 items-center gap-1.5 rounded-md px-[7px] text-[11.5px] text-[var(--text-secondary)] outline-none focus-visible:ring-1 focus-visible:ring-ring',
         plan && 'text-ring',
         interactive ? 'hover:bg-accent' : 'opacity-50',
       )}
@@ -1429,8 +1434,8 @@ function InteractionModeControl({
       type="button"
       onClick={() => onPatch({ interaction_mode: plan ? 'build' : 'plan' })}
     >
-      <ShidouIcon className={cn('size-[10.5px] text-[var(--text-tertiary)]', plan && 'text-ring')} name={plan ? 'list' : 'wrench'} />
-      {t(plan ? 'mode.plan' : 'mode.build')}
+      <ShidouIcon className={cn('size-[10.5px] shrink-0 text-[var(--text-tertiary)]', plan && 'text-ring')} name={plan ? 'list' : 'wrench'} />
+      <span className="truncate @max-[480px]/composer:hidden">{t(plan ? 'mode.plan' : 'mode.build')}</span>
     </button>
   )
 }
@@ -1599,7 +1604,7 @@ function BranchPicker({
     <Popover.Root modal={false} open={open} onOpenChange={updateOpen}>
       <Popover.Trigger
         className={cn(
-          'flex h-6 max-w-52 shrink-0 items-center gap-1.5 rounded-[6px] px-[7px] text-[11px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-45',
+          'flex h-6 min-w-0 max-w-52 items-center gap-1.5 rounded-[6px] px-[7px] text-[11px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-45',
           open && 'bg-accent text-foreground',
         )}
         disabled={disabled}
@@ -1610,7 +1615,7 @@ function BranchPicker({
           }
         }}
       >
-        <ShidouIcon className="size-[11px] text-[var(--text-tertiary)]" name="gitBranch" />
+        <ShidouIcon className="size-[11px] shrink-0 text-[var(--text-tertiary)]" name="gitBranch" />
         <span className="truncate">{pending ? t('branches.switching') : selected ?? t('branches.detached_head')}</span>
       </Popover.Trigger>
       <Popover.Portal>

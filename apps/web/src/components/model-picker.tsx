@@ -129,12 +129,12 @@ export function ModelPicker({
       <Popover.Trigger
         aria-label={t('models.choose')}
         className={cn(
-          'flex h-6 max-w-[224px] items-center gap-1.5 rounded-[6px] px-[7px] text-[11.5px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
+          'flex h-6 min-w-0 max-w-[224px] items-center gap-1.5 rounded-[6px] px-[7px] text-[11.5px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
           open && 'bg-accent text-foreground',
         )}
         disabled={session.status !== 'idle'}
       >
-        <ProviderIcon className="size-[10.5px]" provider={session.provider} />
+        <ProviderIcon className="size-[10.5px] shrink-0" provider={session.provider} />
         <span className="truncate">{selectedName}</span>
       </Popover.Trigger>
       <Popover.Portal>

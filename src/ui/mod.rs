@@ -244,6 +244,7 @@ pub struct MenuChip {
     outlined: bool,
     selected: bool,
     disabled: bool,
+    label_hidden: bool,
     height: Option<Pixels>,
     background: Option<Hsla>,
 }
@@ -258,6 +259,7 @@ impl MenuChip {
             outlined: false,
             selected: false,
             disabled: false,
+            label_hidden: false,
             height: None,
             background: None,
         }
@@ -290,6 +292,14 @@ impl MenuChip {
 
     pub fn outlined(mut self) -> Self {
         self.outlined = true;
+        self
+    }
+
+    /// Collapse the chip to its icon; the label stays available to menus and
+    /// tooltips built from the same data. Ignored when the chip has no icon,
+    /// so a text-only chip never renders empty.
+    pub fn label_hidden(mut self, hidden: bool) -> Self {
+        self.label_hidden = hidden;
         self
     }
 
@@ -331,12 +341,14 @@ impl ParentElement for MenuChip {
 impl RenderOnce for MenuChip {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = Theme::current(cx);
+        let has_icon = self.icon.is_some();
         self.base
             .h(self
                 .height
                 .unwrap_or(if self.outlined { px(30.0) } else { px(26.0) }))
             .px(if self.outlined { px(10.0) } else { px(7.0) })
             .rounded(if self.outlined { px(7.0) } else { px(6.0) })
+            .min_w_0()
             .flex()
             .items_center()
             .gap(px(6.0))
@@ -358,13 +370,15 @@ impl RenderOnce for MenuChip {
             .when_some(self.icon, |element, (path, color)| {
                 element.child(icon(path, 12.0, color))
             })
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_color(theme.text_secondary)
-                    .child(self.label),
-            )
+            .when(!self.label_hidden || !has_icon, |element| {
+                element.child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(theme.text_secondary)
+                        .child(self.label),
+                )
+            })
             .when(self.caret, |element| {
                 element.child(icon("icons/chevron-down.svg", 10.5, theme.text_ghost))
             })
