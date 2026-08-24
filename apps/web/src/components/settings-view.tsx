@@ -208,6 +208,11 @@ function GeneralSettings() {
         />
         <Toggle checked={analytics} label={t('settings.share_anonymous_usage_data')} onChange={setAnalytics} />
       </SettingsCard>
+      <nav aria-label={t('settings.legal')} className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-[11.5px] text-[var(--text-tertiary)]">
+        <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring" href="/LICENSE.txt" target="_blank" rel="noreferrer">{t('settings.license')}</a>
+        <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring" href="/THIRD_PARTY_LICENSES.txt" target="_blank" rel="noreferrer">{t('settings.third_party_licenses')}</a>
+        <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring" href="https://github.com/noelrohi/shidou" target="_blank" rel="noreferrer">{t('settings.source_code')}</a>
+      </nav>
     </div>
   )
 }

@@ -39,14 +39,20 @@ Shidou does not install an image-generation skill. Keep the prompt or skill that
 
 ## Architecture
 
-The GPUI desktop and React browser client connect to the standalone daemon through the versioned protocol in `crates/shidou-protocol`. Provider sessions live in `crates/shidou-core`. Internal crate and protocol names retain `shidou` for a small, maintainable downstream diff.
+The GPUI desktop and React browser client connect to the standalone daemon through the versioned protocol in `crates/shidou-protocol`. Provider sessions live in `crates/shidou-core`.
 
 The daemon has no image-generation RPC: the coding agent runs `ima2` itself, and Visuals only indexes and attaches the image files it writes into the workspace. The gallery imports a folder in one `importPathAttachments` round trip.
 
 Shidou uses Bun for dependency management. Run `bun run protocol:generate` after changing wire types and `bun run protocol:check` to verify generated bindings.
 
-The upstream Shidou update feed is intentionally disabled; configure a Shidou-owned feed and signing key before distributing releases.
+Release builds use Shidou's signed update feed at
+`https://releases.shidou.dev/appcast.xml`; see [RELEASING.md](RELEASING.md) for
+the signing and publishing workflow.
 
 ## License
 
 Shidou is a derivative of [Waku](https://github.com/egoist/waku) and remains licensed under the [GNU General Public License v3.0 only](LICENSE). Copyright © egoist and the Waku contributors; modifications copyright © 2026 Rohi, forked from Waku in August 2026. `ima2-gen` is a separate MIT-licensed runtime and is not vendored into this repository.
+
+Bundled dependency, font, icon, and framework notices are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the generated reports
+under `licenses/` and each web application's `public/` directory.

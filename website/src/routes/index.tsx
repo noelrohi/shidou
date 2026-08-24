@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/tooltip'
 import {
   FALLBACK_DOWNLOAD_URL,
+  sourceArchiveUrl,
   WINDOWS_ARCHITECTURES,
   releaseQuery,
   windowsInstallerUrl,
@@ -40,7 +41,7 @@ export const Route = createFileRoute('/')({
 })
 
 const WINDOWS_DOCS_URL =
-  'https://github.com/noelrohi/shidou/blob/main/docs/windows.md'
+  'https://github.com/noelrohi/shidou/blob/master/docs/windows.md'
 
 const PROVIDERS = [
   { slug: 'amp', label: 'Amp' },
@@ -153,7 +154,7 @@ function DownloadMenu({
               macOS (Apple Silicon)
             </Menu.LinkItem>
             <Menu.LinkItem
-              href="https://github.com/noelrohi/shidou/blob/main/docs/linux.md"
+              href="https://github.com/noelrohi/shidou/blob/master/docs/linux.md"
               target="_blank"
               rel="noreferrer"
               closeOnClick
@@ -175,6 +176,13 @@ function DownloadMenu({
                 {label}
               </Menu.LinkItem>
             ))}
+            <Menu.LinkItem
+              href={version ? sourceArchiveUrl(version) : 'https://github.com/noelrohi/shidou'}
+              closeOnClick
+              className={itemClassName}
+            >
+              {version ? `Source code (v${version})` : 'Source code'}
+            </Menu.LinkItem>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
@@ -372,13 +380,18 @@ function Home() {
           </main>
 
           {/* Footer */}
-          <footer className="flex items-center gap-2 border-t px-5 py-10 text-xs text-muted-foreground md:px-10">
-            <img
-              src="/app-icon.png"
-              alt=""
-              className="size-4 rounded-[4px] opacity-80 grayscale"
-            />
-            <span>© 2026 Shidou</span>
+          <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t px-5 py-10 text-xs text-muted-foreground md:px-10">
+            <span className="flex items-center gap-2">
+              <img
+                src="/app-icon.png"
+                alt=""
+                className="size-4 rounded-[4px] opacity-80 grayscale"
+              />
+              © 2026 Shidou
+            </span>
+            <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="/LICENSE.txt">GPL license</a>
+            <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="/THIRD_PARTY_LICENSES.txt">Third-party licenses</a>
+            <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="https://github.com/noelrohi/shidou">Source code</a>
           </footer>
         </div>
       </div>

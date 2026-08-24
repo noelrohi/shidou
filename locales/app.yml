@@ -191,6 +191,14 @@ settings.back:
   en: Back
 settings.search:
   en: Search Settings
+settings.legal:
+  en: Legal information
+settings.license:
+  en: GPL license
+settings.third_party_licenses:
+  en: Third-party licenses
+settings.source_code:
+  en: Source code
 daemon.expose_title:
   en: Expose managed daemon
 daemon.expose_description:

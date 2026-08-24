@@ -1,0 +1,40 @@
+<!--
+Copyright 2020-2024 Embark Studios
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shidou third-party Rust licenses</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 900px; padding: 0 1rem; }
+    a { color: inherit; }
+    pre { border: 1px solid #bbb; border-radius: 6px; max-height: 22rem; overflow: auto; padding: 1rem; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Shidou third-party Rust licenses</h1>
+  <p>This report lists Rust packages included in Shidou and their license texts.</p>
+  <h2>License overview</h2>
+  <ul>
+    {{#each overview}}
+    <li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+    {{/each}}
+  </ul>
+  <h2>License texts</h2>
+  {{#each licenses}}
+  <section>
+    {{#if first_of_kind}}<h3 id="{{id}}">{{name}}</h3>{{/if}}
+    <p>Used by:</p>
+    <ul>
+      {{#each used_by}}
+      <li><a href="{{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}">{{crate.name}} {{crate.version}}</a></li>
+      {{/each}}
+    </ul>
+    <pre>{{text}}</pre>
+  </section>
+  {{/each}}
+</body>
+</html>

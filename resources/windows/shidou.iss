@@ -79,6 +79,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "{#StageDir}\shidou.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\shidou-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Shidou"; Filename: "{app}\shidou.exe"

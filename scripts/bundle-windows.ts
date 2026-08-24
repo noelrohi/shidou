@@ -135,6 +135,24 @@ try {
     await copyFile(join(releaseDirectory, file), join(packageDirectory, file));
   }
   await copyFile(join(projectRoot, "LICENSE"), join(packageDirectory, "LICENSE"));
+  await copyFile(
+    join(projectRoot, "THIRD_PARTY_NOTICES.md"),
+    join(packageDirectory, "THIRD_PARTY_NOTICES.md"),
+  );
+  const licensesDirectory = join(packageDirectory, "licenses");
+  await mkdir(licensesDirectory);
+  await copyFile(
+    join(projectRoot, "licenses", "THIRD_PARTY_RUST_LICENSES.html"),
+    join(licensesDirectory, "THIRD_PARTY_RUST_LICENSES.html"),
+  );
+  await copyFile(
+    join(projectRoot, "assets", "fonts", "OFL.txt"),
+    join(licensesDirectory, "OFL.txt"),
+  );
+  await copyFile(
+    join(projectRoot, "assets", "fonts", "LICENSE-nerd-fonts.txt"),
+    join(licensesDirectory, "LICENSE-nerd-fonts.txt"),
+  );
 
   // Authenticode has to be applied before anything is packaged, so the
   // executables inside the zip and the installer are all signed. Unsigned
@@ -161,6 +179,18 @@ try {
   // name says so — no PowerShell, and the same one-versioned-directory layout
   // the Linux tarball uses.
   await $`tar -a -c -f ${archive} -C ${staging} ${packageDirectoryName}`;
+  const archiveEntries = (await $`tar -tf ${archive}`.quiet().text())
+    .split(/\r?\n/)
+    .map((entry) => entry.replaceAll("\\", "/"));
+  for (const required of [
+    `${packageDirectoryName}/LICENSE`,
+    `${packageDirectoryName}/THIRD_PARTY_NOTICES.md`,
+    `${packageDirectoryName}/licenses/THIRD_PARTY_RUST_LICENSES.html`,
+  ]) {
+    if (!archiveEntries.includes(required)) {
+      throw new Error(`Portable archive is missing ${required}`);
+    }
+  }
   console.log(`Created ${archive}`);
 
   // The installer is what the in-app updater downloads and re-runs, so it

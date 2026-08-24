@@ -151,7 +151,8 @@ if [ ! -d "$sparkle_framework_source" ]; then
 fi
 
 rm -rf "$bundle"
-mkdir -p "$contents/MacOS" "$contents/Resources/computer-use" "$contents/Resources/skills/shidou-computer-use" "$contents/Helpers"
+license_resources="$contents/Resources/licenses"
+mkdir -p "$contents/MacOS" "$contents/Resources/computer-use" "$contents/Resources/skills/shidou-computer-use" "$license_resources" "$contents/Helpers"
 cp "$cargo_target_dir/$profile/shidou" "$contents/MacOS/$app_name"
 cp "$cargo_target_dir/$profile/shidou_js_repl" "$repl_executable"
 chmod 755 "$repl_executable"
@@ -163,6 +164,8 @@ cp resources/Info.plist "$contents/Info.plist"
 cp "resources/$icon_file" "$contents/Resources/AppIcon.icns"
 cp resources/computer-use/pi-extension.ts "$contents/Resources/computer-use/pi-extension.ts"
 cp resources/computer-use/SKILL.md "$contents/Resources/skills/shidou-computer-use/SKILL.md"
+cp LICENSE THIRD_PARTY_NOTICES.md licenses/THIRD_PARTY_RUST_LICENSES.html \
+  assets/fonts/OFL.txt assets/fonts/LICENSE-nerd-fonts.txt "$license_resources/"
 frameworks_directory="$contents/Frameworks"
 sparkle_framework="$frameworks_directory/Sparkle.framework"
 mkdir -p "$frameworks_directory"

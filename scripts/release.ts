@@ -220,6 +220,7 @@ const shortVersion = version.split("-", 1)[0];
 const buildNumber = explicitBuildNumber ?? derivedBuildNumber(version);
 const dmgName = `${appName}-${version}.dmg`;
 const zipName = `${appName}-${version}.zip`;
+const sourceName = `shidou-${version}-source.tar.gz`;
 if (publishing && version !== shortVersion) {
   throw new Error(
     `Version ${version} is a prerelease, and the appcast serves a single ` +
@@ -262,6 +263,7 @@ const outputPath = resolve(
   projectRoot,
   values.output ?? join("dist", dmgName),
 );
+const sourcePath = resolve(projectRoot, "dist", sourceName);
 const volumeName = values["volume-name"] ?? appName;
 const releaseDirectory = resolve(
   projectRoot,
@@ -512,6 +514,19 @@ try {
     ),
     mountedComputerUseHelper,
     join(mountedSparkleFramework, "Sparkle"),
+    join(mountedContents, "Resources", "licenses", "LICENSE"),
+    join(
+      mountedContents,
+      "Resources",
+      "licenses",
+      "THIRD_PARTY_NOTICES.md",
+    ),
+    join(
+      mountedContents,
+      "Resources",
+      "licenses",
+      "THIRD_PARTY_RUST_LICENSES.html",
+    ),
   ]) {
     await access(artifact);
   }
@@ -575,6 +590,19 @@ try {
   await mkdir(dirname(zipPath), { recursive: true });
   logStep(`Packaging ${zipName}`);
   await $`ditto -c -k --keepParent ${appBundle} ${zipPath}`;
+
+  logStep(`Packaging matching source as ${sourceName}`);
+  await $`git archive --format=tar.gz --prefix=${`shidou-${version}/`} --output=${sourcePath} HEAD`;
+  const sourceEntries = (await $`tar -tzf ${sourcePath}`.quiet().text()).split("\n");
+  for (const required of [
+    `shidou-${version}/LICENSE`,
+    `shidou-${version}/THIRD_PARTY_NOTICES.md`,
+    `shidou-${version}/licenses/THIRD_PARTY_RUST_LICENSES.html`,
+  ]) {
+    if (!sourceEntries.includes(required)) {
+      throw new Error(`Source archive is missing ${required}`);
+    }
+  }
 
   // A clean staging directory holds this release plus, when publishing, the
   // recent history generate_appcast needs to build binary deltas.
@@ -660,6 +688,8 @@ try {
       "Cache-Control: public, max-age=31536000, immutable";
     logStep(`Uploading ${dmgName} to ${r2Destination}`);
     await $`rclone copyto ${outputPath} ${`${r2Destination}/${dmgName}`} ${rcloneFlags} --header-upload ${immutableCache} --progress`;
+    logStep(`Uploading ${sourceName} to ${r2Destination}`);
+    await $`rclone copyto ${sourcePath} ${`${r2Destination}/${sourceName}`} ${rcloneFlags} --header-upload ${immutableCache} --progress`;
     logStep(`Uploading update archives to ${r2Destination}`);
     await $`rclone copy ${updatesDirectory} ${r2Destination} ${rcloneFlags} --exclude ${"appcast.xml"} --exclude ${"old_updates/**"} --header-upload ${immutableCache} --progress`;
     logStep("Uploading appcast.xml");
@@ -673,6 +703,7 @@ try {
 
   console.log(`\nDMG ready: ${outputPath}`);
   console.log(`ZIP ready: ${zipPath}`);
+  console.log(`Source ready: ${sourcePath}`);
 } finally {
   if (mountedDmg && mountDirectory) {
     const result = await $`diskutil eject ${mountDirectory}`.quiet().nothrow();

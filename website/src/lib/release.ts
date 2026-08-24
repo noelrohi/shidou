@@ -27,6 +27,10 @@ export function windowsInstallerUrl(version: string, arch: string) {
   return `${RELEASES_BASE}/Shidou-${version}-${arch}-Setup.exe`
 }
 
+export function sourceArchiveUrl(version: string) {
+  return `${RELEASES_BASE}/shidou-${version}-source.tar.gz`
+}
+
 // The Sparkle appcast has no CORS headers, so resolve it on the server.
 const fetchLatestRelease = createServerFn({ method: 'GET' }).handler(
   async (): Promise<LatestRelease | null> => {

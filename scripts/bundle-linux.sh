@@ -22,8 +22,21 @@ install -Dm644 resources/linux/dev.shidou.desktop \
   "$package_dir/share/applications/dev.shidou.desktop"
 install -Dm644 website/public/app-icon.png \
   "$package_dir/share/icons/hicolor/256x256/apps/dev.shidou.png"
-install -Dm644 LICENSE "$package_dir/share/licenses/shidou/LICENSE"
+license_dir="$package_dir/share/licenses/shidou"
+install -Dm644 LICENSE "$license_dir/LICENSE"
+install -Dm644 THIRD_PARTY_NOTICES.md "$license_dir/THIRD_PARTY_NOTICES.md"
+install -Dm644 licenses/THIRD_PARTY_RUST_LICENSES.html \
+  "$license_dir/THIRD_PARTY_RUST_LICENSES.html"
+install -Dm644 assets/fonts/OFL.txt "$license_dir/OFL.txt"
+install -Dm644 assets/fonts/LICENSE-nerd-fonts.txt \
+  "$license_dir/LICENSE-nerd-fonts.txt"
 
 mkdir -p "$(dirname "$archive")"
 tar -C "$staging" -czf "$archive" "$package"
+for required in \
+  "$package/share/licenses/shidou/LICENSE" \
+  "$package/share/licenses/shidou/THIRD_PARTY_NOTICES.md" \
+  "$package/share/licenses/shidou/THIRD_PARTY_RUST_LICENSES.html"; do
+  tar -tzf "$archive" | grep -Fqx "$required"
+done
 printf 'Created %s\n' "$archive"

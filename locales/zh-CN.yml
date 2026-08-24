@@ -183,6 +183,10 @@ common.reset: 重置
 common.revoke: 撤销授权
 common.retry: 重试
 common.creating: 正在创建…
+settings.legal: 法律信息
+settings.license: GPL 许可证
+settings.third_party_licenses: 第三方许可证
+settings.source_code: 源代码
 settings.local_by_default: 默认存储在本地
 settings.local_by_default_description: 项目、对话和设置均存储在这台电脑上
 settings.local_by_default_web_description: 项目、对话和附件保留在所连接的守护进程主机上。Shidou Web 的偏好设置保留在此浏览器中。

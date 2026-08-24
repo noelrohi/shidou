@@ -191,6 +191,11 @@ common.revoke: 許可を解除
 common.retry: 再試行
 common.creating: 作成中…
 
+settings.legal: 法的情報
+settings.license: GPL ライセンス
+settings.third_party_licenses: サードパーティライセンス
+settings.source_code: ソースコード
+
 settings.local_by_default: デフォルトでローカルに保存
 settings.local_by_default_description: プロジェクト、会話、設定はこのコンピュータに保存されます
 settings.local_by_default_web_description: プロジェクト、会話、添付ファイルは接続先デーモンのホストに保存されます。Shidou Web の設定はこのブラウザに保存されます。

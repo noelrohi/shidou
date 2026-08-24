@@ -33,6 +33,12 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install cargo-about
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -74,3 +80,4 @@ jobs:
           bun run protocol:check
           bun run --filter @shidou/client check
           bun run --filter @shidou/client test
+          bun run licenses:check

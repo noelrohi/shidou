@@ -54,11 +54,12 @@ The release runs on [Bun](https://bun.sh) and needs
 Updates are signed with an ed25519 key; the private half stays in the login
 keychain and the public half ships in Info.plist as `SUPublicEDKey`.
 
-**Shidou has no key yet** — upstream Waku's key was removed at the fork, so
-`SUPublicEDKey` is absent from Info.plist until one is generated. Run the
-release wizard (`scripts/setup-release.sh`), which generates the keypair,
-writes the public key into Info.plist, and uploads the private key as the
-`SPARKLE_PRIVATE_KEY` GitHub secret.
+Shidou's public key is already recorded as `SUPublicEDKey` in
+`resources/Info.plist`. Do not replace it for an existing release channel:
+installed copies trust that key, so rotating it would strand them. For a new
+fork or release channel, run the release wizard (`scripts/setup-release.sh`),
+which generates a keypair, writes the new public key into Info.plist, and
+uploads the private key as the `SPARKLE_PRIVATE_KEY` GitHub secret.
 
 To do it by hand instead, use the Sparkle tools (they land in
 `.shidou-cache/sparkle/<version>/bin` after any build, or download the
@@ -91,7 +92,10 @@ xcrun notarytool store-credentials NOTARY \
 Override the environment with `--signing-identity`, or change the notary
 profile with `--notary-profile` / `SHIDOU_NOTARY_PROFILE`.
 
-### 3. Cloudflare R2 bucket + domain  ← **still to do once**
+### 3. Cloudflare R2 bucket + domain
+
+The Shidou release channel already uses the resources below. Create and
+configure equivalents when setting up a new fork or replacement channel:
 
 1. Create the bucket **`shidou-releases`** (Cloudflare dashboard → R2 → Create
    bucket). The release script will not create it — a bucket-scoped API token
@@ -156,6 +160,7 @@ same artifacts as a local release:
 - `Shidou-<version>.dmg`
 - `Shidou-<version>.zip`
 - `appcast.xml` (Sparkle-signed)
+- `shidou-<version>-source.tar.gz` (matching source and build scripts)
 
 Linux CI adds:
 
@@ -221,6 +226,10 @@ mutable pointers and upload with a short cache lifetime; everything else is
 versioned and cached forever. Linux users install from that bucket via
 [`website/public/install.sh`](website/public/install.sh), served at
 `https://shidou.dev/install.sh` — see [docs/linux.md](docs/linux.md).
+
+Every release archive carries `LICENSE`, `THIRD_PARTY_NOTICES.md`, and the
+generated dependency-license report. The matching versioned source archive is
+published beside the binaries in GitHub Releases and R2.
 
 Publishing that GitHub release (or running **Sync release** from Actions)
 uploads the assets to the `shidou-releases` R2 bucket. Configure these repository

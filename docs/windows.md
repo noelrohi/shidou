@@ -17,6 +17,9 @@ want to script the download.
 `shidou-<version>-<target>.zip` is the same build without an installer. Unpack it
 anywhere and run `shidou.exe`.
 
+The matching source for both Windows packages is published beside them as
+`shidou-<version>-source.tar.gz`.
+
 **Keep the two executables together.** Shidou launches `shidou-daemon.exe` from its
 own directory, so moving `shidou.exe` out on its own leaves it unable to start
 the daemon. A shortcut is fine.

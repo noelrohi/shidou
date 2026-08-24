@@ -348,6 +348,7 @@ jobs:
             dist/Shidou-${{ needs.version.outputs.version }}.dmg
             dist/Shidou-${{ needs.version.outputs.version }}.md
             dist/Shidou-${{ needs.version.outputs.version }}.zip
+            dist/shidou-${{ needs.version.outputs.version }}-source.tar.gz
             dist/appcast.xml
           if-no-files-found: error
 

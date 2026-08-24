@@ -43,6 +43,9 @@ The archive uses an install-prefix layout (`bin/`, `share/`) beneath one
 versioned directory, so `--strip-components=1` into a prefix such as
 `/usr/local` works too.
 
+The matching source is published beside it as
+`shidou-<version>-source.tar.gz`.
+
 **Keep `bin/` intact.** Shidou launches `shidou-daemon` from its own directory, so
 copying `bin/shidou` somewhere on its own leaves it unable to start the daemon.
 A symlink is fine — Shidou resolves it back to the real path.
