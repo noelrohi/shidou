@@ -19,6 +19,7 @@ the original feature bullet instead of adding separate entries for them.
 ## [0.2.3]
 
 - Generate Conventional Commit subjects from the commit dialog when enabled in General settings
+- Prevent computer-use helper connection failures caused by overlong Unix socket paths
 
 ## [0.2.2]
 
