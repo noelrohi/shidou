@@ -428,6 +428,17 @@ impl Shidou {
         let updater_available = cx
             .try_global::<crate::updater::UpdaterState>()
             .is_some_and(|updater| updater.0.is_some());
+        let conventional_commit_messages = self.state.conventional_commit_messages;
+        let conventional_commit_toggle = toggle_switch(
+            "conventional-commit-messages-toggle",
+            conventional_commit_messages,
+            false,
+            theme,
+            cx,
+            move |this, _, cx| {
+                this.set_conventional_commit_messages(!conventional_commit_messages, cx)
+            },
+        );
         let analytics_enabled = self.state.analytics_enabled;
         let analytics_toggle = toggle_switch(
             "anonymous-analytics-toggle",
@@ -461,6 +472,42 @@ impl Shidou {
                             .text_color(theme.text_secondary)
                             .child(tr!("settings.local_by_default_description")),
                     ),
+            )
+            .child(
+                div()
+                    .mt(px(15.0))
+                    .w_full()
+                    .min_h(px(60.0))
+                    .px(px(20.0))
+                    .py(px(12.0))
+                    .rounded(px(13.0))
+                    .bg(theme.raised)
+                    .flex()
+                    .items_center()
+                    .gap(px(24.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_size(sp(13.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.text)
+                                    .child(tr!("settings.conventional_commit_messages")),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(5.0))
+                                    .text_size(sp(12.5))
+                                    .line_height(sp(18.0))
+                                    .text_color(theme.text_secondary)
+                                    .child(tr!(
+                                        "settings.conventional_commit_messages_description"
+                                    )),
+                            ),
+                    )
+                    .child(conventional_commit_toggle),
             )
             .child(
                 div()
@@ -542,6 +589,12 @@ impl Shidou {
                 )
             })
             .into_any_element()
+    }
+
+    fn set_conventional_commit_messages(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.state.conventional_commit_messages = enabled;
+        self.save();
+        cx.notify();
     }
 
     fn set_analytics_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {

@@ -50,7 +50,7 @@ export const SETTINGS_PAGES: Array<{
   keywords: string
   keywordsKey: string
 }> = [
-  { id: 'general', label: 'General', labelKey: 'settings.general', icon: 'settings', keywords: 'general local projects conversations privacy analytics telemetry anonymous sharing', keywordsKey: 'settings.general_keywords' },
+  { id: 'general', label: 'General', labelKey: 'settings.general', icon: 'settings', keywords: 'general local projects conversations privacy analytics telemetry anonymous sharing git commit conventional messages', keywordsKey: 'settings.general_keywords' },
   { id: 'appearance', label: 'Appearance', labelKey: 'settings.appearance', icon: 'appearance', keywords: 'appearance theme system light dark language', keywordsKey: 'settings.appearance_keywords' },
   { id: 'providers', label: 'Providers', labelKey: 'settings.providers', icon: 'bot', keywords: 'providers agents models cli version install detect claude codex cursor opencode amp grok pi omp oh my pi kimi', keywordsKey: 'settings.providers_keywords' },
   { id: 'skills', label: 'Skills', labelKey: 'settings.skills', icon: 'package', keywords: 'skills library agent disable enable delete shared', keywordsKey: 'settings.skills_keywords' },
@@ -166,13 +166,39 @@ export function SettingsView({
 
 function GeneralSettings() {
   const { t } = useI18n()
+  const { client, config } = useDaemon()
+  const queryClient = useQueryClient()
+  const settings = useDaemonSettings()
   const [analytics, setAnalytics] = useStoredBoolean('shidou.analytics-enabled', true)
+
+  async function setConventionalCommitMessages(enabled: boolean) {
+    if (!client || !config || !settings.data) return
+    const next = { ...settings.data, conventional_commit_messages: enabled }
+    try {
+      await updateDaemonSettings(client, next)
+      queryClient.setQueryData(daemonKeys.settings(config.address), next)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
   return (
     <div>
       <SettingsCard>
         <SettingText
           title={t('settings.local_by_default')}
           description={t('settings.local_by_default_web_description')}
+        />
+      </SettingsCard>
+      <SettingsCard row>
+        <SettingText
+          title={t('settings.conventional_commit_messages')}
+          description={t('settings.conventional_commit_messages_description')}
+        />
+        <Toggle
+          checked={settings.data?.conventional_commit_messages ?? false}
+          label={t('settings.conventional_commit_messages')}
+          onChange={(enabled) => void setConventionalCommitMessages(enabled)}
         />
       </SettingsCard>
       <SettingsCard row>

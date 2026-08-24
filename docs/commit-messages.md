@@ -7,7 +7,9 @@ the CLI binary is the only route to a model.
 
 Every provider gets the same prompt. The only per-provider code is the argument
 vector that puts its CLI into a one-shot, tool-free mode
-([`agent_arguments`](../crates/shidou-core/src/git_commit.rs#L210)).
+([`agent_arguments`](../crates/shidou-core/src/git_commit.rs#L210)). The General
+settings page can additionally require a Conventional Commit subject; the
+preference is stored in daemon settings so desktop and web generation agree.
 
 ## Which model
 
@@ -61,6 +63,11 @@ Generate a concise Git commit subject for the changes below.
 Return exactly one line and nothing else: no quotes, Markdown, prefix, explanation, or trailing period.
 Use imperative mood and at most 72 characters. Do not call tools; all context is included here.
 ```
+
+When **Use Conventional Commit messages** is enabled, the final instruction
+also requires `type(scope): description`, permits an omitted scope when none is
+clear, and lists the standard commit types. The plain style remains the default
+for existing installations.
 
 ## Per provider
 

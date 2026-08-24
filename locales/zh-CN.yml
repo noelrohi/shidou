@@ -83,7 +83,7 @@ settings.providers: 服务商
 settings.usage: 用量
 settings.daemon: 守护进程
 settings.computer_use: 电脑操作
-settings.general_keywords: 通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本
+settings.general_keywords: 通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 Git 提交 Conventional 信息
 settings.appearance_keywords: 外观 主题 系统 浅色 深色 语言 英语 中文 简体 字号 字体 大小 编辑器
 settings.providers_keywords: 服务商 智能体 模型 命令行 版本 安装 检测 claude codex cursor opencode amp grok pi
 settings.skills: 技能
@@ -188,6 +188,8 @@ settings.local_by_default_description: 项目、对话和设置均存储在这�
 settings.local_by_default_web_description: 项目、对话和附件保留在所连接的守护进程主机上。Shidou Web 的偏好设置保留在此浏览器中。
 settings.automatic_updates: 自动更新
 settings.automatic_updates_description: 在后台检查新版本，并在发现更新时提示安装
+settings.conventional_commit_messages: 使用 Conventional Commit 信息
+settings.conventional_commit_messages_description: "以 type(scope): description 格式生成提交主题"
 settings.share_anonymous_usage_data: 分享匿名使用数据
 settings.share_anonymous_usage_data_description: 分享功能使用情况和可靠性数据，帮助改进 Shidou。不会包含提示词、回复、项目名称、文件路径等个人信息
 providers.coding_agents: 编程智能体
