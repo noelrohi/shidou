@@ -259,6 +259,7 @@ impl Shidou {
         let id = dialog.id;
         let workspace = dialog.workspace.clone();
         let include_unstaged = dialog.include_unstaged;
+        let conventional_commits = self.state.conventional_commit_messages;
         let invocation = dialog.invocation.clone();
         let message = dialog.message.read(cx).content().trim().to_owned();
         let window_handle = window.window_handle();
@@ -287,6 +288,7 @@ impl Shidou {
                 action,
                 workspace,
                 include_unstaged,
+                conventional_commits,
                 invocation,
                 window_handle,
                 cx,
@@ -324,6 +326,7 @@ impl Shidou {
         action: CommitAction,
         workspace: PathBuf,
         include_unstaged: bool,
+        conventional_commits: bool,
         invocation: crate::git_commit::AgentInvocation,
         window_handle: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
@@ -338,6 +341,7 @@ impl Shidou {
                         shidou_client::WorkspaceOperation::GenerateCommitMessage {
                             cwd: generation_workspace,
                             include_unstaged,
+                            conventional_commits,
                             invocation,
                         },
                     ) {

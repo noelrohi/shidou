@@ -3,4 +3,8 @@ import type { ComputerAppGrant } from "./ComputerAppGrant";
 import type { ProviderKind } from "./ProviderKind";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type DaemonSettings = { computer_use_enabled: boolean, computer_use_allowed_apps: Array<ComputerAppGrant>, disabled_providers: Array<ProviderKind>, provider_binary_overrides: { [key in ProviderKind]?: string }, } & ({ [key in string]: number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null });
+export type DaemonSettings = { computer_use_enabled: boolean, computer_use_allowed_apps: Array<ComputerAppGrant>,
+/**
+ * Ask one-shot commit-message generation for Conventional Commit subjects.
+ */
+conventional_commit_messages: boolean, disabled_providers: Array<ProviderKind>, provider_binary_overrides: { [key in ProviderKind]?: string }, } & ({ [key in string]: number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null });

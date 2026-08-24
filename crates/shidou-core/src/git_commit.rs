@@ -84,9 +84,10 @@ pub fn inspect(cwd: &Path) -> anyhow::Result<Snapshot> {
 pub fn generate_message(
     cwd: &Path,
     include_unstaged: bool,
+    conventional_commits: bool,
     invocation: &AgentInvocation,
 ) -> anyhow::Result<String> {
-    let prompt = commit_prompt(cwd, include_unstaged)?;
+    let prompt = commit_prompt(cwd, include_unstaged, conventional_commits)?;
     let amp_settings = if invocation.provider == ProviderKind::Amp {
         let path = std::env::temp_dir().join(format!("shidou-amp-commit-{}.json", Uuid::new_v4()));
         fs::write(
@@ -170,7 +171,11 @@ pub fn push(cwd: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn commit_prompt(cwd: &Path, include_unstaged: bool) -> anyhow::Result<String> {
+fn commit_prompt(
+    cwd: &Path,
+    include_unstaged: bool,
+    conventional_commits: bool,
+) -> anyhow::Result<String> {
     ensure_repository(cwd)?;
     let staged_status = git_stdout(cwd, &["diff", "--cached", "--name-status", "--"])?;
     let staged = git_stdout(
@@ -194,10 +199,16 @@ fn commit_prompt(cwd: &Path, include_unstaged: bool) -> anyhow::Result<String> {
         context.push_str(&unstaged);
     }
     let (context, truncated) = truncate_utf8(context, MAX_DIFF_BYTES);
+    let style = if conventional_commits {
+        " Use the Conventional Commits format `type(scope): description`; omit the scope when it is not clear. Choose the most accurate standard type, such as feat, fix, docs, style, refactor, perf, test, build, ci, chore, or revert."
+    } else {
+        ""
+    };
     Ok(format!(
         "Generate a concise Git commit subject for the changes below.\n\
-         Return exactly one line and nothing else: no quotes, Markdown, prefix, explanation, or trailing period.\n\
-         Use imperative mood and at most 72 characters. Do not call tools; all context is included here.{}\n\n{}",
+         Return exactly one line and nothing else: no quotes, Markdown, explanation, or trailing period.\n\
+         Use imperative mood and at most 72 characters.{} Do not call tools; all context is included here.{}\n\n{}",
+        style,
         if truncated {
             " The diff was truncated, so summarize only what is supported by the visible context."
         } else {
@@ -698,11 +709,23 @@ mod tests {
         run_git(&root, &["add", "README.md"]);
         fs::write(root.join("README.md"), "one\nstaged line\nunstaged line\n").unwrap();
 
-        let staged_prompt = commit_prompt(&root, false).unwrap();
+        let staged_prompt = commit_prompt(&root, false, false).unwrap();
         assert!(staged_prompt.contains("staged line"));
         assert!(!staged_prompt.contains("unstaged line"));
-        let all_prompt = commit_prompt(&root, true).unwrap();
+        let all_prompt = commit_prompt(&root, true, false).unwrap();
         assert!(all_prompt.contains("unstaged line"));
+    }
+
+    #[test]
+    fn conventional_prompt_requests_a_typed_subject() {
+        let root = repository();
+        fs::write(root.join("README.md"), "one\ntwo\n").unwrap();
+
+        let plain = commit_prompt(&root, true, false).unwrap();
+        assert!(!plain.contains("Conventional Commits"));
+        let conventional = commit_prompt(&root, true, true).unwrap();
+        assert!(conventional.contains("Conventional Commits"));
+        assert!(conventional.contains("type(scope): description"));
     }
 
     #[test]

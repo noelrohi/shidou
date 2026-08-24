@@ -113,6 +113,7 @@ pub enum WorkspaceOperation {
         #[ts(type = "string")]
         cwd: PathBuf,
         include_unstaged: bool,
+        conventional_commits: bool,
         invocation: AgentInvocation,
     },
     Commit {

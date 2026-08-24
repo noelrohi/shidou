@@ -441,12 +441,14 @@ export async function generateWorkspaceCommitMessage(
   client: ShidouClient,
   cwd: string,
   includeUnstaged: boolean,
+  conventionalCommits: boolean,
   invocation: AgentInvocation,
 ): Promise<string> {
   const result = await workspaceRequest(client, {
     type: 'generateCommitMessage',
     cwd,
     include_unstaged: includeUnstaged,
+    conventional_commits: conventionalCommits,
     invocation,
   })
   if (result.type !== 'commitMessage') {

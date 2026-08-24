@@ -280,6 +280,8 @@ pub struct PersistedState {
     pub computer_use_enabled: bool,
     #[serde(default)]
     pub computer_use_allowed_apps: Vec<ComputerAppGrant>,
+    #[serde(default)]
+    pub conventional_commit_messages: bool,
     /// Providers switched off for new sessions in the Providers settings.
     #[serde(default)]
     pub disabled_providers: Vec<ProviderKind>,
@@ -344,6 +346,7 @@ impl PersistedState {
             right_panel_width: DEFAULT_RIGHT_PANEL_WIDTH,
             computer_use_enabled: false,
             computer_use_allowed_apps: Vec::new(),
+            conventional_commit_messages: false,
             disabled_providers: Vec::new(),
             provider_binary_overrides: HashMap::new(),
             daemon_settings_extra: BTreeMap::new(),
@@ -441,6 +444,7 @@ impl PersistedState {
         crate::DaemonSettings {
             computer_use_enabled: self.computer_use_enabled,
             computer_use_allowed_apps: self.computer_use_allowed_apps.clone(),
+            conventional_commit_messages: self.conventional_commit_messages,
             disabled_providers: self.disabled_providers.clone(),
             provider_binary_overrides: self.provider_binary_overrides.clone(),
             extra: self.daemon_settings_extra.clone(),
@@ -476,6 +480,7 @@ impl PersistedState {
     pub fn apply_daemon_settings(&mut self, settings: crate::DaemonSettings) {
         self.computer_use_enabled = settings.computer_use_enabled;
         self.computer_use_allowed_apps = settings.computer_use_allowed_apps;
+        self.conventional_commit_messages = settings.conventional_commit_messages;
         self.disabled_providers = settings.disabled_providers;
         self.provider_binary_overrides = settings.provider_binary_overrides;
         self.daemon_settings_extra = settings.extra;

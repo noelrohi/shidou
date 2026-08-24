@@ -395,6 +395,8 @@ pub struct PersistedState {
     #[serde(default)]
     pub computer_use_allowed_apps: Vec<ComputerAppGrant>,
     #[serde(default)]
+    pub conventional_commit_messages: bool,
+    #[serde(default)]
     pub disabled_providers: Vec<ProviderKind>,
     #[serde(default)]
     pub provider_binary_overrides: HashMap<ProviderKind, String>,
@@ -453,6 +455,7 @@ impl PersistedState {
             window_state: None,
             computer_use_enabled: false,
             computer_use_allowed_apps: Vec::new(),
+            conventional_commit_messages: false,
             disabled_providers: Vec::new(),
             provider_binary_overrides: HashMap::new(),
             daemon_settings_extra: BTreeMap::new(),
@@ -542,6 +545,7 @@ impl PersistedState {
         DaemonSettings {
             computer_use_enabled: self.computer_use_enabled,
             computer_use_allowed_apps: self.computer_use_allowed_apps.clone(),
+            conventional_commit_messages: self.conventional_commit_messages,
             disabled_providers: self.disabled_providers.clone(),
             provider_binary_overrides: self.provider_binary_overrides.clone(),
             extra: self.daemon_settings_extra.clone(),
@@ -551,6 +555,7 @@ impl PersistedState {
     pub fn apply_daemon_settings(&mut self, settings: DaemonSettings) {
         self.computer_use_enabled = settings.computer_use_enabled;
         self.computer_use_allowed_apps = settings.computer_use_allowed_apps;
+        self.conventional_commit_messages = settings.conventional_commit_messages;
         self.disabled_providers = settings.disabled_providers;
         self.provider_binary_overrides = settings.provider_binary_overrides;
         self.daemon_settings_extra = settings.extra;

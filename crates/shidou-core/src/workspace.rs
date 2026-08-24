@@ -117,9 +117,15 @@ pub fn execute(operation: WorkspaceOperation) -> anyhow::Result<WorkspaceResult>
         WorkspaceOperation::GenerateCommitMessage {
             cwd,
             include_unstaged,
+            conventional_commits,
             invocation,
         } => WorkspaceResult::CommitMessage {
-            message: crate::git_commit::generate_message(&cwd, include_unstaged, &invocation)?,
+            message: crate::git_commit::generate_message(
+                &cwd,
+                include_unstaged,
+                conventional_commits,
+                &invocation,
+            )?,
         },
         WorkspaceOperation::Commit {
             cwd,

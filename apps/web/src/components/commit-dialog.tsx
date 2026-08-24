@@ -89,6 +89,7 @@ export function CommitDialog({
             client,
             cwd,
             includeUnstaged,
+            settings.conventional_commit_messages,
             {
               provider: session.provider,
               binary: probe.path,
