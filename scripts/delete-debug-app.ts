@@ -8,7 +8,11 @@ import { createInterface } from "node:readline/promises";
 const projectRoot = resolve(import.meta.dir, "..");
 const userHome = homedir();
 const library = join(userHome, "Library");
-const debugBundleIdentifiers = ["sh.waku.dev", "codes.waku.dev"];
+const debugBundleIdentifiers = [
+  "dev.shidou.debug",
+  "sh.waku.dev",
+  "codes.waku.dev",
+];
 
 type Target = {
   path: string;
@@ -22,7 +26,7 @@ function addCandidate(path: string): void {
 }
 
 function isDebugDiagnostic(name: string): boolean {
-  return /^Waku Debug(?: Computer Use)?[-_.]/.test(name);
+  return /^Shidou Debug(?: Computer Use)?[-_.]/.test(name);
 }
 
 async function addMatchingChildren(
@@ -64,39 +68,40 @@ async function existingTargets(): Promise<Target[]> {
 
 // Checkout-local state and build artifacts. Keep the release cache intact.
 addCandidate(join(projectRoot, "temp"));
-addCandidate(join(projectRoot, ".waku-cache", "computer-use", "debug"));
-addCandidate(join(projectRoot, "target", "debug", "Waku Debug.app"));
+addCandidate(join(projectRoot, ".shidou-cache", "computer-use", "debug"));
+addCandidate(join(projectRoot, "target", "debug", "Shidou Debug.app"));
 
 if (process.env.CARGO_TARGET_DIR) {
   addCandidate(
     join(
       resolve(projectRoot, process.env.CARGO_TARGET_DIR),
       "debug",
-      "Waku Debug.app",
+      "Shidou Debug.app",
     ),
   );
 }
 
 // Debug app bundles that may have been copied outside the checkout.
-addCandidate(join(userHome, "Applications", "Waku Debug.app"));
-addCandidate("/Applications/Waku Debug.app");
+addCandidate(join(userHome, "Applications", "Shidou Debug.app"));
+addCandidate("/Applications/Shidou Debug.app");
 
-// Debug-only app data. The release app uses Waku/sh.waku and is not included.
-addCandidate(join(library, "Application Support", "Waku Debug"));
+// Debug-only app data. The release app uses Shidou/dev.shidou and is not included.
+addCandidate(join(library, "Application Support", "Shidou Debug"));
 // The helper bundle is named after the app executable, so a checkout built
-// before the Pagesmith rename may have left the old name behind.
+// before the Shidou rename may have left the old name behind.
 for (const helperName of [
-  "Pagesmith Debug Computer Use.app",
-  "Waku Debug Computer Use.app",
+  "Shidou Debug Computer Use.app",
+  "Shidou Debug Computer Use.app",
 ]) {
   addCandidate(
-    join(library, "Application Support", "Waku", "Computer Use", helperName),
+    join(library, "Application Support", "Shidou", "Computer Use", helperName),
   );
 }
-addCandidate(join(library, "Caches", "Waku Debug"));
-addCandidate(join(library, "Logs", "Waku Debug"));
+addCandidate(join(library, "Caches", "Shidou Debug"));
+addCandidate(join(library, "Logs", "Shidou Debug"));
 
-// codes.waku.dev was Waku Debug's bundle ID before sh.waku.dev.
+// sh.waku.dev and codes.waku.dev were the debug bundle IDs before the
+// Shidou fork renamed it to dev.shidou.debug.
 for (const bundleIdentifier of debugBundleIdentifiers) {
   for (const path of [
     join(library, "Application Support", bundleIdentifier),
@@ -138,22 +143,22 @@ await addMatchingChildren(
 
 const targets = await existingTargets();
 if (targets.length === 0) {
-  console.log("No Waku Debug files or directories found.");
+  console.log("No Shidou Debug files or directories found.");
   process.exit(0);
 }
 
 console.log(
-  "The following Waku Debug paths, including directory contents, will be permanently deleted:\n",
+  "The following Shidou Debug paths, including directory contents, will be permanently deleted:\n",
 );
 for (const target of targets) {
   console.log(`  [${target.kind}] ${target.path}`);
 }
 
 const runningProcesses = [
-  "Pagesmith Debug",
-  "Pagesmith Debug Computer Use",
-  "Waku Debug",
-  "Waku Debug Computer Use",
+  "Shidou Debug",
+  "Shidou Debug Computer Use",
+  "Shidou Debug",
+  "Shidou Debug Computer Use",
 ].filter(
   (name) =>
     Bun.spawnSync(["/usr/bin/pgrep", "-x", name], {

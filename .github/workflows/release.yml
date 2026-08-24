@@ -110,7 +110,7 @@ jobs:
       # release's bundles are still sitting in `target/release` when this one
       # starts. Cargo does not own them, so nothing else clears them.
       - name: Clear stale bundles
-        run: rm -f target/release/waku-*.tar.gz
+        run: rm -f target/release/shidou-*.tar.gz
 
       - name: Bundle
         run: ./scripts/bundle-linux.sh
@@ -121,7 +121,7 @@ jobs:
           # Named exactly, not globbed: `if-no-files-found: error` is then a
           # real check that this version built, rather than something an older
           # bundle can satisfy.
-          path: target/release/waku-${{ needs.version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz
+          path: target/release/shidou-${{ needs.version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz
           if-no-files-found: error
 
   linux-arm64:
@@ -166,7 +166,7 @@ jobs:
       # release's bundles are still sitting in `target/release` when this one
       # starts. Cargo does not own them, so nothing else clears them.
       - name: Clear stale bundles
-        run: rm -f target/release/waku-*.tar.gz
+        run: rm -f target/release/shidou-*.tar.gz
 
       - name: Bundle
         run: ./scripts/bundle-linux.sh
@@ -174,7 +174,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: linux-arm64
-          path: target/release/waku-${{ needs.version.outputs.version }}-aarch64-unknown-linux-gnu.tar.gz
+          path: target/release/shidou-${{ needs.version.outputs.version }}-aarch64-unknown-linux-gnu.tar.gz
           if-no-files-found: error
 
   windows-x86_64:
@@ -211,7 +211,7 @@ jobs:
       # release's bundles are still sitting in `target/release` when this one
       # starts. Cargo does not own them, so nothing else clears them.
       - name: Clear stale bundles
-        run: Remove-Item -Force -ErrorAction SilentlyContinue target/release/waku-*.zip, target/release/Waku-*-Setup.exe
+        run: Remove-Item -Force -ErrorAction SilentlyContinue target/release/shidou-*.zip, target/release/Shidou-*-Setup.exe
 
       - name: Bundle
         env:
@@ -223,8 +223,8 @@ jobs:
         with:
           name: windows-x86_64
           path: |
-            target/release/waku-${{ needs.version.outputs.version }}-x86_64-pc-windows-msvc.zip
-            target/release/Waku-${{ needs.version.outputs.version }}-x86_64-Setup.exe
+            target/release/shidou-${{ needs.version.outputs.version }}-x86_64-pc-windows-msvc.zip
+            target/release/Shidou-${{ needs.version.outputs.version }}-x86_64-Setup.exe
           if-no-files-found: error
 
   windows-arm64:
@@ -261,7 +261,7 @@ jobs:
       # release's bundles are still sitting in `target/release` when this one
       # starts. Cargo does not own them, so nothing else clears them.
       - name: Clear stale bundles
-        run: Remove-Item -Force -ErrorAction SilentlyContinue target/release/waku-*.zip, target/release/Waku-*-Setup.exe
+        run: Remove-Item -Force -ErrorAction SilentlyContinue target/release/shidou-*.zip, target/release/Shidou-*-Setup.exe
 
       - name: Bundle
         env:
@@ -273,8 +273,8 @@ jobs:
         with:
           name: windows-arm64
           path: |
-            target/release/waku-${{ needs.version.outputs.version }}-aarch64-pc-windows-msvc.zip
-            target/release/Waku-${{ needs.version.outputs.version }}-aarch64-Setup.exe
+            target/release/shidou-${{ needs.version.outputs.version }}-aarch64-pc-windows-msvc.zip
+            target/release/Shidou-${{ needs.version.outputs.version }}-aarch64-Setup.exe
           if-no-files-found: error
 
   macos:
@@ -335,9 +335,9 @@ jobs:
 
       - name: Release
         env:
-          WAKU_SIGNING_IDENTITY: ${{ secrets.WAKU_SIGNING_IDENTITY }}
-          WAKU_ANALYTICS_ENDPOINT: ${{ secrets.WAKU_ANALYTICS_ENDPOINT }}
-          WAKU_ANALYTICS_WEBSITE_ID: ${{ secrets.WAKU_ANALYTICS_WEBSITE_ID }}
+          SHIDOU_SIGNING_IDENTITY: ${{ secrets.SHIDOU_SIGNING_IDENTITY }}
+          SHIDOU_ANALYTICS_ENDPOINT: ${{ secrets.SHIDOU_ANALYTICS_ENDPOINT }}
+          SHIDOU_ANALYTICS_WEBSITE_ID: ${{ secrets.SHIDOU_ANALYTICS_WEBSITE_ID }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: bun run release --local
 
@@ -345,9 +345,9 @@ jobs:
         with:
           name: macos
           path: |
-            dist/Waku-${{ needs.version.outputs.version }}.dmg
-            dist/Waku-${{ needs.version.outputs.version }}.md
-            dist/Waku-${{ needs.version.outputs.version }}.zip
+            dist/Shidou-${{ needs.version.outputs.version }}.dmg
+            dist/Shidou-${{ needs.version.outputs.version }}.md
+            dist/Shidou-${{ needs.version.outputs.version }}.zip
             dist/appcast.xml
           if-no-files-found: error
 
@@ -397,7 +397,7 @@ jobs:
           # their entries; a first run simply starts from nothing.
           for arch in x86_64 aarch64; do
             curl -fsSL --max-time 30 \
-              "https://releases.waku.sh/appcast-windows-$arch.xml" \
+              "https://releases.shidou.dev/appcast-windows-$arch.xml" \
               -o "artifacts/appcast-windows-$arch.xml" || true
           done
           bun scripts/appcast-windows.ts artifacts "$VERSION"

@@ -1,4 +1,4 @@
-import type { AgentSession } from '@waku/client'
+import type { AgentSession } from '@shidou/client'
 
 export const TASK_SWITCHER_MAX_TASKS = 10
 export const TASK_SWITCHER_MAX_COLUMNS = 5

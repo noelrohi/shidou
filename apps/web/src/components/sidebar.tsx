@@ -1,4 +1,4 @@
-import type { AgentSession, Project } from '@waku/client'
+import type { AgentSession, Project } from '@shidou/client'
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Virtuoso } from 'react-virtuoso'
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { ControlMenu } from '@/components/control-menu'
 import { Input } from '@/components/ui/input'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
-import { WakuIcon } from '@/components/waku-icon'
+import { ShidouIcon } from '@/components/shidou-icon'
 import { useWorkspaceBranches } from '@/hooks/use-daemon-data'
 import { displayTitle, type TaskState } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
@@ -23,7 +23,7 @@ import {
   type SidebarOrdering,
 } from '@/lib/sidebar-presentation'
 import { cn } from '@/lib/utils'
-import wakuAppIconUrl from '../../../../website/public/app-icon.png'
+import shidouAppIconUrl from '../../../../website/public/app-icon.png'
 
 interface SidebarProps {
   taskState: TaskState
@@ -77,8 +77,8 @@ export function Sidebar({
 }: SidebarProps) {
   const { t } = useI18n()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [grouping, setGrouping] = useState<SidebarGrouping>(() => readStoredChoice('waku.sidebarGrouping', 'updated', ['updated', 'project']))
-  const [ordering, setOrdering] = useState<SidebarOrdering>(() => readStoredChoice('waku.sidebarOrdering', 'newest', ['newest', 'oldest']))
+  const [grouping, setGrouping] = useState<SidebarGrouping>(() => readStoredChoice('shidou.sidebarGrouping', 'updated', ['updated', 'project']))
+  const [ordering, setOrdering] = useState<SidebarOrdering>(() => readStoredChoice('shidou.sidebarOrdering', 'newest', ['newest', 'oldest']))
   const [revealed, setRevealed] = useState<ReadonlyMap<string, number>>(new Map())
   const [liveWidth, setLiveWidth] = useState(width)
   const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1_000))
@@ -98,12 +98,12 @@ export function Sidebar({
 
   function chooseGrouping(next: SidebarGrouping) {
     setGrouping(next)
-    storeChoice('waku.sidebarGrouping', next)
+    storeChoice('shidou.sidebarGrouping', next)
   }
 
   function chooseOrdering(next: SidebarOrdering) {
     setOrdering(next)
-    storeChoice('waku.sidebarOrdering', next)
+    storeChoice('shidou.sidebarOrdering', next)
   }
 
   function toggleGroup(key: string, force?: boolean) {
@@ -153,10 +153,10 @@ export function Sidebar({
       >
         <header className="flex h-12 shrink-0 items-center px-2.5">
           <img
-            alt="Pagesmith"
+            alt="Shidou"
             className="size-6 rounded-md"
             draggable={false}
-            src={wakuAppIconUrl}
+            src={shidouAppIconUrl}
           />
           <div className="flex-1" />
           <Button
@@ -165,12 +165,12 @@ export function Sidebar({
             variant="ghost"
             onClick={onToggleSidebar}
           >
-            <WakuIcon name="panelLeft" />
+            <ShidouIcon name="panelLeft" />
           </Button>
         </header>
         <div className="px-2.5">
           <SidebarAction
-            icon={<WakuIcon name="pencil" />}
+            icon={<ShidouIcon name="pencil" />}
             label={t('menu.new_task')}
             onClick={() => {
               onNewTask()
@@ -191,7 +191,7 @@ export function Sidebar({
                 return (
                   <div className="h-[42px] px-2.5">
                     <SidebarAction
-                      icon={<WakuIcon name="search" />}
+                      icon={<ShidouIcon name="search" />}
                       label={t('sidebar.search')}
                       onClick={onSearch}
                     />
@@ -232,9 +232,9 @@ export function Sidebar({
                           }
                         }}
                       >
-                        {folder && <WakuIcon className="size-3.5 shrink-0" name="folder" />}
+                        {folder && <ShidouIcon className="size-3.5 shrink-0" name="folder" />}
                         <span className="min-w-0 truncate">{label}</span>
-                        <WakuIcon
+                        <ShidouIcon
                           className="size-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
                           name={row.collapsed ? 'chevronRight' : 'chevronDown'}
                         />
@@ -251,7 +251,7 @@ export function Sidebar({
                               onMobileOpenChange(false)
                             }}
                           >
-                            <WakuIcon name="pencil" />
+                            <ShidouIcon name="pencil" />
                           </Button>
                         )}
                         {row.first && (
@@ -270,7 +270,7 @@ export function Sidebar({
                               variant="ghost"
                               onClick={onAddProject}
                             >
-                              <WakuIcon name="folderNew" />
+                              <ShidouIcon name="folderNew" />
                             </Button>
                           </>
                         )}
@@ -339,7 +339,7 @@ export function Sidebar({
             variant="ghost"
             onClick={onSettings}
           >
-            <WakuIcon name="settings" />
+            <ShidouIcon name="settings" />
           </Button>
           <div className="flex-1" />
           <ConnectionDot />
@@ -503,11 +503,11 @@ function SessionRow({
       <ContextMenu.Portal>
         <ContextMenu.Positioner className="z-[100] outline-none">
           <ContextMenu.Popup
-            className="waku-menu-surface"
+            className="shidou-menu-surface"
             finalFocus={false}
           >
             <ContextMenu.Item
-              className="waku-menu-item"
+              className="shidou-menu-item"
               onClick={() => {
                 restoreMenuFocus.current = false
                 setMenuOpen(false)
@@ -516,18 +516,18 @@ function SessionRow({
                 setRenaming(true)
               }}
             >
-              <WakuIcon className="size-3" name="pencil" /> {t('common.rename')}
+              <ShidouIcon className="size-3" name="pencil" /> {t('common.rename')}
             </ContextMenu.Item>
-            <ContextMenu.Separator className="waku-menu-separator" />
+            <ContextMenu.Separator className="shidou-menu-separator" />
             <ContextMenu.Item
-              className="waku-menu-item text-destructive data-[highlighted]:bg-[var(--danger-soft)]"
+              className="shidou-menu-item text-destructive data-[highlighted]:bg-[var(--danger-soft)]"
               onClick={() => {
                 restoreMenuFocus.current = false
                 setMenuOpen(false)
                 void onRemove(item.session.id).catch(() => {})
               }}
             >
-              <WakuIcon className="size-3" name="trash" /> {t('common.remove')}
+              <ShidouIcon className="size-3" name="trash" /> {t('common.remove')}
             </ContextMenu.Item>
           </ContextMenu.Popup>
         </ContextMenu.Positioner>
@@ -560,7 +560,7 @@ function SessionMetadata({
         )
       ) : (
         <>
-          <WakuIcon className="size-[11px] shrink-0" name="folder" />
+          <ShidouIcon className="size-[11px] shrink-0" name="folder" />
           <span className="min-w-0 flex-1 truncate">{item.projectName}</span>
         </>
       )}
@@ -579,18 +579,18 @@ function SessionMetadata({
 function SessionStatus({ status, t }: { status: AgentSession['status']; t: Translator }) {
   if (status === 'idle') return null
   if (status === 'working' || status === 'connecting') {
-    return <WakuIcon label={t('sidebar.status_working')} className="size-3 text-[var(--success)] motion-safe:animate-spin" name="loaderCircle" />
+    return <ShidouIcon label={t('sidebar.status_working')} className="size-3 text-[var(--success)] motion-safe:animate-spin" name="loaderCircle" />
   }
   if (status === 'waiting') {
-    return <WakuIcon label={t('sidebar.status_waiting')} className="size-3 text-[var(--warning)]" name="alert" />
+    return <ShidouIcon label={t('sidebar.status_waiting')} className="size-3 text-[var(--warning)]" name="alert" />
   }
-  return <WakuIcon label={t('sidebar.status_failed')} className="size-3 text-destructive" name="x" />
+  return <ShidouIcon label={t('sidebar.status_failed')} className="size-3 text-destructive" name="x" />
 }
 
 function BranchLabel({ branch }: { branch: string }) {
   return (
     <>
-      <WakuIcon className="size-[11px] shrink-0" name="gitBranch" />
+      <ShidouIcon className="size-[11px] shrink-0" name="gitBranch" />
       <span className="min-w-0 flex-1 truncate">{branch}</span>
     </>
   )
@@ -671,7 +671,7 @@ function SidebarOptionsMenu({
       placement="below"
       triggerClassName="size-7 justify-center px-0 text-[var(--text-tertiary)]"
     >
-      <WakuIcon className="size-3.5" name="listFilter" />
+      <ShidouIcon className="size-3.5" name="listFilter" />
     </ControlMenu>
   )
 }

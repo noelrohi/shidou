@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Pagesmith</string>
+    <string>Shidou</string>
     <key>CFBundleExecutable</key>
-    <string>Pagesmith</string>
+    <string>Shidou</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.pagesmith</string>
+    <string>dev.shidou</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Pagesmith</string>
+    <string>Shidou</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -24,12 +24,13 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
-    <!-- Sparkle is deliberately left unconfigured: Pagesmith has no release
-         feed yet, so there is no SUFeedURL and no SUPublicEDKey. Upstream
-         Waku's key was removed rather than carried forward — keeping it would
-         mean an archive signed by upstream validates the moment a feed is
-         restored. Generate a fresh EdDSA key with Sparkle's `generate_keys`
-         and add both values together when Pagesmith publishes releases. -->
+    <key>SUFeedURL</key>
+    <string>https://releases.shidou.dev/appcast.xml</string>
+    <!-- SUPublicEDKey is Shidou's own EdDSA public key; upstream Waku's
+         key was removed at the fork so upstream archives can never validate
+         against this feed. scripts/setup-release.sh (the release wizard)
+         generates the keypair and writes this value. Updates cannot verify
+         until it is present. -->
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

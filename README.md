@@ -1,6 +1,6 @@
-# Pagesmith
+# Shidou
 
-Pagesmith is a fast, native coding-agent workspace for ecommerce development. It is based on [Waku](https://github.com/egoist/waku) and supports visual asset work with the local [`ima2`](https://github.com/lidge-jun/ima2-gen) runtime.
+Shidou is a fast, native coding-agent workspace for ecommerce development. It is based on [Waku](https://github.com/egoist/waku) and supports visual asset work with the local [`ima2`](https://github.com/lidge-jun/ima2-gen) runtime.
 
 ## Visual assets
 
@@ -35,18 +35,18 @@ bun install
 bun run dev
 ```
 
-Pagesmith does not install an image-generation skill. Keep the prompt or skill that invokes `ima2` in your own agent/project configuration.
+Shidou does not install an image-generation skill. Keep the prompt or skill that invokes `ima2` in your own agent/project configuration.
 
 ## Architecture
 
-The GPUI desktop and React browser client connect to the standalone daemon through the versioned protocol in `crates/waku-protocol`. Provider sessions live in `crates/waku-core`. Internal crate and protocol names retain `waku` for a small, maintainable downstream diff.
+The GPUI desktop and React browser client connect to the standalone daemon through the versioned protocol in `crates/shidou-protocol`. Provider sessions live in `crates/shidou-core`. Internal crate and protocol names retain `shidou` for a small, maintainable downstream diff.
 
 The daemon has no image-generation RPC: the coding agent runs `ima2` itself, and Visuals only indexes and attaches the image files it writes into the workspace. The gallery imports a folder in one `importPathAttachments` round trip.
 
-Pagesmith uses Bun for dependency management. Run `bun run protocol:generate` after changing wire types and `bun run protocol:check` to verify generated bindings.
+Shidou uses Bun for dependency management. Run `bun run protocol:generate` after changing wire types and `bun run protocol:check` to verify generated bindings.
 
-The upstream Waku update feed is intentionally disabled; configure a Pagesmith-owned feed and signing key before distributing releases.
+The upstream Shidou update feed is intentionally disabled; configure a Shidou-owned feed and signing key before distributing releases.
 
 ## License
 
-Pagesmith is a derivative of Waku and remains licensed under the [GNU General Public License v3.0 only](LICENSE). `ima2-gen` is a separate MIT-licensed runtime and is not vendored into this repository.
+Shidou is a derivative of [Waku](https://github.com/egoist/waku) and remains licensed under the [GNU General Public License v3.0 only](LICENSE). Copyright © egoist and the Waku contributors; modifications copyright © 2026 Rohi, forked from Waku in August 2026. `ima2-gen` is a separate MIT-licensed runtime and is not vendored into this repository.

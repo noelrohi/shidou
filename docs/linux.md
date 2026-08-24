@@ -1,81 +1,81 @@
-# Waku on Linux
+# Shidou on Linux
 
 ## Install
 
 ```sh
-curl -fsSL https://waku.sh/install.sh | sh
+curl -fsSL https://shidou.dev/install.sh | sh
 ```
 
 The script needs no root. It unpacks the release tarball into
-`~/.local/waku.app` and installs the desktop entry into
-`~/.local/share/applications`, so **Waku appears in your applications menu** —
-you can also launch it from a terminal via `waku` command. Run the script again to
+`~/.local/shidou.app` and installs the desktop entry into
+`~/.local/share/applications`, so **Shidou appears in your applications menu** —
+you can also launch it from a terminal via `shidou` command. Run the script again to
 upgrade; it replaces the previous install rather than merging into it.
 
-Waku expects:
+Shidou expects:
 
 - **glibc 2.35 or newer** — Ubuntu 22.04, Debian 12, Fedora 36, and anything
   more recent. Releases are built on Ubuntu 22.04, so older distributions must
   build from source.
-- **A working Vulkan or OpenGL driver.** Waku renders through wgpu, which tries
+- **A working Vulkan or OpenGL driver.** Shidou renders through wgpu, which tries
   Vulkan first and falls back to GL. Software rasterizers (lavapipe, llvmpipe)
   are accepted, so it can run in a VM, but see the note below.
 - **x86_64 or aarch64.** Other architectures build from source.
 - `xdg-desktop-portal` for native file dialogs.
 
-Set `WAKU_VERSION` to install a specific version rather than the latest.
+Set `SHIDOU_VERSION` to install a specific version rather than the latest.
 
 ## Installing manually
 
 The script is a convenience, not a requirement. Download
-`waku-<version>-<target>.tar.gz` from
-[releases.waku.sh](https://releases.waku.sh) or the
-[GitHub release](https://github.com/egoist/waku/releases), then unpack it
+`shidou-<version>-<target>.tar.gz` from
+[releases.shidou.dev](https://releases.shidou.dev) or the
+[GitHub release](https://github.com/noelrohi/shidou/releases), then unpack it
 wherever you like:
 
 ```sh
-mkdir -p ~/.local/waku.app
-tar -xzf waku-<version>-<target>.tar.gz --strip-components=1 -C ~/.local/waku.app
-ln -sf ~/.local/waku.app/bin/waku ~/.local/bin/waku   # optional
+mkdir -p ~/.local/shidou.app
+tar -xzf shidou-<version>-<target>.tar.gz --strip-components=1 -C ~/.local/shidou.app
+ln -sf ~/.local/shidou.app/bin/shidou ~/.local/bin/shidou   # optional
 ```
 
 The archive uses an install-prefix layout (`bin/`, `share/`) beneath one
 versioned directory, so `--strip-components=1` into a prefix such as
 `/usr/local` works too.
 
-**Keep `bin/` intact.** Waku launches `waku-daemon` from its own directory, so
-copying `bin/waku` somewhere on its own leaves it unable to start the daemon.
-A symlink is fine — Waku resolves it back to the real path.
+**Keep `bin/` intact.** Shidou launches `shidou-daemon` from its own directory, so
+copying `bin/shidou` somewhere on its own leaves it unable to start the daemon.
+A symlink is fine — Shidou resolves it back to the real path.
 
 Installing the desktop entry is the part that matters — it is how the app is
 launched normally, and it is what associates the running window with its icon
-and name (Waku reports the Wayland `app_id` / X11 `WM_CLASS` `sh.waku`, which
+and name (Shidou reports the Wayland `app_id` / X11 `WM_CLASS` `dev.shidou`, which
 matches the entry's filename). Install the packaged file and point it at the
-install (the packaged copy uses bare `Exec=waku` and `Icon=sh.waku` names so it
+install (the packaged copy uses bare `Exec=shidou` and `Icon=dev.shidou` names so it
 can be relocated):
 
 ```sh
-install -D ~/.local/waku.app/share/applications/sh.waku.desktop \
+install -D ~/.local/shidou.app/share/applications/dev.shidou.desktop \
   -t ~/.local/share/applications
-sed -i "s|^Exec=waku$|Exec=$HOME/.local/waku.app/bin/waku|" \
-  ~/.local/share/applications/sh.waku.desktop
-sed -i "s|^Icon=sh.waku$|Icon=$HOME/.local/waku.app/share/icons/hicolor/256x256/apps/sh.waku.png|" \
-  ~/.local/share/applications/sh.waku.desktop
+sed -i "s|^Exec=shidou$|Exec=$HOME/.local/shidou.app/bin/shidou|" \
+  ~/.local/share/applications/dev.shidou.desktop
+sed -i "s|^Icon=dev.shidou$|Icon=$HOME/.local/shidou.app/share/icons/hicolor/256x256/apps/dev.shidou.png|" \
+  ~/.local/share/applications/dev.shidou.desktop
 ```
 
 ## Updating
 
-Waku does not update itself on Linux — Sparkle is macOS-only. Re-run the
+Shidou does not update itself on Linux — Sparkle is macOS-only. Re-run the
 install script to upgrade.
 
 ## Uninstalling
 
 ```sh
-curl -fsSL https://waku.sh/install.sh | sh -s -- --uninstall
+curl -fsSL https://shidou.dev/install.sh | sh -s -- --uninstall
 ```
 
-This removes `~/.local/waku.app`, the symlink, and the desktop entry. Projects
-and settings stay in `~/.waku`; delete that directory to remove them too.
+This removes `~/.local/shidou.app`, the symlink, and the desktop entry. Projects
+and settings stay in `~/.shidou`; delete that directory to remove them too.
 
 ## Building from source
 
@@ -89,7 +89,7 @@ produce the same archive this page installs with:
 To exercise the install script against that local build:
 
 ```sh
-WAKU_BUNDLE_PATH=target/release/waku-<version>-<target>.tar.gz \
+SHIDOU_BUNDLE_PATH=target/release/shidou-<version>-<target>.tar.gz \
   sh website/public/install.sh
 ```
 
@@ -100,7 +100,7 @@ rasterizer. That works in principle — wgpu accepts a CPU adapter — but both
 lavapipe (Vulkan) and llvmpipe (GL) JIT-compile shaders through LLVM, and that
 path is fragile: on Fedora 44 aarch64 (mesa 26.0.3 + LLVM 22.1) it segfaults
 inside `gallivm_jit_function` while compiling a fragment shader. The crash is
-in the driver, not in Waku, and no application-side setting avoids it.
+in the driver, not in Shidou, and no application-side setting avoids it.
 
 If the app dies on its first frame in a VM, check `coredumpctl info` for a
 backtrace through `libvulkan_lvp.so` or `libgallium`. The reliable fix is to

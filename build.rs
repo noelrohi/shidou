@@ -24,7 +24,7 @@ fn main() {
 /// writes, against the same key. Reading the plist here rather than repeating
 /// the key in Rust means the two cannot drift into a feed the app rejects.
 ///
-/// Pagesmith ships no release feed yet, so the plist carries no key and the
+/// Shidou ships no release feed yet, so the plist carries no key and the
 /// constant is empty. That is not an error: the updater refuses to run without
 /// a feed anyway, and an empty key would fail verification even if it did.
 fn export_sparkle_public_key() {
@@ -42,7 +42,7 @@ fn export_sparkle_public_key() {
         .filter(|value| !value.is_empty())
         .unwrap_or_default();
 
-    println!("cargo:rustc-env=WAKU_SPARKLE_PUBLIC_ED_KEY={value}");
+    println!("cargo:rustc-env=SHIDOU_SPARKLE_PUBLIC_ED_KEY={value}");
 }
 
 #[cfg(target_os = "windows")]
@@ -57,7 +57,7 @@ fn embed_windows_resources() {
     let icon = icon.to_string_lossy().replace('\\', "\\\\");
 
     let package_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
-    // VERSIONINFO wants four numeric fields; Waku's version has three.
+    // VERSIONINFO wants four numeric fields; Shidou's version has three.
     let mut fields = package_version
         .split(['.', '-', '+'])
         .map(|field| field.parse::<u16>().unwrap_or(0))
@@ -87,12 +87,12 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "Waku\0"
+            VALUE "CompanyName", "Shidou\0"
             VALUE "FileDescription", "{description}\0"
             VALUE "FileVersion", "{package_version}\0"
-            VALUE "InternalName", "waku\0"
-            VALUE "OriginalFilename", "waku.exe\0"
-            VALUE "ProductName", "Waku\0"
+            VALUE "InternalName", "shidou\0"
+            VALUE "OriginalFilename", "shidou.exe\0"
+            VALUE "ProductName", "Shidou\0"
             VALUE "ProductVersion", "{package_version}\0"
         END
     END
@@ -105,7 +105,7 @@ END
     );
 
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
-    let script = out_dir.join("waku.rc");
+    let script = out_dir.join("shidou.rc");
     std::fs::write(&script, resources).expect("write the resource script");
 
     // GPUI embeds the application manifest through its own resource script,

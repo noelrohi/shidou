@@ -473,7 +473,7 @@ fn work_elapsed(item: &BackgroundWorkItem) -> String {
     }
 }
 
-impl Waku {
+impl Shidou {
     pub(super) fn background_output_refresh_delay(&self) -> Option<Duration> {
         self.background_work
             .values()
@@ -1350,7 +1350,7 @@ fn render_background_summary_card(
     session_id: Uuid,
     environment: Option<EnvironmentSummary>,
     entries: Rc<Vec<BackgroundSummaryEntry>>,
-    weak: WeakEntity<Waku>,
+    weak: WeakEntity<Shidou>,
     cx: &mut App,
 ) -> AnyElement {
     let theme = Theme::current(cx);
@@ -1422,7 +1422,7 @@ fn render_background_summary_card(
 fn render_environment_summary_section(
     environment: EnvironmentSummary,
     handle: ContextMenuHandle,
-    weak: WeakEntity<Waku>,
+    weak: WeakEntity<Shidou>,
     theme: &Theme,
 ) -> Div {
     let commit_handle = handle.clone();
@@ -1560,7 +1560,7 @@ fn render_background_summary_section(
     entries: Vec<BackgroundSummaryEntry>,
     session_id: Uuid,
     handle: ContextMenuHandle,
-    weak: WeakEntity<Waku>,
+    weak: WeakEntity<Shidou>,
     theme: &Theme,
 ) -> Div {
     let mut rows = div().w_full().flex().flex_col().gap(px(2.0));
@@ -1592,7 +1592,7 @@ fn render_background_summary_row(
     entry: BackgroundSummaryEntry,
     session_id: Uuid,
     handle: ContextMenuHandle,
-    weak: WeakEntity<Waku>,
+    weak: WeakEntity<Shidou>,
     theme: &Theme,
 ) -> Stateful<Div> {
     let item = entry.item;

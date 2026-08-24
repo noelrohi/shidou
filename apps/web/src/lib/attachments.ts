@@ -1,9 +1,9 @@
-import { MAX_WIRE_MESSAGE_BYTES, type MessageAttachment, type WakuClient } from '@waku/client'
+import { MAX_WIRE_MESSAGE_BYTES, type MessageAttachment, type ShidouClient } from '@shidou/client'
 
 const MAX_UPLOAD_BYTES = Math.floor((MAX_WIRE_MESSAGE_BYTES * 3) / 4) - 1024 * 1024
 
 export async function importFiles(
-  client: WakuClient,
+  client: ShidouClient,
   files: File[],
 ): Promise<MessageAttachment[]> {
   const attachments: MessageAttachment[] = []
@@ -35,7 +35,7 @@ export async function importFiles(
 }
 
 export async function importDaemonPathAttachment(
-  client: WakuClient,
+  client: ShidouClient,
   path: string,
 ): Promise<MessageAttachment> {
   const response = await client.request({
@@ -62,7 +62,7 @@ export async function importDaemonPathAttachment(
  * `null` in its slot instead of failing the whole batch.
  */
 export async function importDaemonPathAttachments(
-  client: WakuClient,
+  client: ShidouClient,
   paths: string[],
 ): Promise<(MessageAttachment | null)[]> {
   const response = await client.request({ type: 'importPathAttachments', paths })
@@ -87,12 +87,12 @@ export async function importDaemonPathAttachments(
 }
 
 export async function readAttachmentImage(
-  client: WakuClient,
+  client: ShidouClient,
   attachment: MessageAttachment,
 ): Promise<string> {
   const reference = attachment.blob_reference
   if (!reference) throw new Error('This attachment has no daemon reference')
-  const command = reference.startsWith('waku-blob:')
+  const command = reference.startsWith('shidou-blob:')
     ? ({ type: 'readBlob', reference } as const)
     : ({ type: 'readAttachment', reference, path: attachment.path } as const)
   const response = await client.request(command)

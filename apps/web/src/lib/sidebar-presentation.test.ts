@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentSession, Project } from '@waku/client'
+import type { AgentSession, Project } from '@shidou/client'
 import {
   dateGroup,
   formatTimeAgo,
@@ -47,7 +47,7 @@ describe('desktop sidebar presentation', () => {
     const projects: Project[] = [
       { id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1 },
       { id: 'b', name: 'Beta', path: '/work/beta', created_at: 1 },
-      { id: 'p', name: 'No project', path: '/home/me/.waku/projects/x', created_at: 1 },
+      { id: 'p', name: 'No project', path: '/home/me/.shidou/projects/x', created_at: 1 },
     ]
     const now = new Date(2026, 7, 15, 12)
     const nowSeconds = Math.floor(now.getTime() / 1_000)
@@ -133,7 +133,7 @@ describe('desktop sidebar presentation', () => {
     const project: Project = {
       id: 'project',
       name: 'No project',
-      path: '/home/me/.waku/projects/session',
+      path: '/home/me/.shidou/projects/session',
       created_at: 1,
     }
     const groups = sidebarGroups(

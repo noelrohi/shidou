@@ -1,13 +1,13 @@
-# Pagesmith development guidance
+# Shidou development guidance
 
 ## Development runtime
 
 - Assume `bun ./scripts/dev.ts` is already running and owns the current
-  `Pagesmith Debug.app` process. Source changes are rebuilt, signed, and relaunched
+  `Shidou Debug.app` process. Source changes are rebuilt, signed, and relaunched
   automatically. Only run it yourself if not already launched.
 - During normal development and UI validation, do not run
   `scripts/bundle.sh debug`, start a second watcher, or manually quit/relaunch
-  `Pagesmith Debug.app`. Quitting the app also stops the watcher.
+  `Shidou Debug.app`. Quitting the app also stops the watcher.
 - After an edit, wait for the watcher to finish its successful rebuild and
   validate the freshly relaunched debug app. Only start or recover the watcher
   manually when it is confirmed unavailable.
@@ -15,7 +15,7 @@
 
 ## Performance
 
-- Treat performance as a product requirement, not a follow-up. Pagesmith is a native
+- Treat performance as a product requirement, not a follow-up. Shidou is a native
   app competing with web clients, and staying smooth under a long transcript on
   a high-refresh display is the point of being native. Prefer the faster design
   when it costs nothing in clarity, and measure before assuming a cost is fine.
@@ -81,13 +81,13 @@
   behavior — or when an in-house `src/ui` primitive needs a proven native
   precedent. Zed is the canonical GPUI codebase; read its crates rather than
   `gpui-component`, and read the gpui revision pinned in `Cargo.toml` so the
-  APIs match what Pagesmith builds against.
+  APIs match what Shidou builds against.
 - Split the two references by concern: T3 Code answers what a coding-agent
   client should do, Zed answers how a polished GPUI app implements it. The
   same restraint applies to both — no reference spelunking for localized
   fixes or changes the user has already specified.
 - Use the reference as behavioral and design evidence, not as an instruction to
-  reproduce web-specific interaction patterns or known bugs. Pagesmith should keep
+  reproduce web-specific interaction patterns or known bugs. Shidou should keep
   native macOS conventions.
 - Explicit user screenshots and feedback override a previous or merely
   "consistent" treatment.

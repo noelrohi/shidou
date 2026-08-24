@@ -3,7 +3,7 @@ use gpui::{KeyBinding, actions};
 
 use super::*;
 
-actions!(waku_sidebar, [CancelSessionRename]);
+actions!(shidou_sidebar, [CancelSessionRename]);
 
 const SESSION_RENAME_PARENT_CONTEXT: &str = "SessionRename";
 const SESSION_RENAME_FIELD_CONTEXT: &str = "SessionRename > TextInput";
@@ -340,7 +340,7 @@ pub(super) enum SidebarRow {
     GroupSpacer,
 }
 
-impl Waku {
+impl Shidou {
     pub(super) fn window_drag_region(
         &self,
         region: Stateful<Div>,
@@ -925,17 +925,19 @@ impl Waku {
             return;
         }
 
-        let workspace = waku_client::WorkspaceClient::new(self.daemon.client());
-        cx.spawn(async move |waku, cx| {
+        let workspace = shidou_client::WorkspaceClient::new(self.daemon.client());
+        cx.spawn(async move |shidou, cx| {
             let labels = cx
                 .background_executor()
                 .spawn(async move {
                     let mut labels = HashMap::new();
                     for path in paths {
                         let branch = match workspace.request(
-                            waku_client::WorkspaceOperation::InspectBranches { cwd: path.clone() },
+                            shidou_client::WorkspaceOperation::InspectBranches {
+                                cwd: path.clone(),
+                            },
                         ) {
-                            Ok(waku_client::WorkspaceResult::Branches {
+                            Ok(shidou_client::WorkspaceResult::Branches {
                                 snapshot: Some(snapshot),
                             }) => snapshot.display_branch().map(str::to_owned),
                             _ => None,
@@ -947,11 +949,11 @@ impl Waku {
                     labels
                 })
                 .await;
-            let _ = waku.update(cx, |waku, cx| {
-                if waku.sidebar_branch_scan_generation.get() != generation {
+            let _ = shidou.update(cx, |shidou, cx| {
+                if shidou.sidebar_branch_scan_generation.get() != generation {
                     return;
                 }
-                *waku.sidebar_branch_labels.borrow_mut() = labels
+                *shidou.sidebar_branch_labels.borrow_mut() = labels
                     .into_iter()
                     .map(|(path, branch)| (path, SharedString::from(branch)))
                     .collect();
@@ -1427,20 +1429,17 @@ impl Waku {
             .when(first, |element| {
                 element.child(self.render_sidebar_header_actions(cx))
             })
-            .when(
-                show_folder_icon && has_expanded_children,
-                |element| {
-                    element.child(
-                        div()
-                            .absolute()
-                            .left(px(SIDEBAR_GROUP_GUIDE_X))
-                            .top(px(19.0))
-                            .bottom(px(-2.0))
-                            .w(px(1.0))
-                            .bg(theme.border),
-                    )
-                },
-            )
+            .when(show_folder_icon && has_expanded_children, |element| {
+                element.child(
+                    div()
+                        .absolute()
+                        .left(px(SIDEBAR_GROUP_GUIDE_X))
+                        .top(px(19.0))
+                        .bottom(px(-2.0))
+                        .w(px(1.0))
+                        .bg(theme.border),
+                )
+            })
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.toggle_sidebar_group(group, cx);
             }))
@@ -1481,11 +1480,7 @@ impl Waku {
         window.focus(&focus, cx);
     }
 
-    fn render_sidebar_show_more(
-        &self,
-        group: SidebarGroup,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn render_sidebar_show_more(&self, group: SidebarGroup, cx: &mut Context<Self>) -> Div {
         let theme = Theme::current(cx);
         let group_key = group.element_key();
         let focus = self
@@ -1529,9 +1524,9 @@ impl Waku {
                     .absolute()
                     .left(px(SIDEBAR_GROUP_GUIDE_X))
                     .top_0()
-                    .w(px(
-                        SIDEBAR_GROUP_CHILD_PADDING - SIDEBAR_GROUP_GUIDE_X - 4.0,
-                    ))
+                    .w(px(SIDEBAR_GROUP_CHILD_PADDING
+                        - SIDEBAR_GROUP_GUIDE_X
+                        - 4.0))
                     .h(px(15.0))
                     .border_l_1()
                     .border_b_1()
@@ -1780,7 +1775,7 @@ impl Waku {
                 .child(SharedString::from(localized_session_title(session)))
                 .into_any_element()
         };
-        let waku = cx.entity().downgrade();
+        let shidou = cx.entity().downgrade();
         let menu = self.menu_handle(format!("session-{session_id}"), cx);
         let row_focus = menu.trigger_focus_handle().clone();
         let keyboard_menu = menu.clone();
@@ -1903,18 +1898,18 @@ impl Waku {
                 SharedString::from(format!("session-menu-{session_id}")),
                 &menu,
                 move |_| {
-                    let rename_waku = waku.clone();
-                    let remove_waku = waku.clone();
+                    let rename_shidou = shidou.clone();
+                    let remove_shidou = shidou.clone();
                     vec![
                         MenuItem::new(tr!("common.rename"), move |window, cx| {
-                            let _ = rename_waku.update(cx, |waku, cx| {
-                                waku.begin_session_rename(session_id, window, cx);
+                            let _ = rename_shidou.update(cx, |shidou, cx| {
+                                shidou.begin_session_rename(session_id, window, cx);
                             });
                         }),
                         MenuItem::Separator,
                         MenuItem::new(tr!("common.remove"), move |_, cx| {
-                            let _ = remove_waku
-                                .update(cx, |waku, cx| waku.remove_session(session_id, cx));
+                            let _ = remove_shidou
+                                .update(cx, |shidou, cx| shidou.remove_session(session_id, cx));
                         }),
                     ]
                 },
@@ -2507,7 +2502,7 @@ mod tests {
 
     #[test]
     fn projectless_sidebar_projects_are_paths_under_the_workspace_root() {
-        let root = Path::new("/tmp/.waku/projects");
+        let root = Path::new("/tmp/.shidou/projects");
         let projectless = Project {
             id: Uuid::from_u128(1),
             name: "Task".to_owned(),

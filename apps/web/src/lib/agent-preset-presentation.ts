@@ -1,4 +1,4 @@
-import type { ProviderAgentPreset } from '@waku/client'
+import type { ProviderAgentPreset } from '@shidou/client'
 
 type Translator = (key: string) => string
 

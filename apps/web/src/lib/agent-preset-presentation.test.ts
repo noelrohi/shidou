@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { ProviderAgentPreset } from '@waku/client'
+import type { ProviderAgentPreset } from '@shidou/client'
 import {
   agentPresetDescription,
   agentPresetIdLabel,

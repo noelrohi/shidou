@@ -13,17 +13,17 @@
       },
     },
     "apps/web": {
-      "name": "@waku/web",
+      "name": "@shidou/web",
       "dependencies": {
         "@base-ui/react": "^1.7.0",
         "@fontsource-variable/geist": "^5.3.0",
+        "@shidou/client": "workspace:*",
         "@pierre/diffs": "1.3.5",
         "@tanstack/charts": "0.13.0",
         "@tanstack/react-query": "^5.101.4",
         "@tanstack/react-router": "^1.170.27",
         "@tanstack/react-router-ssr-query": "^1.167.1",
         "@tanstack/react-start": "^1.168.44",
-        "@waku/client": "workspace:*",
         "@wterm/dom": "0.3.3",
         "@wterm/ghostty": "0.3.3",
         "@wterm/react": "0.3.3",
@@ -56,8 +56,8 @@
         "wrangler": "^4.74.0",
       },
     },
-    "packages/waku-client": {
-      "name": "@waku/client",
+    "packages/shidou-client": {
+      "name": "@shidou/client",
       "version": "0.1.0",
     },
     "website": {
@@ -359,6 +359,10 @@
 
     "@oxc-project/types": ["@oxc-project/types@0.143.0", "", {}, "sha512-u6JZdLBTLotrNC9Vd6vPssINdzcCzleKAH6EJKImQb7GtYvX5keN2dxkoK44stCc4tffE6QQRtZTXVSzsLUlWA=="],
 
+    "@shidou/client": ["@shidou/client@workspace:packages/shidou-client"],
+
+    "@shidou/web": ["@shidou/web@workspace:apps/web"],
+
     "@pierre/diffs": ["@pierre/diffs@1.3.5", "", { "dependencies": { "@pierre/theme": "2.0.0", "@pierre/theming": "1.0.1", "@shikijs/transformers": "^3.0.0 || ^4.0.0", "diff": "9.0.0", "hast-util-to-html": "9.0.5", "lru_map": "0.4.1", "shiki": "^3.0.0 || ^4.0.0" }, "peerDependencies": { "react": "^18.3.1 || ^19.0.0", "react-dom": "^18.3.1 || ^19.0.0" } }, "sha512-BhaLEiUvR+BdIyOYdogA4JLQjluWPubuwySmmIqEkcE0FwIWRbgJgHNC/r884dlxEr89fO4hTk/sBln0a7NSOw=="],
 
     "@pierre/theme": ["@pierre/theme@2.0.0", "", {}, "sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw=="],
@@ -594,10 +598,6 @@
     "@ungap/structured-clone": ["@ungap/structured-clone@1.3.3", "", {}, "sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg=="],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.0.5", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.1" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler"] }, "sha512-BOVzne/NL162sMdResB25mUv+vWMF5NoAjNf09TeGlE7ZpszZWSD3winycicLJw72yeVsoCn/2kOhEuCvEShMA=="],
-
-    "@waku/client": ["@waku/client@workspace:packages/waku-client"],
-
-    "@waku/web": ["@waku/web@workspace:apps/web"],
 
     "@wterm/core": ["@wterm/core@0.3.3", "", {}, "sha512-UIDr0HLD92VV3pMkSo6XKu8WJ+41CPLhROuDaomHCVe4aYydfoc17zQSZxMvZCx9xFtKzVcacJ/mR5lOD8HD3A=="],
 

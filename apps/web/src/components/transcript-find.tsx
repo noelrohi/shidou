@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { WakuIcon } from '@/components/waku-icon'
+import { ShidouIcon } from '@/components/shidou-icon'
 import { cn } from '@/lib/utils'
 
 type Translator = (key: string, params?: Record<string, string | number>) => string
@@ -119,7 +119,7 @@ function FindBarButton({
       type="button"
       onClick={onClick}
     >
-      <WakuIcon className="size-3.5" name={icon} />
+      <ShidouIcon className="size-3.5" name={icon} />
     </button>
   )
 }

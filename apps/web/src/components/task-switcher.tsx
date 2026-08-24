@@ -1,5 +1,5 @@
-import type { AgentSession, Project } from '@waku/client'
-import { ProviderIcon, WakuIcon } from '@/components/waku-icon'
+import type { AgentSession, Project } from '@shidou/client'
+import { ProviderIcon, ShidouIcon } from '@/components/shidou-icon'
 import { displayTitle } from '@/lib/daemon-api'
 import { projectDisplayName } from '@/lib/project-presentation'
 import { taskSwitcherColumns, taskSwitcherPreview } from '@/lib/task-switcher'
@@ -91,10 +91,10 @@ export function TaskSwitcher({
 function TaskSwitcherStatus({ status }: { status: AgentSession['status'] }) {
   if (status === 'idle') return null
   if (status === 'working' || status === 'connecting') {
-    return <WakuIcon className="size-3 shrink-0 text-[var(--success)] motion-safe:animate-spin" name="loaderCircle" />
+    return <ShidouIcon className="size-3 shrink-0 text-[var(--success)] motion-safe:animate-spin" name="loaderCircle" />
   }
   if (status === 'waiting') {
-    return <WakuIcon className="size-3 shrink-0 text-[var(--warning)]" name="alert" />
+    return <ShidouIcon className="size-3 shrink-0 text-[var(--warning)]" name="alert" />
   }
-  return <WakuIcon className="size-3 shrink-0 text-destructive" name="x" />
+  return <ShidouIcon className="size-3 shrink-0 text-destructive" name="x" />
 }

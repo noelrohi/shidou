@@ -12,9 +12,9 @@ import { DaemonProvider } from '@/lib/daemon-context'
 import { RuntimeProvider } from '@/lib/runtime-context'
 import appCss from '@/styles.css?url'
 
-const TITLE = 'Pagesmith Web'
+const TITLE = 'Shidou Web'
 const DESCRIPTION =
-  'Connect securely to a Pagesmith daemon and build ecommerce experiences with coding agents.'
+  'Connect securely to a Shidou daemon and build ecommerce experiences with coding agents.'
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
@@ -43,7 +43,7 @@ export const Route = createRootRouteWithContext<{
     links: [{ rel: 'stylesheet', href: appCss }],
     scripts: [
       {
-        children: `try{var d=document.documentElement,p=localStorage.getItem('waku.theme'),s=matchMedia('(prefers-color-scheme: dark)').matches,x=p==='dark'||p!=='light'&&s,l=localStorage.getItem('waku.language'),n=(navigator.languages&&navigator.languages[0]||navigator.language||'en').replaceAll('_','-').toLowerCase(),r=l==='zh-CN'||l==='ja'||l==='en'?l:n==='zh-cn'||n==='zh-sg'||n.startsWith('zh-hans')?'zh-CN':n==='ja'||n.startsWith('ja-')?'ja':'en';d.classList.toggle('dark',x);d.classList.toggle('light',!x);d.lang=r}catch(e){}`,
+        children: `try{var d=document.documentElement,p=localStorage.getItem('shidou.theme'),s=matchMedia('(prefers-color-scheme: dark)').matches,x=p==='dark'||p!=='light'&&s,l=localStorage.getItem('shidou.language'),n=(navigator.languages&&navigator.languages[0]||navigator.language||'en').replaceAll('_','-').toLowerCase(),r=l==='zh-CN'||l==='ja'||l==='en'?l:n==='zh-cn'||n==='zh-sg'||n.startsWith('zh-hans')?'zh-CN':n==='ja'||n.startsWith('ja-')?'ja':'en';d.classList.toggle('dark',x);d.classList.toggle('light',!x);d.lang=r}catch(e){}`,
       },
     ],
   }),

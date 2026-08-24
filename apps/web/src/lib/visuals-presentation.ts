@@ -3,13 +3,13 @@ import {
   VISUAL_IMAGE_EXTENSIONS,
   type FileEntry,
   type MessageAttachment,
-} from '@waku/client'
+} from '@shidou/client'
 
 export type VisualLayout = 'compact' | 'large' | 'fit'
 export type VisualGridKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown' | 'Home' | 'End'
 
 export const VISUAL_LAYOUTS: readonly VisualLayout[] = ['compact', 'large', 'fit']
-export const ATTACH_VISUAL_SELECTION_EVENT = 'pagesmith:attach-visual-selection'
+export const ATTACH_VISUAL_SELECTION_EVENT = 'shidou:attach-visual-selection'
 export const VISUAL_GALLERY_CAP = 50_000
 
 const IMAGE_EXTENSIONS = new Set<string>(VISUAL_IMAGE_EXTENSIONS)

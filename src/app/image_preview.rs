@@ -8,7 +8,7 @@ use gpui::{KeyBinding, actions};
 
 use super::*;
 
-actions!(waku_image_preview, [DismissImagePreview]);
+actions!(shidou_image_preview, [DismissImagePreview]);
 
 const IMAGE_PREVIEW_CONTEXT: &str = "ImagePreview";
 const IMAGE_PREVIEW_ANIMATION_DURATION: Duration = Duration::from_millis(140);
@@ -40,7 +40,7 @@ pub(super) fn attachment_menu_items(path: PathBuf, can_reveal: bool) -> Vec<Menu
     ]
 }
 
-impl Waku {
+impl Shidou {
     /// Resolve one daemon-owned image for a visible row. Frames consult only
     /// in-memory state; the first miss starts a deduplicated background RPC and
     /// a later notification lets GPUI render the returned bytes from memory.
@@ -52,8 +52,8 @@ impl Waku {
         cx: &mut Context<Self>,
     ) -> Option<Arc<gpui::Image>> {
         let attachment_reference =
-            reference.starts_with(waku_protocol::attachments::ATTACHMENT_SCHEME);
-        if !waku_protocol::blob::is_reference(reference) && !attachment_reference {
+            reference.starts_with(shidou_protocol::attachments::ATTACHMENT_SCHEME);
+        if !shidou_protocol::blob::is_reference(reference) && !attachment_reference {
             return None;
         }
         if let Some(state) = self.remote_images.borrow().get(reference) {
@@ -80,11 +80,11 @@ impl Waku {
         let fetch_reference = cache_key.clone();
         let daemon_path = daemon_path.map(Path::to_path_buf);
         let daemon = self.daemon.clone();
-        cx.spawn(async move |waku, cx| {
+        cx.spawn(async move |shidou, cx| {
             let image = cx
                 .background_executor()
                 .spawn(async move {
-                    waku_client::persistence::read_remote_reference(
+                    shidou_client::persistence::read_remote_reference(
                         &fetch_reference,
                         daemon_path.as_deref(),
                         &daemon,
@@ -95,21 +95,23 @@ impl Waku {
                     })
                 })
                 .await;
-            let _ = waku.update(cx, |waku, cx| {
+            let _ = shidou.update(cx, |shidou, cx| {
                 let state = match image {
                     Some((image, dimensions)) => {
                         if let Some(dimensions) = dimensions {
-                            waku.remote_image_sizes
+                            shidou
+                                .remote_image_sizes
                                 .borrow_mut()
                                 .insert(cache_key.clone(), dimensions);
-                            waku.remote_image_sizes_version
-                                .set(waku.remote_image_sizes_version.get().wrapping_add(1));
+                            shidou
+                                .remote_image_sizes_version
+                                .set(shidou.remote_image_sizes_version.get().wrapping_add(1));
                         }
                         RemoteImageState::Ready(image)
                     }
                     None => RemoteImageState::Unavailable,
                 };
-                waku.remote_images.borrow_mut().insert(cache_key, state);
+                shidou.remote_images.borrow_mut().insert(cache_key, state);
                 cx.notify();
             });
         })

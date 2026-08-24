@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { FileEntry, MessageAttachment } from '@waku/client'
+import type { FileEntry, MessageAttachment } from '@shidou/client'
 import {
   buildVisualRowPlan,
   galleryAttachment,
@@ -139,7 +139,7 @@ describe('gallery selection', () => {
       name: 'hero.png',
       is_dir: false,
       is_image: true,
-      blob_reference: 'waku-attachment:id',
+      blob_reference: 'shidou-attachment:id',
     }
     expect(galleryAttachment(stored, 'assets/hero.png')).toEqual({
       ...stored,

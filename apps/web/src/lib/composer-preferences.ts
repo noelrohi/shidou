@@ -1,6 +1,6 @@
-import type { AgentSession, ProviderKind } from '@waku/client'
+import type { AgentSession, ProviderKind } from '@shidou/client'
 
-const STORAGE_KEY = 'waku.composer-preferences.v1'
+const STORAGE_KEY = 'shidou.composer-preferences.v1'
 
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 

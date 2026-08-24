@@ -9,7 +9,7 @@ import type {
   Project,
   ProviderModel,
   ProviderProbe,
-} from '@waku/client'
+} from '@shidou/client'
 import {
   useEffect,
   useRef,
@@ -31,7 +31,7 @@ import {
   mergeVisualAttachments,
   type AttachVisualSelectionDetail,
 } from '@/lib/visuals-presentation'
-import { FileTypeIcon, WakuIcon } from '@/components/waku-icon'
+import { FileTypeIcon, ShidouIcon } from '@/components/shidou-icon'
 import {
   useComposerCommands,
   useComposerFiles,
@@ -599,7 +599,7 @@ export function Composer({
                     )
                   }}
                 >
-                  {option.allow && <WakuIcon name="check" />}
+                  {option.allow && <ShidouIcon name="check" />}
                   {option.label}
                 </Button>
               ))}
@@ -765,7 +765,7 @@ export function Composer({
                 >
                   {escapeStopArmed
                     ? <span className="text-[10px] font-semibold">Esc</span>
-                    : <WakuIcon className="size-[18px]" name="stopFilled" />}
+                    : <ShidouIcon className="size-[18px]" name="stopFilled" />}
                 </Button>
               )}
               <Button
@@ -780,7 +780,7 @@ export function Composer({
                 variant="ghost"
                 onClick={() => setFilePickerOpen(true)}
               >
-                <WakuIcon className="size-[14px]" name="paperclip" />
+                <ShidouIcon className="size-[14px]" name="paperclip" />
               </Button>
               {busy ? (
                 hasDraft && (
@@ -791,7 +791,7 @@ export function Composer({
                     size="icon-sm"
                     onClick={() => void submit()}
                   >
-                    <WakuIcon name="arrowUp" />
+                    <ShidouIcon name="arrowUp" />
                   </Button>
                 )
               ) : (
@@ -802,7 +802,7 @@ export function Composer({
                   size="icon-sm"
                   onClick={() => void submit()}
                 >
-                  <WakuIcon name="arrowUp" />
+                  <ShidouIcon name="arrowUp" />
                 </Button>
               )}
             </div>
@@ -1007,7 +1007,7 @@ function UserInputPanel({
                     </span>
                   )}
                 </span>
-                {checked && <WakuIcon className="size-3 shrink-0 text-primary" name="check" />}
+                {checked && <ShidouIcon className="size-3 shrink-0 text-primary" name="check" />}
               </button>
             )
           })}
@@ -1019,7 +1019,7 @@ function UserInputPanel({
           custom.trim() && 'border-primary/35 bg-primary/[0.06]',
         )}
       >
-        <WakuIcon
+        <ShidouIcon
           className={cn('size-3 shrink-0 text-[var(--text-ghost)]', custom.trim() && 'text-primary')}
           name="pencil"
         />
@@ -1079,7 +1079,7 @@ function ComposerAutocomplete({
   return (
     <div
       aria-label={t('composer.suggestions')}
-      className="waku-popover-surface absolute bottom-[calc(100%+6px)] left-0 z-[70] w-full overflow-hidden rounded-[11px] p-1"
+      className="shidou-popover-surface absolute bottom-[calc(100%+6px)] left-0 z-[70] w-full overflow-hidden rounded-[11px] p-1"
       id="composer-autocomplete"
       role="listbox"
       style={{ height: Math.min(302, rows.length * 30 + 8) }}
@@ -1124,8 +1124,8 @@ function AutocompleteRowContents({ row }: { row: ComposerAutocompleteRow }) {
     return (
       <>
         {command.scope === 'Skill'
-          ? <WakuIcon className="size-3 text-[var(--text-tertiary)]" name="sparkle" />
-          : <WakuIcon className="size-3 text-[var(--text-tertiary)]" name="command" />}
+          ? <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name="sparkle" />
+          : <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name="command" />}
         <span className="max-w-[260px] shrink-0 truncate text-[12px] font-medium">
           /{command.name}
         </span>
@@ -1151,7 +1151,7 @@ function AutocompleteRowContents({ row }: { row: ComposerAutocompleteRow }) {
   return (
     <>
       {row.file.is_dir
-        ? <WakuIcon className="size-[13px] text-[var(--text-tertiary)]" name="folder" />
+        ? <ShidouIcon className="size-[13px] text-[var(--text-tertiary)]" name="folder" />
         : <FileTypeIcon className="size-[13px]" path={row.file.path} />}
       <span className="max-w-[300px] shrink-0 truncate text-[12px]">{name}</span>
       {parent && (
@@ -1197,7 +1197,7 @@ function ComposerAttachmentTile({
   ) : (
     <div className="flex size-full flex-col items-center justify-center gap-[5px] px-[5px]">
       {attachment.is_dir
-        ? <WakuIcon className="size-4 text-[var(--text-tertiary)]" name="folder" />
+        ? <ShidouIcon className="size-4 text-[var(--text-tertiary)]" name="folder" />
         : <FileTypeIcon className="size-4" path={attachment.mention || attachment.name} />}
       {!attachment.is_image && (
         <span className="w-full truncate text-center text-[8.5px] text-[var(--text-tertiary)]">
@@ -1220,7 +1220,7 @@ function ComposerAttachmentTile({
         onClick={onRemove}
         onMouseDown={(event) => event.preventDefault()}
       >
-        <WakuIcon className="size-[9px]" name="x" />
+        <ShidouIcon className="size-[9px]" name="x" />
       </button>
     </div>
   )
@@ -1429,7 +1429,7 @@ function InteractionModeControl({
       type="button"
       onClick={() => onPatch({ interaction_mode: plan ? 'build' : 'plan' })}
     >
-      <WakuIcon className={cn('size-[10.5px] text-[var(--text-tertiary)]', plan && 'text-ring')} name={plan ? 'list' : 'wrench'} />
+      <ShidouIcon className={cn('size-[10.5px] text-[var(--text-tertiary)]', plan && 'text-ring')} name={plan ? 'list' : 'wrench'} />
       {t(plan ? 'mode.plan' : 'mode.build')}
     </button>
   )
@@ -1468,7 +1468,7 @@ function QueuedMessages({
               type="button"
               onClick={() => onEdit(message)}
             >
-              <WakuIcon className="size-3 shrink-0 text-[var(--text-tertiary)]" name="queue" />
+              <ShidouIcon className="size-3 shrink-0 text-[var(--text-tertiary)]" name="queue" />
               <span className="min-w-0 flex-1 truncate">
                 {message.display_content || message.content || message.attachments?.map((item) => item.name).join(', ')}
               </span>
@@ -1481,7 +1481,7 @@ function QueuedMessages({
                   type="button"
                   onClick={() => onSteer(message)}
                 >
-                  <WakuIcon className="size-[11px]" name="cornerDownRight" />
+                  <ShidouIcon className="size-[11px]" name="cornerDownRight" />
                   {t('composer.steer')}
                 </button>
               )}
@@ -1491,7 +1491,7 @@ function QueuedMessages({
                 type="button"
                 onClick={() => onRemove(message.id)}
               >
-                <WakuIcon className="size-3" name="trash" />
+                <ShidouIcon className="size-3" name="trash" />
               </button>
               <ControlMenu
                 caret={false}
@@ -1515,7 +1515,7 @@ function QueuedMessages({
                 selectionMode="status"
                 triggerClassName="grid size-6 place-items-center px-0 rounded-md"
               >
-                <WakuIcon className="size-3" name="ellipsis" />
+                <ShidouIcon className="size-3" name="ellipsis" />
               </ControlMenu>
             </div>
           </div>
@@ -1610,7 +1610,7 @@ function BranchPicker({
           }
         }}
       >
-        <WakuIcon className="size-[11px] text-[var(--text-tertiary)]" name="gitBranch" />
+        <ShidouIcon className="size-[11px] text-[var(--text-tertiary)]" name="gitBranch" />
         <span className="truncate">{pending ? t('branches.switching') : selected ?? t('branches.detached_head')}</span>
       </Popover.Trigger>
       <Popover.Portal>
@@ -1623,7 +1623,7 @@ function BranchPicker({
         >
           <Popover.Popup
             aria-label={t('branches.choose')}
-            className="waku-popover-surface flex max-h-[390px] w-[360px] flex-col overflow-hidden rounded-[13px] outline-none"
+            className="shidou-popover-surface flex max-h-[390px] w-[360px] flex-col overflow-hidden rounded-[13px] outline-none"
             finalFocus={(closeType) => closeType === 'keyboard' ? true : returnFocus.current}
             initialFocus={input}
             role="dialog"
@@ -1663,7 +1663,7 @@ function BranchPicker({
             {mode === 'create' ? (
               <div className="p-3.5">
                 <div className="flex items-center gap-2 text-[13px] font-medium">
-                  <WakuIcon className="size-3.5 text-[var(--text-secondary)]" name="plus" />
+                  <ShidouIcon className="size-3.5 text-[var(--text-secondary)]" name="plus" />
                   {t('branches.create_and_checkout')}
                 </div>
                 <input
@@ -1680,7 +1680,7 @@ function BranchPicker({
               <>
                 <div className="h-[52px] shrink-0 px-3 pb-2 pt-2.5">
                   <label className="flex h-[34px] items-center gap-2 rounded-[9px] bg-background px-2.5 focus-within:ring-1 focus-within:ring-ring">
-                    <WakuIcon className="size-[15px] text-[var(--text-secondary)]" name="search" />
+                    <ShidouIcon className="size-[15px] text-[var(--text-secondary)]" name="search" />
                     <input
                       className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
                       placeholder={t('input.search_branches')}
@@ -1715,9 +1715,9 @@ function BranchPicker({
                         onMouseEnter={() => actionIndex >= 0 && setActive(actionIndex)}
                         onClick={() => choose(branch.name)}
                       >
-                        <WakuIcon className="size-3 text-[var(--text-tertiary)]" name="gitBranch" />
+                        <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name="gitBranch" />
                         <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                        {branch.name === selected && <WakuIcon className="size-[11px] text-[var(--text-tertiary)]" name="check" />}
+                        {branch.name === selected && <ShidouIcon className="size-[11px] text-[var(--text-tertiary)]" name="check" />}
                       </button>
                     )
                   })}
@@ -1737,7 +1737,7 @@ function BranchPicker({
                         requestAnimationFrame(() => input.current?.focus())
                       }}
                     >
-                      <WakuIcon className="size-3 text-[var(--text-secondary)]" name="plus" />
+                      <ShidouIcon className="size-3 text-[var(--text-secondary)]" name="plus" />
                       {t('branches.create_and_checkout_ellipsis')}
                     </button>
                   </>
@@ -1823,7 +1823,7 @@ function UsageMeter({
         >
           <Popover.Popup
             aria-label={t('settings.usage')}
-            className="waku-popover-surface flex w-80 flex-col gap-3 rounded-[10px] p-3.5 text-xs text-popover-foreground outline-none"
+            className="shidou-popover-surface flex w-80 flex-col gap-3 rounded-[10px] p-3.5 text-xs text-popover-foreground outline-none"
             finalFocus={(closeType) => closeType === 'keyboard' ? true : returnFocus.current}
             initialFocus={false}
             role="dialog"
@@ -1917,7 +1917,7 @@ function PlanUsageLanes({
           target="_blank"
         >
           <span className="min-w-0 flex-1 truncate">{header}</span>
-          <WakuIcon className="size-2.5" name="arrowRight" />
+          <ShidouIcon className="size-2.5" name="arrowRight" />
         </a>
       ) : (
         <div className="truncate text-[11px] text-[var(--text-tertiary)]">{header}</div>

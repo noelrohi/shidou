@@ -181,7 +181,7 @@ impl VisualGalleryLayout {
 pub(super) fn supported_visual_path(path: &str) -> bool {
     path_extension_lowercase(path)
         .as_deref()
-        .is_some_and(|extension| waku_protocol::VISUAL_IMAGE_EXTENSIONS.contains(&extension))
+        .is_some_and(|extension| shidou_protocol::VISUAL_IMAGE_EXTENSIONS.contains(&extension))
 }
 
 fn visual_folder(path: &str) -> String {
@@ -239,7 +239,7 @@ fn visual_folder_display(folder: &str) -> (usize, &str) {
     (folder.matches('/').count() + 1, name)
 }
 
-impl Waku {
+impl Shidou {
     /// Index of the masonry row containing image `index`, if any.
     fn visual_row_containing(&self, index: usize) -> Option<usize> {
         self.visual_gallery
@@ -268,21 +268,21 @@ impl Waku {
         if self.visual_gallery.images.is_empty() {
             self.visual_gallery.loading = true;
         }
-        let workspace = waku_client::WorkspaceClient::new(self.daemon.client());
-        cx.spawn(async move |waku, cx| {
+        let workspace = shidou_client::WorkspaceClient::new(self.daemon.client());
+        cx.spawn(async move |shidou, cx| {
             let result = cx
                 .background_executor()
                 .spawn({
                     let root = workspace_path.clone();
                     async move {
-                        workspace.request(waku_client::WorkspaceOperation::ListProjectFiles {
+                        workspace.request(shidou_client::WorkspaceOperation::ListProjectFiles {
                             root,
                             cap: VISUAL_GALLERY_CAP,
                         })
                     }
                 })
                 .await;
-            let _ = waku.update(cx, |this, cx| {
+            let _ = shidou.update(cx, |this, cx| {
                 if this.visual_gallery.generation != generation
                     || this.visual_gallery.workspace.as_ref() != Some(&workspace_path)
                 {
@@ -290,7 +290,7 @@ impl Waku {
                 }
                 let mut index: HashMap<String, Vec<VisualGalleryFile>> = HashMap::new();
                 match result {
-                    Ok(waku_client::WorkspaceResult::ProjectFiles { entries }) => {
+                    Ok(shidou_client::WorkspaceResult::ProjectFiles { entries }) => {
                         if entries.len() >= VISUAL_GALLERY_CAP {
                             eprintln!(
                                 "visual gallery file listing hit its cap of \
@@ -410,7 +410,7 @@ impl Waku {
             self.visual_gallery.list_state.reset(0);
         }
         let daemon = self.daemon.clone();
-        cx.spawn(async move |waku, cx| {
+        cx.spawn(async move |shidou, cx| {
             let images = cx
                 .background_executor()
                 .spawn(async move {
@@ -420,7 +420,7 @@ impl Waku {
                     let response = daemon.client().request(
                         Uuid::nil(),
                         Uuid::nil(),
-                        waku_client::Command::ImportPathAttachments {
+                        shidou_client::Command::ImportPathAttachments {
                             paths: files
                                 .iter()
                                 .map(|file| file.absolute_path.clone())
@@ -428,7 +428,7 @@ impl Waku {
                         },
                     );
                     let attachments = match response {
-                        Ok(waku_client::ResponsePayload::AttachmentsStored { attachments }) => {
+                        Ok(shidou_client::ResponsePayload::AttachmentsStored { attachments }) => {
                             attachments
                         }
                         Ok(_) => return Err("unexpected response".to_string()),
@@ -448,7 +448,7 @@ impl Waku {
                         .collect::<Vec<_>>())
                 })
                 .await;
-            let _ = waku.update(cx, |this, cx| {
+            let _ = shidou.update(cx, |this, cx| {
                 if this.visual_gallery.generation != generation
                     || this.visual_gallery.folder.as_deref() != Some(folder.as_str())
                 {
@@ -767,7 +767,7 @@ impl Waku {
             layout,
         );
         if self.visual_gallery.row_plan_key != Some(plan_key) {
-            let available = (panel_width - waku_protocol::VISUAL_GRID_HORIZONTAL_INSET).max(88.0);
+            let available = (panel_width - shidou_protocol::VISUAL_GRID_HORIZONTAL_INSET).max(88.0);
             let sizes = self.remote_image_sizes.borrow();
             self.visual_gallery.row_plan =
                 build_visual_row_plan(&self.visual_gallery.images, &sizes, layout, available);

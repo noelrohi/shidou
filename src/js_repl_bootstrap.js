@@ -17,26 +17,26 @@
     }
   };
 
-  const nativeSkyCall = globalThis.__wakuSkyCall;
-  const nativeWrite = globalThis.__wakuWrite;
-  const nativeEmitImage = globalThis.__wakuEmitImage;
-  const nativeSetResponseMeta = globalThis.__wakuSetResponseMeta;
-  const nativeScheduleTimer = globalThis.__wakuScheduleTimer;
-  const nativeClearTimer = globalThis.__wakuClearTimer;
-  const nativeRefreshTimer = globalThis.__wakuRefreshTimer;
-  const cwd = globalThis.__wakuCwd;
-  const homeDir = globalThis.__wakuHomeDir;
-  const tmpDir = globalThis.__wakuTmpDir;
-  delete globalThis.__wakuSkyCall;
-  delete globalThis.__wakuWrite;
-  delete globalThis.__wakuEmitImage;
-  delete globalThis.__wakuSetResponseMeta;
-  delete globalThis.__wakuScheduleTimer;
-  delete globalThis.__wakuClearTimer;
-  delete globalThis.__wakuRefreshTimer;
-  delete globalThis.__wakuCwd;
-  delete globalThis.__wakuHomeDir;
-  delete globalThis.__wakuTmpDir;
+  const nativeSkyCall = globalThis.__shidouSkyCall;
+  const nativeWrite = globalThis.__shidouWrite;
+  const nativeEmitImage = globalThis.__shidouEmitImage;
+  const nativeSetResponseMeta = globalThis.__shidouSetResponseMeta;
+  const nativeScheduleTimer = globalThis.__shidouScheduleTimer;
+  const nativeClearTimer = globalThis.__shidouClearTimer;
+  const nativeRefreshTimer = globalThis.__shidouRefreshTimer;
+  const cwd = globalThis.__shidouCwd;
+  const homeDir = globalThis.__shidouHomeDir;
+  const tmpDir = globalThis.__shidouTmpDir;
+  delete globalThis.__shidouSkyCall;
+  delete globalThis.__shidouWrite;
+  delete globalThis.__shidouEmitImage;
+  delete globalThis.__shidouSetResponseMeta;
+  delete globalThis.__shidouScheduleTimer;
+  delete globalThis.__shidouClearTimer;
+  delete globalThis.__shidouRefreshTimer;
+  delete globalThis.__shidouCwd;
+  delete globalThis.__shidouHomeDir;
+  delete globalThis.__shidouTmpDir;
 
   const write = (value, newline = false) => nativeWrite(format(value), newline);
   globalThis.console = Object.freeze({
@@ -46,8 +46,8 @@
     error: (...values) => nativeWrite(values.map((value) => format(value)).join(" "), true),
   });
 
-  const timerId = Symbol("waku.timerId");
-  const timerRefed = Symbol("waku.timerRefed");
+  const timerId = Symbol("shidou.timerId");
+  const timerRefed = Symbol("shidou.timerRefed");
   const timers = new Map();
   class Timeout {
     constructor(id) {
@@ -88,7 +88,7 @@
     timers.delete(id);
     nativeClearTimer(id);
   };
-  globalThis.__wakuRunTimer = (id) => {
+  globalThis.__shidouRunTimer = (id) => {
     const timer = timers.get(id);
     if (!timer) return;
     if (!timer.repeat) timers.delete(id);
@@ -384,7 +384,7 @@
   };
 
   let requestMeta = Object.freeze({});
-  globalThis.__wakuSetRequestMeta = (meta) => {
+  globalThis.__shidouSetRequestMeta = (meta) => {
     requestMeta = Object.freeze(meta ?? {});
   };
   globalThis.nodeRepl = Object.freeze({

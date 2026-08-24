@@ -77,7 +77,7 @@ fn attach_changed_files(session: &mut AgentSession, files: Vec<CheckpointFile>) 
     let turn = session.turns.last_mut().expect("the test has a turn");
     turn.checkpoint = Some(Checkpoint {
         turn_count: turn.turn_count,
-        git_ref: format!("refs/waku/test-turn-{}", turn.turn_count),
+        git_ref: format!("refs/shidou/test-turn-{}", turn.turn_count),
         status: CheckpointStatus::Ready,
         files,
         additions: 0,
@@ -359,7 +359,10 @@ fn task_notification_tags_route_to_the_corresponding_task() {
     let tag = task_notification_tag(session_id);
 
     assert_eq!(task_id_from_notification_tag(&tag), Some(session_id));
-    assert_eq!(task_id_from_notification_tag("waku-task:not-a-uuid"), None);
+    assert_eq!(
+        task_id_from_notification_tag("shidou-task:not-a-uuid"),
+        None
+    );
     assert_eq!(task_id_from_notification_tag(&session_id.to_string()), None);
 }
 

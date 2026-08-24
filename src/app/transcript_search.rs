@@ -57,7 +57,7 @@ impl TranscriptSearch {
     }
 }
 
-impl Waku {
+impl Shidou {
     pub(super) fn refresh_transcript_search_localized_text(&mut self, cx: &mut Context<Self>) {
         let Some(search) = &self.transcript_search else {
             return;
@@ -512,16 +512,16 @@ mod tests {
 
     #[test]
     fn literal_find_is_case_insensitive_and_unicode_safe() {
-        let regex = literal_find_regex("waku");
+        let regex = literal_find_regex("shidou");
         let (matches, limited) =
-            md::render::markdown_search_matches("Waku **waku** WAKU", &regex, 20);
+            md::render::markdown_search_matches("Shidou **shidou** SHIDOU", &regex, 20);
         assert!(!limited);
         assert_eq!(
             matches
                 .iter()
                 .map(|found| found.range.clone())
                 .collect::<Vec<_>>(),
-            vec![0..4, 5..9, 10..14]
+            vec![0..9, 10..19, 20..29]
         );
 
         let regex = literal_find_regex("界");

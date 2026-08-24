@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Shidou
+Comment=A native control plane for local coding agents
+Exec=shidou
+Icon=dev.shidou
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
+StartupWMClass=dev.shidou

@@ -1,7 +1,7 @@
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MessageAttachment } from '@waku/client'
+import type { MessageAttachment } from '@shidou/client'
 import {
   useEffect,
   useMemo,
@@ -12,7 +12,7 @@ import {
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { toast } from 'sonner'
 import { ControlMenu, type ControlMenuItem } from '@/components/control-menu'
-import { WakuIcon } from '@/components/waku-icon'
+import { ShidouIcon } from '@/components/shidou-icon'
 import { importDaemonPathAttachments, readAttachmentImage } from '@/lib/attachments'
 import { daemonKeys, listComposerFiles } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
@@ -277,7 +277,7 @@ export function VisualsPanel({
           items={folderItems}
           triggerClassName="h-7 min-w-0 max-w-[55%] px-2 text-[12px]"
         >
-          <WakuIcon className="size-3" name="folder" />
+          <ShidouIcon className="size-3" name="folder" />
           <span className="truncate">
             {folder === null ? t('visuals.choose_folder') : visualFolderDisplay(folder).name}
           </span>
@@ -381,7 +381,7 @@ export function VisualsPanel({
             <DialogPrimitive.Popup className="relative flex max-h-full min-h-0 min-w-0 max-w-full flex-col items-center gap-3 outline-none">
               <DialogPrimitive.Title className="sr-only">{preview?.name ?? ''}</DialogPrimitive.Title>
               <DialogPrimitive.Close aria-label={t('attachments.close_preview')} className="absolute -right-[22px] -top-[22px] z-10 grid size-8 place-items-center rounded-full bg-black/50 text-white/90 outline-none hover:bg-black/70 focus-visible:ring-1 focus-visible:ring-white" type="button">
-                <WakuIcon className="size-[13px]" name="x" />
+                <ShidouIcon className="size-[13px]" name="x" />
               </DialogPrimitive.Close>
               {preview && <img alt={preview.name} className="block max-h-[calc(100dvh-124px)] max-w-[calc(100dvw-72px)] object-contain" src={preview.source} />}
               <div className="max-w-[560px] truncate rounded-full bg-black/50 px-[11px] py-[5px] text-[11.5px] text-white/90">{preview?.name ?? ''}</div>
@@ -478,7 +478,7 @@ function GalleryCard({ image, index, layout, width, imageHeight, selected, t, on
                 className="grid w-full place-items-center rounded-[5px] bg-[var(--inset)]"
                 style={{ height: `${imageHeight}px` }}
               >
-                <WakuIcon className="size-3.5 animate-spin text-[var(--text-ghost)]" name="loaderCircle" />
+                <ShidouIcon className="size-3.5 animate-spin text-[var(--text-ghost)]" name="loaderCircle" />
               </span>
               )}
           <span
@@ -499,36 +499,36 @@ function GalleryCard({ image, index, layout, width, imageHeight, selected, t, on
               }}
               onDoubleClick={(event) => event.stopPropagation()}
             >
-              <WakuIcon className="size-[11px]" name="eye" />
+              <ShidouIcon className="size-[11px]" name="eye" />
             </button>
           )}
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Positioner className="z-[100] outline-none">
-          <ContextMenu.Popup className="waku-menu-surface" finalFocus={false}>
+          <ContextMenu.Popup className="shidou-menu-surface" finalFocus={false}>
             <ContextMenu.Item
-              className="waku-menu-item"
+              className="shidou-menu-item"
               disabled={!source}
               onClick={onOpen}
             >
-              <WakuIcon className="size-3 text-current" name="eye" />
+              <ShidouIcon className="size-3 text-current" name="eye" />
               {t('visuals.context_preview')}
             </ContextMenu.Item>
             <ContextMenu.Item
-              className="waku-menu-item"
+              className="shidou-menu-item"
               disabled={!attachment}
               onClick={onAttach}
             >
-              <WakuIcon className="size-3 text-current" name="paperclip" />
+              <ShidouIcon className="size-3 text-current" name="paperclip" />
               {t('visuals.context_attach')}
             </ContextMenu.Item>
-            <ContextMenu.Separator className="waku-menu-separator" />
+            <ContextMenu.Separator className="shidou-menu-separator" />
             <ContextMenu.Item
-              className="waku-menu-item"
+              className="shidou-menu-item"
               onClick={() => void navigator.clipboard.writeText(image.relativePath)}
             >
-              <WakuIcon className="size-3 text-current" name="copy" />
+              <ShidouIcon className="size-3 text-current" name="copy" />
               {t('visuals.copy_path')}
             </ContextMenu.Item>
           </ContextMenu.Popup>
@@ -543,7 +543,7 @@ function EmptyGallery({ title, hint, loading = false }: { title: string, hint?: 
     <div className="flex min-h-0 flex-1 items-center justify-center px-7 pb-10 text-center">
       <div className="max-w-64">
         <span className="mx-auto grid size-9 place-items-center rounded-lg border bg-card text-[var(--text-tertiary)]">
-          <WakuIcon className={cn('size-4', loading && 'animate-spin')} name={loading ? 'loaderCircle' : 'folder'} />
+          <ShidouIcon className={cn('size-4', loading && 'animate-spin')} name={loading ? 'loaderCircle' : 'folder'} />
         </span>
         <p className="mt-3 text-[12px] text-[var(--text-secondary)]">{title}</p>
         {hint && <p className="mt-1.5 text-[10.5px] leading-4 text-[var(--text-ghost)]">{hint}</p>}
@@ -555,7 +555,7 @@ function EmptyGallery({ title, hint, loading = false }: { title: string, hint?: 
 function ToolbarButton({ icon, label, onClick }: { icon: 'rotateCw', label: string, onClick: () => void }) {
   return (
     <button aria-label={label} className="grid size-[26px] shrink-0 place-items-center rounded-[7px] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring" title={label} type="button" onClick={onClick}>
-      <WakuIcon className="size-3 text-[var(--text-tertiary)]" name={icon} />
+      <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name={icon} />
     </button>
   )
 }
