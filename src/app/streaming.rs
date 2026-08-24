@@ -196,26 +196,17 @@ impl Shidou {
             })
     }
 
-    pub(super) fn accepts_turn_output(&self, session_id: Uuid) -> bool {
+    pub(super) fn accepts_turn_output(&mut self, session_id: Uuid) -> bool {
         // The turn begins at submission accept, before its prompt has reached
         // any provider. While preparation is still running, a reused runtime
         // could only be draining leftovers of a settled turn — output landing
         // in the new turn then would attribute stale text to it.
-        !self.submission_preparations.contains(&session_id)
-            && self
-                .state
-                .sessions
-                .iter()
-                .find(|session| session.id == session_id)
-                .is_some_and(|session| {
-                    session.active_turn_id().is_some()
-                        && matches!(
-                            session.status,
-                            SessionStatus::Connecting
-                                | SessionStatus::Working
-                                | SessionStatus::Waiting
-                        )
-                })
+        if self.submission_preparations.contains(&session_id) {
+            return false;
+        }
+        self.state
+            .session_mut(session_id)
+            .is_some_and(session_accepts_turn_output)
     }
 
     /// Returns whether the runtime should remain attached after this event.
@@ -704,6 +695,26 @@ impl Shidou {
         }
         runtime.computer_use_previews.push(preview);
     }
+}
+
+/// Foreground output is stronger evidence of a started provider turn than a
+/// replayed lifecycle cursor. Repair both pieces of transient state here so a
+/// runtime attachment that missed `TurnStarted` cannot leave Cmd-Enter
+/// permanently falling back to the follow-up queue while output is visible.
+pub(super) fn session_accepts_turn_output(session: &mut AgentSession) -> bool {
+    if session.active_turn_id().is_none()
+        || !matches!(
+            session.status,
+            SessionStatus::Connecting | SessionStatus::Working | SessionStatus::Waiting
+        )
+    {
+        return false;
+    }
+    session.mark_active_turn_provider_started();
+    if session.status == SessionStatus::Connecting {
+        session.status = SessionStatus::Working;
+    }
+    true
 }
 
 /// A completed edit or shell command is the earliest provider-neutral point at

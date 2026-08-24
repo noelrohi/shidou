@@ -2,7 +2,7 @@ use super::composer::{
     ComposerSubmitAction, composer_submit_action, dropped_file_mention, merged_submission,
     next_picker_highlight, visible_branch_entries,
 };
-use super::runtime::merge_remote_session_catalog;
+use super::runtime::{merge_remote_session_catalog, session_has_active_provider_turn};
 use super::settings::visible_settings_pages;
 use super::{
     ESCAPE_STOP_CONFIRMATION_TIMEOUT, EscapeStopConfirmation, EscapeStopPress, EscapeStopTarget,
@@ -15,11 +15,12 @@ use super::{
     maintain_transcript_anchor, message_opens_turn, message_starts_followup_turn,
     navigation_preview_snippet, navigation_rail_fade_visibility, navigation_rail_height,
     navigation_rail_scale, paused_toast_duration, pop_stream_batch, push_transcript_activity,
-    session_is_reapable, should_refresh_branch_after_activity, should_show_navigation_rail,
-    should_show_scroll_to_bottom, task_id_from_notification_tag, task_notification_tag,
-    transcript_anchor_end_space, transcript_navigation_turns, transcript_rests_at_tail,
-    transcript_row_kinds, transcript_row_splice, transcript_rows_fingerprint,
-    widened_panel_width_for_file_editor, widened_panel_width_for_review,
+    session_accepts_turn_output, session_is_reapable, should_refresh_branch_after_activity,
+    should_show_navigation_rail, should_show_scroll_to_bottom, task_id_from_notification_tag,
+    task_notification_tag, transcript_anchor_end_space, transcript_navigation_turns,
+    transcript_rests_at_tail, transcript_row_kinds, transcript_row_splice,
+    transcript_rows_fingerprint, widened_panel_width_for_file_editor,
+    widened_panel_width_for_review,
 };
 use crate::git_branch::BranchEntry;
 use crate::model::{
@@ -148,6 +149,28 @@ fn composer_only_offers_stop_after_submission_preparation() {
         composer_submit_action(Some(SessionStatus::Failed), false),
         ComposerSubmitAction::Send
     );
+}
+
+#[test]
+fn connecting_status_does_not_hide_a_started_provider_turn_from_steering() {
+    let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+    session.begin_turn("inspect the project");
+    session.mark_active_turn_provider_started();
+    session.status = SessionStatus::Connecting;
+
+    assert!(session_has_active_provider_turn(&session));
+}
+
+#[test]
+fn foreground_output_recovers_a_missed_provider_turn_start_for_steering() {
+    let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+    session.begin_turn("inspect the project");
+    session.status = SessionStatus::Connecting;
+
+    assert!(!session_has_active_provider_turn(&session));
+    assert!(session_accepts_turn_output(&mut session));
+    assert_eq!(session.status, SessionStatus::Working);
+    assert!(session_has_active_provider_turn(&session));
 }
 
 #[test]
