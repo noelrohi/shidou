@@ -551,10 +551,10 @@ function PanelChooser({ onSelect }: { onSelect: (surface: PanelSurface) => void 
         <h3 className="text-[13px] font-medium">{t('right_panel.open_surface')}</h3>
         <p className="mt-[5px] text-[11px] text-[var(--text-tertiary)]">{t('right_panel.choose_surface')}</p>
         <div className="mt-5 grid grid-cols-2 gap-2 text-left">
-          <PanelCard icon={<ShidouIcon className="size-[18px]" name="sparkle" />} label={t('right_panel.visuals')} description={t('right_panel.visuals_description')} onClick={() => onSelect('visuals')} />
           <PanelCard icon={<ShidouIcon className="size-[18px]" name="terminal" />} label={t('right_panel.terminal')} description={t('right_panel.terminal_description')} onClick={() => onSelect('terminal')} />
           <PanelCard icon={<ShidouIcon className="size-[18px]" name="folder" />} label={t('right_panel.files')} description={t('right_panel.files_description')} onClick={() => onSelect('files')} />
           <PanelCard icon={<ShidouIcon className="size-[18px]" name="fileDiff" />} label={t('right_panel.diff')} description={t('right_panel.diff_description')} onClick={() => onSelect('changes')} />
+          <PanelCard icon={<ShidouIcon className="size-[18px]" name="sparkle" />} label={t('right_panel.visuals')} description={t('right_panel.visuals_description')} onClick={() => onSelect('visuals')} />
         </div>
       </div>
     </div>
@@ -578,9 +578,11 @@ function PanelCard({
       type="button"
       onClick={onClick}
     >
-      <span className="text-[var(--text-tertiary)]">{icon}</span>
-      <span className="mt-3 text-[12.5px] font-medium">{label}</span>
-      <span className="mt-1 text-[10.5px] leading-4 text-[var(--text-tertiary)]">{description}</span>
+      <span className="flex w-full items-start justify-between gap-2.5">
+        <span className="min-w-0 text-[12.5px] font-medium">{label}</span>
+        <span className="text-[var(--text-tertiary)]">{icon}</span>
+      </span>
+      <span className="mt-3 line-clamp-3 text-[10.5px] leading-4 text-[var(--text-tertiary)]">{description}</span>
     </button>
   )
 }

@@ -4,9 +4,9 @@ import { Input } from '@/components/ui/input'
 import { StartupScreen } from '@/components/startup-screen'
 import { ShidouIcon } from '@/components/shidou-icon'
 import { useDocumentTitle } from '@/hooks/use-document-title'
+import { SHIDOU_APP_ICON_URL } from '@/lib/branding'
 import { useDaemon } from '@/lib/daemon-context'
 import { useI18n } from '@/lib/i18n'
-import shidouAppIconUrl from '../../../../website/public/app-icon.png'
 
 export function ConnectionPanel({ title }: { title?: string } = {}) {
   const { t } = useI18n()
@@ -48,7 +48,7 @@ export function ConnectionPanel({ title }: { title?: string } = {}) {
             alt="Shidou"
             className="mx-auto size-8 rounded-[8px]"
             draggable={false}
-            src={shidouAppIconUrl}
+            src={SHIDOU_APP_ICON_URL}
           />
           <h1 className="mt-3 text-xl font-medium tracking-tight">{t('web.connect_title')}</h1>
           <p className="mx-auto mt-2 max-w-sm text-[12.5px] leading-[19px] text-[var(--text-tertiary)]">

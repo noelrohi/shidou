@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
 import { ShidouIcon } from '@/components/shidou-icon'
 import { useWorkspaceBranches } from '@/hooks/use-daemon-data'
+import { SHIDOU_APP_ICON_URL } from '@/lib/branding'
 import { displayTitle, type TaskState } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
 import { useI18n } from '@/lib/i18n'
@@ -23,7 +24,6 @@ import {
   type SidebarOrdering,
 } from '@/lib/sidebar-presentation'
 import { cn } from '@/lib/utils'
-import shidouAppIconUrl from '../../../../website/public/app-icon.png'
 
 interface SidebarProps {
   taskState: TaskState
@@ -156,7 +156,7 @@ export function Sidebar({
             alt="Shidou"
             className="size-6 rounded-md"
             draggable={false}
-            src={shidouAppIconUrl}
+            src={SHIDOU_APP_ICON_URL}
           />
           <div className="flex-1" />
           <Button

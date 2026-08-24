@@ -90,6 +90,38 @@ function preserveComposerFocusOnMouseDown(event: ReactMouseEvent<HTMLElement>) {
   }
 }
 
+/**
+ * Browsers name a pasted screenshot with this generic placeholder rather than
+ * a real filename; anything else is a genuinely named file being pasted.
+ */
+const GENERIC_CLIPBOARD_IMAGE_NAME = 'image.png'
+
+/** Distinguishes pastes that land within the same timestamp second. */
+let pastedImageSequence = 0
+
+/**
+ * Collects pasted files from the clipboard. Reads `items` rather than `files`
+ * because some browsers (notably Safari) populate only one of the two for
+ * screenshots, and replaces the generic clipboard name with a unique one so
+ * successive pastes do not collide in the daemon attachment store.
+ */
+function normalizePastedFiles(clipboard: DataTransfer): File[] {
+  const items = [...clipboard.items]
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null)
+  const files = items.length ? items : [...clipboard.files]
+  return files.map((file) => {
+    if (!file.type.startsWith('image/') || file.name !== GENERIC_CLIPBOARD_IMAGE_NAME) return file
+    const extension = file.type.split('/').at(-1)?.replace('jpeg', 'jpg') ?? 'png'
+    const stamp = new Date().toISOString().replaceAll(/[:.]/gu, '-')
+    pastedImageSequence += 1
+    return new File([file], `pasted-${stamp}-${pastedImageSequence}.${extension}`, {
+      type: file.type,
+    })
+  })
+}
+
 const MODEL_OPTION_KEYS: Record<string, string> = {
   none: 'model_option.none',
   minimal: 'model_option.minimal',
@@ -705,6 +737,12 @@ export function Composer({
               onClick={(event) => setCursor(event.currentTarget.selectionStart)}
               onFocus={() => setInputFocused(true)}
               onKeyDown={keyDown}
+              onPaste={(event) => {
+                const files = normalizePastedFiles(event.clipboardData)
+                if (!files.length) return
+                event.preventDefault()
+                void addFiles(files)
+              }}
               onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
             />
           <div
@@ -758,19 +796,6 @@ export function Composer({
             <InteractionModeControl session={session} onPatch={savePatch} />
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {busy && (
-                <Button
-                  aria-label={t(escapeStopArmed ? 'composer.stop_confirm' : 'composer.stop')}
-                  className="rounded-full"
-                  size="icon-sm"
-                  variant="secondary"
-                  onClick={stopTurn}
-                >
-                  {escapeStopArmed
-                    ? <span className="text-[10px] font-semibold">Esc</span>
-                    : <ShidouIcon className="size-[18px]" name="stopFilled" />}
-                </Button>
-              )}
               <Button
                 aria-expanded={filePickerOpen}
                 aria-haspopup="dialog"
@@ -785,6 +810,19 @@ export function Composer({
               >
                 <ShidouIcon className="size-[14px]" name="paperclip" />
               </Button>
+              {busy && (
+                <Button
+                  aria-label={t(escapeStopArmed ? 'composer.stop_confirm' : 'composer.stop')}
+                  className="rounded-full"
+                  size="icon-sm"
+                  variant="secondary"
+                  onClick={stopTurn}
+                >
+                  {escapeStopArmed
+                    ? <span className="text-[10px] font-semibold">Esc</span>
+                    : <ShidouIcon className="size-[18px]" name="stopFilled" />}
+                </Button>
+              )}
               {busy ? (
                 hasDraft && (
                   <Button

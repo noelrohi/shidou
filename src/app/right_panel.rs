@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use super::*;
 
 const TAB_SCROLL_FADE_WIDTH: f32 = 24.0;
+const RIGHT_PANEL_CHOOSER_MAX_CONTENT_WIDTH: f32 = 420.0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct WorkingTreeEntry {
@@ -2672,10 +2673,6 @@ impl Shidou {
         let theme = Theme::current(cx);
         let cards = [
             (
-                RightPanelSurface::Visuals,
-                tr!("right_panel.visuals_description"),
-            ),
-            (
                 RightPanelSurface::new_browser(),
                 tr!("right_panel.browser_description"),
             ),
@@ -2688,6 +2685,10 @@ impl Shidou {
                 tr!("right_panel.files_description"),
             ),
             (RightPanelSurface::Diff, tr!("right_panel.diff_description")),
+            (
+                RightPanelSurface::Visuals,
+                tr!("right_panel.visuals_description"),
+            ),
         ];
 
         let mut grid = div().mt(px(18.0)).w_full().flex().flex_col().gap(px(8.0));
@@ -2722,7 +2723,7 @@ impl Shidou {
             .child(
                 div()
                     .w_full()
-                    .max_w(px(420.0))
+                    .max_w(px(RIGHT_PANEL_CHOOSER_MAX_CONTENT_WIDTH))
                     .flex()
                     .flex_col()
                     .items_center()
@@ -2753,11 +2754,13 @@ impl Shidou {
         let theme = Theme::current(cx);
         let icon_path = surface.icon_path();
         let label = surface.label();
+        let id = format!("right-panel-card-{}", label.to_lowercase());
+        let focus = self.transcript_control_focus(id.clone(), cx);
+        let key_surface = surface.clone();
         div()
-            .id(SharedString::from(format!(
-                "right-panel-card-{}",
-                label.to_lowercase()
-            )))
+            .id(SharedString::from(id))
+            .track_focus(&focus)
+            .tab_index(0)
             .h(px(112.0))
             .w_full()
             .min_w_0()
@@ -2772,18 +2775,27 @@ impl Shidou {
             .cursor_default()
             .hover(|element| element.bg(theme.raised).border_color(theme.text_ghost))
             .active(|element| element.bg(theme.overlay_strong))
-            .child(icon(icon_path, 18.0, theme.text_secondary))
+            .focus_visible(|style| style.border_color(theme.accent))
             .child(
                 div()
-                    .mt(px(12.0))
-                    .text_size(sp(12.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.text)
-                    .child(label),
+                    .w_full()
+                    .flex()
+                    .items_start()
+                    .justify_between()
+                    .gap(px(10.0))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_size(sp(12.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.text)
+                            .child(label),
+                    )
+                    .child(icon(icon_path, 18.0, theme.text_secondary)),
             )
             .child(
                 div()
-                    .mt(px(4.0))
+                    .mt(px(12.0))
                     .text_size(sp(12.5))
                     .line_height(sp(15.0))
                     .text_color(theme.text_tertiary)
@@ -2794,6 +2806,12 @@ impl Shidou {
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_right_panel_surface(surface.clone(), cx);
+            }))
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                    this.open_right_panel_surface(key_surface.clone(), cx);
+                    cx.stop_propagation();
+                }
             }))
     }
 

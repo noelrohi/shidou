@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { ShidouIcon } from '@/components/shidou-icon'
+import { SHIDOU_APP_ICON_URL } from '@/lib/branding'
 import { useI18n } from '@/lib/i18n'
-import shidouAppIconUrl from '../../../../website/public/app-icon.png'
 
 export function StartupScreen({
   error,
@@ -23,7 +23,7 @@ export function StartupScreen({
           aria-hidden="true"
           className="size-8 rounded-[8px]"
           draggable={false}
-          src={shidouAppIconUrl}
+          src={SHIDOU_APP_ICON_URL}
         />
         {error ? (
           <>

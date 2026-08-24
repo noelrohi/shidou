@@ -922,9 +922,11 @@ impl Shidou {
             .collect::<HashSet<_>>();
         if paths.is_empty() {
             self.sidebar_branch_labels.borrow_mut().clear();
+            self.sidebar_branch_scanned_paths.borrow_mut().clear();
             return;
         }
 
+        let scanned_paths = paths.clone();
         let workspace = shidou_client::WorkspaceClient::new(self.daemon.client());
         cx.spawn(async move |shidou, cx| {
             let labels = cx
@@ -957,6 +959,12 @@ impl Shidou {
                     .into_iter()
                     .map(|(path, branch)| (path, SharedString::from(branch)))
                     .collect();
+                // Extend rather than replace: an individually cached path that
+                // joined after this scan started must stay marked as scanned.
+                shidou
+                    .sidebar_branch_scanned_paths
+                    .borrow_mut()
+                    .extend(scanned_paths);
                 cx.notify();
             });
         })
@@ -964,6 +972,9 @@ impl Shidou {
     }
 
     pub(super) fn cache_sidebar_branch_label(&self, path: &Path, branch: Option<&str>) {
+        self.sidebar_branch_scanned_paths
+            .borrow_mut()
+            .insert(path.to_path_buf());
         let mut labels = self.sidebar_branch_labels.borrow_mut();
         if let Some(branch) = branch.filter(|branch| !branch.is_empty()) {
             labels.insert(path.to_path_buf(), SharedString::from(branch.to_owned()));
@@ -1732,6 +1743,14 @@ impl Shidou {
             ))
         };
         let has_detail_label = detail_label.is_some();
+        let compact_without_branch = grouped_by_project
+            && matches!(&session.workspace, SessionWorkspace::Local)
+            && project.is_some_and(|project| {
+                self.sidebar_branch_scanned_paths
+                    .borrow()
+                    .contains(&project.path)
+            })
+            && !has_detail_label;
         let detail_icon = if grouped_by_project {
             "icons/git-branch.svg"
         } else {
@@ -1775,6 +1794,97 @@ impl Shidou {
                 .child(SharedString::from(localized_session_title(session)))
                 .into_any_element()
         };
+        let status_indicator = || -> Option<AnyElement> {
+            if working {
+                Some(motion::spin_slow(icon(
+                    "icons/loader-circle.svg",
+                    12.0,
+                    status_color(&theme, session.status),
+                )))
+            } else if session.status == SessionStatus::Waiting {
+                Some(
+                    icon(
+                        "icons/alert.svg",
+                        12.0,
+                        status_color(&theme, session.status),
+                    )
+                    .into_any_element(),
+                )
+            } else if session.status == SessionStatus::Failed {
+                Some(
+                    icon("icons/x.svg", 12.0, status_color(&theme, session.status))
+                        .into_any_element(),
+                )
+            } else {
+                None
+            }
+        };
+        let time_text = session_time_label(session, unix_time()).map(|label| {
+            div()
+                .flex_none()
+                .text_size(sp(12.5))
+                .text_color(if session.is_busy() {
+                    theme.text_tertiary
+                } else {
+                    theme.text_ghost
+                })
+                .child(SharedString::from(label))
+        });
+        let title_row = div()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .overflow_hidden()
+            .line_height(sp(18.0))
+            .child(title);
+        let content = if compact_without_branch {
+            title_row
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(5.0))
+                        .when_some(status_indicator(), |element, indicator| {
+                            element.child(indicator)
+                        })
+                        .when_some(time_text, |element, time| element.child(time)),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .child(
+                    title_row.when_some(status_indicator(), |element, indicator| {
+                        element.child(indicator)
+                    }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(5.0))
+                        .text_size(sp(if grouped_by_project { 12.5 } else { 13.0 }))
+                        .line_height(sp(15.0))
+                        .when_some(detail_label, |element, label| {
+                            element
+                                .child(icon(detail_icon, 12.5, theme.text_tertiary))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_color(theme.text_tertiary)
+                                        .child(label),
+                                )
+                        })
+                        .when(!has_detail_label, |element| element.child(div().flex_1()))
+                        .when_some(time_text, |element, time| element.child(time)),
+                )
+                .into_any_element()
+        };
         let shidou = cx.entity().downgrade();
         let menu = self.menu_handle(format!("session-{session_id}"), cx);
         let row_focus = menu.trigger_focus_handle().clone();
@@ -1796,73 +1906,7 @@ impl Shidou {
             })
             .hover(|element| element.bg(theme.sidebar_item_background))
             .active(|element| element.bg(theme.sidebar_item_background))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .overflow_hidden()
-                    .line_height(sp(18.0))
-                    .child(title)
-                    .when(working, |element| {
-                        element.child(motion::spin_slow(icon(
-                            "icons/loader-circle.svg",
-                            12.0,
-                            status_color(&theme, session.status),
-                        )))
-                    })
-                    .when(session.status == SessionStatus::Waiting, |element| {
-                        element.child(icon(
-                            "icons/alert.svg",
-                            12.0,
-                            status_color(&theme, session.status),
-                        ))
-                    })
-                    .when(session.status == SessionStatus::Failed, |element| {
-                        element.child(icon(
-                            "icons/x.svg",
-                            12.0,
-                            status_color(&theme, session.status),
-                        ))
-                    }),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(5.0))
-                    .text_size(sp(if grouped_by_project { 12.5 } else { 13.0 }))
-                    .line_height(sp(15.0))
-                    .when_some(detail_label, |element, label| {
-                        element
-                            .child(icon(detail_icon, 12.5, theme.text_tertiary))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_color(theme.text_tertiary)
-                                    .child(label),
-                            )
-                    })
-                    .when(!has_detail_label, |element| element.child(div().flex_1()))
-                    .when_some(
-                        session_time_label(session, unix_time()),
-                        |element, label| {
-                            element.child(
-                                div()
-                                    .flex_none()
-                                    .text_size(sp(12.5))
-                                    .text_color(if session.is_busy() {
-                                        theme.text_tertiary
-                                    } else {
-                                        theme.text_ghost
-                                    })
-                                    .child(SharedString::from(label)),
-                            )
-                        },
-                    ),
-            )
+            .child(content)
             .when(!renaming, |element| {
                 element
                     .track_focus(&row_focus)

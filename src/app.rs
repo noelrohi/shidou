@@ -1576,6 +1576,9 @@ pub struct Shidou {
     /// Branch labels for ordinary local project paths, resolved together on a
     /// background executor so sidebar rows only read memory.
     sidebar_branch_labels: RefCell<HashMap<PathBuf, SharedString>>,
+    /// Paths included in the completed branch scan. A missing label for one of
+    /// these paths means "not a Git repository", rather than "still loading".
+    sidebar_branch_scanned_paths: RefCell<HashSet<PathBuf>>,
     sidebar_branch_scan_fingerprint: Cell<Option<u64>>,
     sidebar_branch_scan_generation: Cell<u64>,
     transcript_row_kinds: RefCell<Vec<TranscriptRowKind>>,
@@ -3033,6 +3036,7 @@ impl Shidou {
                 sidebar_rows_fingerprint: Cell::new(None),
                 sidebar_rows_snapshot: RefCell::new(Rc::new(Vec::new())),
                 sidebar_branch_labels: RefCell::new(HashMap::new()),
+                sidebar_branch_scanned_paths: RefCell::new(HashSet::new()),
                 sidebar_branch_scan_fingerprint: Cell::new(None),
                 sidebar_branch_scan_generation: Cell::new(0),
                 transcript_row_kinds: RefCell::new(Vec::new()),

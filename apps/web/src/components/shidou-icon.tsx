@@ -19,6 +19,10 @@ function iconAsset(path: string) {
   return url
 }
 
+function cssUrl(url: string) {
+  return `url(${JSON.stringify(url)})`
+}
+
 export const SHIDOU_ICONS = {
   alert: iconAsset('alert.svg'),
   appearance: iconAsset('appearance.svg'),
@@ -94,6 +98,7 @@ export function ShidouIcon({
   label?: string
 }) {
   const url = SHIDOU_ICONS[name]
+  const maskUrl = cssUrl(url)
   return (
     <span
       aria-hidden={label ? undefined : true}
@@ -101,11 +106,11 @@ export function ShidouIcon({
       className={`inline-block size-4 shrink-0 bg-current ${className ?? ''}`}
       role={label ? 'img' : undefined}
       style={{
-        maskImage: `url(${url})`,
+        maskImage: maskUrl,
         maskPosition: 'center',
         maskRepeat: 'no-repeat',
         maskSize: 'contain',
-        WebkitMaskImage: `url(${url})`,
+        WebkitMaskImage: maskUrl,
       }}
     />
   )
@@ -401,10 +406,11 @@ export function ProviderIcon({
         aria-hidden="true"
         className="size-full bg-current"
         style={{
-          maskImage: `url(${PROVIDER_ICONS[provider]})`,
+          maskImage: cssUrl(PROVIDER_ICONS[provider]),
           maskPosition: 'center',
           maskRepeat: 'no-repeat',
           maskSize: 'contain',
+          WebkitMaskImage: cssUrl(PROVIDER_ICONS[provider]),
         }}
       />
     </span>
