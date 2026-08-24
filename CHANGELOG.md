@@ -16,6 +16,10 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.3]
+
+- Generate Conventional Commit subjects from the commit dialog when enabled in General settings
+
 ## [0.2.2]
 
 - Composer controls now adapt to narrow windows and scroll when they overflow
