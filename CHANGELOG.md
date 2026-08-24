@@ -16,6 +16,10 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.1]
+
+- Updated the app icon
+
 ## [0.2.0]
 
 - Shidou's first release as its own app: new name, icon, and bundle identity, forked from Waku
