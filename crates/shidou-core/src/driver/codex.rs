@@ -2598,6 +2598,7 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn computer_use_cleanup_verifies_the_registered_executable() {
         let current = fs::canonicalize(std::env::current_exe().unwrap()).unwrap();

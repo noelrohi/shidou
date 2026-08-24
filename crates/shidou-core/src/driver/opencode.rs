@@ -12,7 +12,7 @@
 //! document and event stream, not guessed.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -659,21 +659,44 @@ fn open_event_stream(
     if !control.attach(&stream)? {
         return Ok(None);
     }
+    // Closing a cloned socket does not reliably wake a blocking read on every
+    // Windows TCP stack. Poll during response setup so cancellation has a
+    // platform-independent upper bound even when the server never replies.
+    stream.set_read_timeout(Some(Duration::from_millis(100)))?;
     write!(
         stream,
         "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n"
     )?;
     stream.flush()?;
-    // Skip the response head; every later line is stream payload.
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut line = String::new();
+    // Consume exactly the response head. A BufReader could read ahead into the
+    // first event and lose those buffered bytes when it is dropped here.
+    let mut response_head = Vec::new();
+    let mut byte = [0_u8; 1];
     loop {
-        line.clear();
-        if reader.read_line(&mut line)? == 0 {
-            return Err(anyhow!("OpenCode closed the event stream during setup"));
-        }
-        if line.trim().is_empty() {
-            break;
+        match stream.read(&mut byte) {
+            Ok(0) => return Err(anyhow!("OpenCode closed the event stream during setup")),
+            Ok(_) => {
+                response_head.push(byte[0]);
+                if response_head.ends_with(b"\r\n\r\n") || response_head.ends_with(b"\n\n") {
+                    break;
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if control.is_cancelled() {
+                    return Ok(None);
+                }
+            }
+            Err(error) => {
+                if control.is_cancelled() {
+                    return Ok(None);
+                }
+                return Err(error.into());
+            }
         }
     }
     stream.set_read_timeout(None)?;

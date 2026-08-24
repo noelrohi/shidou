@@ -595,12 +595,9 @@ mod tests {
 
     #[test]
     fn every_ecosystem_root_is_listed() {
-        let projects = vec![("shidou".to_owned(), PathBuf::from("/tmp/shidou"))];
+        let project_root = std::env::temp_dir().join("shidou-skills-project");
+        let projects = vec![("shidou".to_owned(), project_root.clone())];
         let locations = skill_locations(&projects);
-        let roots: Vec<String> = locations
-            .iter()
-            .map(|location| location.root.display().to_string())
-            .collect();
         for expected in [
             ".agents/skills",
             ".claude/skills",
@@ -611,21 +608,25 @@ mod tests {
             ".config/agents/skills",
         ] {
             assert!(
-                roots.iter().any(|root| root.ends_with(expected)),
+                locations
+                    .iter()
+                    .any(|location| location.root.ends_with(expected)),
                 "user root missing: {expected}"
             );
         }
         for expected in [
-            "/tmp/shidou/.agents/skills",
-            "/tmp/shidou/.claude/skills",
-            "/tmp/shidou/.codex/skills",
-            "/tmp/shidou/.opencode/skills",
-            "/tmp/shidou/.cursor/skills",
-            "/tmp/shidou/.pi/skills",
+            ".agents/skills",
+            ".claude/skills",
+            ".codex/skills",
+            ".opencode/skills",
+            ".cursor/skills",
+            ".pi/skills",
         ] {
+            let expected = project_root.join(expected);
             assert!(
-                roots.iter().any(|root| root == expected),
-                "project root missing: {expected}"
+                locations.iter().any(|location| location.root == expected),
+                "project root missing: {}",
+                expected.display()
             );
         }
         // User scope leads the scan, so grouped entries prefer user copies.
