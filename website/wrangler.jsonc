@@ -4,6 +4,12 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
+  "routes": [
+    {
+      "pattern": "shidou.dev",
+      "custom_domain": true
+    }
+  ],
   "observability": {
     "enabled": true
   }
