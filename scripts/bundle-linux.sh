@@ -33,10 +33,11 @@ install -Dm644 assets/fonts/LICENSE-nerd-fonts.txt \
 
 mkdir -p "$(dirname "$archive")"
 tar -C "$staging" -czf "$archive" "$package"
+archive_entries="$(tar -tzf "$archive")"
 for required in \
   "$package/share/licenses/shidou/LICENSE" \
   "$package/share/licenses/shidou/THIRD_PARTY_NOTICES.md" \
   "$package/share/licenses/shidou/THIRD_PARTY_RUST_LICENSES.html"; do
-  tar -tzf "$archive" | grep -Fqx "$required"
+  grep -Fqx "$required" <<<"$archive_entries"
 done
 printf 'Created %s\n' "$archive"
