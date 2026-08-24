@@ -177,8 +177,19 @@ fn invoke_helper_direct(
         bail!("computer-use helper returned too much data");
     }
     if !output.status.success() {
+        let response_error = serde_json::from_slice::<HelperResponse>(&output.stdout)
+            .ok()
+            .and_then(|response| response.error)
+            .filter(|error| !error.trim().is_empty());
+        if let Some(error) = response_error {
+            bail!("computer-use helper failed: {}", error.trim());
+        }
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("computer-use helper failed: {}", stderr.trim());
+        let stderr = stderr.trim();
+        if stderr.is_empty() {
+            bail!("computer-use helper failed with {}", output.status);
+        }
+        bail!("computer-use helper failed: {stderr}");
     }
     serde_json::from_slice(&output.stdout).context("computer-use helper returned invalid JSON")
 }

@@ -1445,10 +1445,10 @@ private final class UnixListener {
     private var descriptor: Int32
 
     init() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("shidou-computer-use", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        path = directory.appendingPathComponent(UUID().uuidString).path
+        let socketName = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        path = FileManager.default.temporaryDirectory
+            .appendingPathComponent(socketName)
+            .path
         descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else {
             throw HelperError.ipc(String(cString: strerror(errno)))
