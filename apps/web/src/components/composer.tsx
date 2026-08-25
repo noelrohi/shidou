@@ -46,6 +46,7 @@ import {
   fetchPlanUsage,
   selectableProjects,
   sessionCwd,
+  sessionWorkspace,
 } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
 import { useI18n } from '@/lib/i18n'
@@ -876,7 +877,10 @@ export function Composer({
                   id: item.id,
                   label: item.name,
                   selected: item.id === session.project_id,
-                  onSelect: () => savePatch({ project_id: item.id, workspace: { kind: 'local' } }),
+                  onSelect: () => savePatch({
+                    project_id: item.id,
+                    workspace: sessionWorkspace(item.workspace_default),
+                  }),
                 })),
               ...(onAddProject ? [{
                 id: 'new-project',

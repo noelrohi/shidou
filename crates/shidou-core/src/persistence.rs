@@ -1078,7 +1078,10 @@ impl StateStore {
         }
 
         let mut projects = connection
-            .prepare("SELECT id, name, path, created_at FROM projects ORDER BY position")
+            .prepare(
+                "SELECT id, name, path, created_at, workspace_default
+                 FROM projects ORDER BY position",
+            )
             .map_err(to_io_error)?;
         state.projects = projects
             .query_map([], |row| {
@@ -1087,16 +1090,21 @@ impl StateStore {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .map_err(to_io_error)?
             .filter_map(Result::ok)
-            .filter_map(|(id, name, path, created_at)| {
+            .filter_map(|(id, name, path, created_at, workspace_default)| {
                 Some(Project {
                     id: Uuid::parse_str(&id).ok()?,
                     name,
                     path: PathBuf::from(path),
                     created_at: created_at as u64,
+                    workspace_default: serde_json::from_value(serde_json::Value::String(
+                        workspace_default,
+                    ))
+                    .unwrap_or_default(),
                 })
             })
             .collect();
@@ -1319,7 +1327,8 @@ impl StateStore {
                             project.name,
                             project.path.to_string_lossy(),
                             position as i64,
-                            project.created_at as i64
+                            project.created_at as i64,
+                            tag_of(project.workspace_default)
                         ],
                     )
                     .map_err(to_io_error)?;
@@ -1731,13 +1740,15 @@ const UPSERT_SESSION: &str = "INSERT INTO sessions(
          updated_at    = excluded.updated_at,
          last_reply_at = excluded.last_reply_at";
 
-const INSERT_PROJECT: &str = "INSERT INTO projects(id, name, path, position, created_at)
-     VALUES(?1, ?2, ?3, ?4, ?5)
+const INSERT_PROJECT: &str = "INSERT INTO projects(
+         id, name, path, position, created_at, workspace_default
+     ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
      ON CONFLICT(id) DO UPDATE SET
          name       = excluded.name,
          path       = excluded.path,
          position   = excluded.position,
-         created_at = excluded.created_at";
+         created_at = excluded.created_at,
+         workspace_default = excluded.workspace_default";
 
 /// The transcript, written alongside the list row it belongs to.
 const UPSERT_SESSION_DETAIL: &str = "INSERT INTO session_details(session_id, data)
@@ -2087,10 +2098,11 @@ mod tests {
     }
 
     #[test]
-    fn projects_round_trip_as_columns_with_created_at() {
+    fn projects_round_trip_as_columns_with_created_at_and_workspace_default() {
         let directory = temporary_directory();
         let store = store_in(&directory);
         let mut state = PersistedState::fresh(PathBuf::from("/tmp/some project"));
+        state.projects[0].workspace_default = crate::model::ProjectWorkspaceDefault::NewWorktree;
         let project = state.projects[0].clone();
         assert!(project.created_at > 0, "a new project is dated");
         store.save(&mut state).unwrap();
@@ -2113,6 +2125,10 @@ mod tests {
         assert_eq!(restored.projects[0].name, project.name);
         assert_eq!(restored.projects[0].path, project.path);
         assert_eq!(restored.projects[0].created_at, project.created_at);
+        assert_eq!(
+            restored.projects[0].workspace_default,
+            crate::model::ProjectWorkspaceDefault::NewWorktree
+        );
 
         fs::remove_dir_all(directory).ok();
     }

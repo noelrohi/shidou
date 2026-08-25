@@ -274,8 +274,10 @@ impl Shidou {
         // a selected source task.
         let runtime_mode =
             new_task_runtime_mode(self.selected_session(), self.state.last_runtime_mode);
+        let workspace = new_task_workspace(&self.state.projects, project_id);
         let mut session = self.state.new_session(project_id, provider);
         session.runtime_mode = runtime_mode;
+        session.workspace = workspace;
         let id = session.id;
         self.state.push_session(session);
         self.select_session(id, cx);
@@ -289,6 +291,34 @@ impl Shidou {
             return;
         }
         session.workspace = workspace;
+        self.save();
+        cx.notify();
+    }
+
+    pub(super) fn set_project_workspace_default(
+        &mut self,
+        workspace_default: ProjectWorkspaceDefault,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self
+            .selected_project()
+            .filter(|project| !project.is_projectless())
+            .map(|project| project.id)
+        else {
+            return;
+        };
+        let Some(project) = self
+            .state
+            .projects
+            .iter_mut()
+            .find(|project| project.id == project_id)
+        else {
+            return;
+        };
+        if project.workspace_default == workspace_default {
+            return;
+        }
+        project.workspace_default = workspace_default;
         self.save();
         cx.notify();
     }
@@ -1653,9 +1683,44 @@ impl Shidou {
     }
 }
 
+/// Filesystem context a task created in `project_id` starts with. A
+/// projectless scratch directory is already disposable, so it stays local
+/// whatever the stored default says.
+fn new_task_workspace(projects: &[Project], project_id: Uuid) -> SessionWorkspace {
+    projects
+        .iter()
+        .find(|project| project.id == project_id && !project.is_projectless())
+        .map_or(SessionWorkspace::Local, |project| {
+            project.workspace_default.session_workspace()
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_task_starts_in_the_projects_default_workspace() {
+        let mut worktree_project = Project::from_path(PathBuf::from("/tmp/worktree-project"));
+        worktree_project.workspace_default = ProjectWorkspaceDefault::NewWorktree;
+        let local_project = Project::from_path(PathBuf::from("/tmp/local-project"));
+        let projects = vec![worktree_project.clone(), local_project.clone()];
+
+        assert_eq!(
+            new_task_workspace(&projects, worktree_project.id),
+            SessionWorkspace::NewWorktree { base_branch: None }
+        );
+        assert_eq!(
+            new_task_workspace(&projects, local_project.id),
+            SessionWorkspace::Local
+        );
+        // A project that has gone away leaves the task in the plain checkout
+        // rather than creating a worktree nothing asked for.
+        assert_eq!(
+            new_task_workspace(&projects, Uuid::new_v4()),
+            SessionWorkspace::Local
+        );
+    }
 
     #[test]
     fn new_task_carries_the_current_tasks_access_mode() {

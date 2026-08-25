@@ -573,6 +573,23 @@ pub fn parse_cli_version(output: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectWorkspaceDefault {
+    #[default]
+    Local,
+    NewWorktree,
+}
+
+impl ProjectWorkspaceDefault {
+    pub fn session_workspace(self) -> SessionWorkspace {
+        match self {
+            Self::Local => SessionWorkspace::Local,
+            Self::NewWorktree => SessionWorkspace::NewWorktree { base_branch: None },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 pub struct Project {
     pub id: Uuid,
@@ -581,6 +598,9 @@ pub struct Project {
     /// When the project was added, unix seconds.
     #[serde(default)]
     pub created_at: u64,
+    /// Filesystem context preselected for newly created tasks in this project.
+    #[serde(default)]
+    pub workspace_default: ProjectWorkspaceDefault,
 }
 
 /// Filesystem context a task runs in.
@@ -650,6 +670,7 @@ impl Project {
             name,
             path,
             created_at: unix_time(),
+            workspace_default: ProjectWorkspaceDefault::default(),
         }
     }
 
@@ -3223,6 +3244,24 @@ pub fn compact_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_workspace_default_maps_to_a_session_workspace() {
+        assert_eq!(
+            ProjectWorkspaceDefault::Local.session_workspace(),
+            SessionWorkspace::Local
+        );
+        // A default-carried worktree is unresolved: the branch is chosen when
+        // the first prompt creates it, not when the draft is made.
+        assert_eq!(
+            ProjectWorkspaceDefault::NewWorktree.session_workspace(),
+            SessionWorkspace::NewWorktree { base_branch: None }
+        );
+        assert_eq!(
+            ProjectWorkspaceDefault::default().session_workspace(),
+            SessionWorkspace::Local
+        );
+    }
 
     #[test]
     fn background_work_snapshots_have_serializable_named_items() {

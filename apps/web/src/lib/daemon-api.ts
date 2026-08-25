@@ -11,11 +11,13 @@ import type {
   MessageAttachment,
   PlanUsage,
   Project,
+  ProjectWorkspaceDefault,
   ProviderKind,
   ProviderProbe,
   ReviewDiffData,
   ReviewDiffSource,
   ResponsePayload,
+  SessionWorkspace,
   SessionMessageMatch,
   SlashCommand,
   SkillsCatalog,
@@ -552,6 +554,7 @@ export function createProject(path: string): Project {
     name,
     path: normalized,
     created_at: unixTime(),
+    workspace_default: 'local',
   }
 }
 
@@ -593,10 +596,18 @@ export function selectableProjects(projects: Project[], selected?: Project): Pro
   })
 }
 
+/// The filesystem context a project's stored default asks new tasks to start
+/// in. Mirrors `ProjectWorkspaceDefault::session_workspace` on the Rust side.
+export function sessionWorkspace(
+  workspaceDefault: ProjectWorkspaceDefault | undefined,
+): SessionWorkspace {
+  return workspaceDefault === 'newWorktree' ? { kind: 'newWorktree' } : { kind: 'local' }
+}
+
 export function createSession(
   projectId: string,
   provider: ProviderKind,
-  isolated: boolean,
+  workspaceDefault: ProjectWorkspaceDefault,
 ): AgentSession {
   const now = unixTime()
   return {
@@ -604,7 +615,7 @@ export function createSession(
     title: 'New task',
     auto_title: null,
     project_id: projectId,
-    workspace: isolated ? { kind: 'newWorktree' } : { kind: 'local' },
+    workspace: sessionWorkspace(workspaceDefault),
     provider,
     model: null,
     runtime_mode: 'fullAccess',

@@ -3367,6 +3367,15 @@ impl Shidou {
         let worktree_selector = if can_configure_workspace {
             let local_selected = workspace.is_local();
             let worktree_selected = workspace.is_worktree();
+            let workspace_default = self
+                .selected_project()
+                .map_or(ProjectWorkspaceDefault::Local, |project| {
+                    project.workspace_default
+                });
+            let workspace_default_label = match workspace_default {
+                ProjectWorkspaceDefault::Local => tr!("workspace.local"),
+                ProjectWorkspaceDefault::NewWorktree => tr!("workspace.new_worktree"),
+            };
             let weak = cx.entity().downgrade();
             dropdown_menu(
                 worktree_trigger,
@@ -3376,6 +3385,7 @@ impl Shidou {
                 move |_| {
                     let local = weak.clone();
                     let worktree = weak.clone();
+                    let default_weak = weak.clone();
                     vec![
                         MenuItem::Header(tr!("workspace.work_in").into()),
                         MenuItem::new(tr!("workspace.local"), move |_, cx| {
@@ -3396,6 +3406,39 @@ impl Shidou {
                         .icon("icons/fork.svg")
                         .selected(worktree_selected)
                         .disabled(projectless_selected),
+                        MenuItem::Separator,
+                        MenuItem::submenu_with_value(
+                            tr!("workspace.default_for_new_tasks"),
+                            workspace_default_label.clone(),
+                            move |_| {
+                                let local_default = default_weak.clone();
+                                let worktree_default = default_weak.clone();
+                                vec![
+                                    MenuItem::new(tr!("workspace.local"), move |_, cx| {
+                                        let _ = local_default.update(cx, |this, cx| {
+                                            this.set_project_workspace_default(
+                                                ProjectWorkspaceDefault::Local,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                                    .icon("icons/laptop.svg")
+                                    .selected(workspace_default == ProjectWorkspaceDefault::Local),
+                                    MenuItem::new(tr!("workspace.new_worktree"), move |_, cx| {
+                                        let _ = worktree_default.update(cx, |this, cx| {
+                                            this.set_project_workspace_default(
+                                                ProjectWorkspaceDefault::NewWorktree,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                                    .icon("icons/fork.svg")
+                                    .selected(
+                                        workspace_default == ProjectWorkspaceDefault::NewWorktree,
+                                    ),
+                                ]
+                            },
+                        ),
                     ]
                 },
             )

@@ -46,6 +46,7 @@ import {
   removeSession,
   selectableProjects,
   sessionCwd,
+  sessionWorkspace,
   type TaskState,
 } from '@/lib/daemon-api'
 import {
@@ -863,7 +864,11 @@ export function ShidouApp() {
     setDisplayed(null)
     setDraftProject(project)
     setDraft((currentDraft) => currentDraft
-      ? { ...currentDraft, project_id: project.id, workspace: { kind: 'local' } }
+      ? {
+          ...currentDraft,
+          project_id: project.id,
+          workspace: sessionWorkspace(project.workspace_default),
+        }
       : createRememberedSession(project.id))
     setNewTaskMode(true)
     rememberNavigation({ kind: 'newTask', projectId: project.id })
@@ -912,8 +917,11 @@ export function ShidouApp() {
       browserComposerPreferenceStorage(),
       config?.address ?? 'disconnected',
     )
+    const workspaceDefault = taskState.data?.projects
+      .find((project) => project.id === projectId)
+      ?.workspace_default ?? 'local'
     return {
-      ...createSession(projectId, preferences.lastProvider, false),
+      ...createSession(projectId, preferences.lastProvider, workspaceDefault),
       model: preferences.lastModel,
       reasoning_effort: preferences.lastReasoningEffort,
       service_tier: preferences.lastServiceTier,

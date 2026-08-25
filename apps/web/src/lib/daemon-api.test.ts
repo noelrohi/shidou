@@ -13,6 +13,7 @@ import {
   probeProvider,
   removeSession,
   selectableProjects,
+  sessionWorkspace,
   writeWorkspaceTextFile,
   type DaemonDirectory,
 } from './daemon-api'
@@ -36,9 +37,25 @@ describe('applyComposerDraftChanges', () => {
   })
 })
 
+describe('sessionWorkspace', () => {
+  test('turns a project default into the workspace a new task starts in', () => {
+    expect(sessionWorkspace('newWorktree')).toEqual({ kind: 'newWorktree' })
+    expect(sessionWorkspace('local')).toEqual({ kind: 'local' })
+    // A project the client has not loaded yet must not silently isolate.
+    expect(sessionWorkspace(undefined)).toEqual({ kind: 'local' })
+  })
+
+  test('a drafted task inherits the default', () => {
+    expect(createSession('project', 'codex', 'newWorktree').workspace)
+      .toEqual({ kind: 'newWorktree' })
+    expect(createSession('project', 'codex', 'local').workspace)
+      .toEqual({ kind: 'local' })
+  })
+})
+
 describe('beginTurn', () => {
   test('puts the submitted prompt in the transcript before runtime startup', () => {
-    const draft = createSession('project', 'codex', false)
+    const draft = createSession('project', 'codex', 'local')
     const active = beginTurn(draft, 'Build the feature')
 
     expect(active.status).toBe('connecting')
@@ -292,7 +309,7 @@ describe('persistProject', () => {
 
 describe('persistSession', () => {
   test('checkpoints one session without reloading or replacing the catalog', async () => {
-    const saved = createSession('project', 'codex', false)
+    const saved = createSession('project', 'codex', 'local')
     const commands: unknown[] = []
     const client = {
       request: async (command: unknown) => {
@@ -357,5 +374,5 @@ describe('removeSession', () => {
 })
 
 function project(id: string, name: string, path: string): Project {
-  return { id, name, path, created_at: 0 }
+  return { id, name, path, created_at: 0, workspace_default: 'local' }
 }

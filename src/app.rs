@@ -33,8 +33,8 @@ use crate::model::{
     ActivityItem, ActivityKind, AgentSession, BackgroundWorkEvent, BackgroundWorkItem,
     BackgroundWorkKey, BackgroundWorkKind, BackgroundWorkStatus, Checkpoint, CheckpointStatus,
     ContextUsage, DriverEvent, FavoriteModel, InteractionMode, Message, MessageAttachment,
-    MessageRole, PendingPermission, Project, ProviderKind, ProviderModel, ProviderProbe,
-    ProviderResumeCursor, QueuedMessage, ReasoningBlock, RuntimeMode, SessionStatus,
+    MessageRole, PendingPermission, Project, ProjectWorkspaceDefault, ProviderKind, ProviderModel,
+    ProviderProbe, ProviderResumeCursor, QueuedMessage, ReasoningBlock, RuntimeMode, SessionStatus,
     SessionWorkspace, TranscriptBlock, TurnStatus, UserInputAnswer, UserInputQuestion,
     compact_path, unix_time, unix_time_millis,
 };

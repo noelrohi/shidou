@@ -1227,6 +1227,8 @@ workspace.local:
   en: Local
 workspace.new_worktree:
   en: New worktree
+workspace.default_for_new_tasks:
+  en: Default for new tasks
 workspace.workspace:
   en: workspace
 workspace.worktree:

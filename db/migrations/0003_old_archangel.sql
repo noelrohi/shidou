@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `workspace_default` text DEFAULT 'local' NOT NULL;

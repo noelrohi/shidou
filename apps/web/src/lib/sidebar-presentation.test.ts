@@ -45,9 +45,15 @@ describe('desktop sidebar presentation', () => {
 
   test('groups by project in recency order with the projectless group last', () => {
     const projects: Project[] = [
-      { id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1 },
-      { id: 'b', name: 'Beta', path: '/work/beta', created_at: 1 },
-      { id: 'p', name: 'No project', path: '/home/me/.shidou/projects/x', created_at: 1 },
+      { id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1, workspace_default: 'local' },
+      { id: 'b', name: 'Beta', path: '/work/beta', created_at: 1, workspace_default: 'local' },
+      {
+        id: 'p',
+        name: 'No project',
+        path: '/home/me/.shidou/projects/x',
+        created_at: 1,
+        workspace_default: 'local',
+      },
     ]
     const now = new Date(2026, 7, 15, 12)
     const nowSeconds = Math.floor(now.getTime() / 1_000)
@@ -85,7 +91,15 @@ describe('desktop sidebar presentation', () => {
   })
 
   test('project-grouped rows carry guides and show-more rows', () => {
-    const projects: Project[] = [{ id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1 }]
+    const projects: Project[] = [
+      {
+        id: 'a',
+        name: 'Alpha',
+        path: '/work/alpha',
+        created_at: 1,
+        workspace_default: 'local',
+      },
+    ]
     const now = new Date(2026, 7, 15, 12)
     const nowSeconds = Math.floor(now.getTime() / 1_000)
     const sessions = [
@@ -135,6 +149,7 @@ describe('desktop sidebar presentation', () => {
       name: 'No project',
       path: '/home/me/.shidou/projects/session',
       created_at: 1,
+      workspace_default: 'local',
     }
     const groups = sidebarGroups(
       [project],

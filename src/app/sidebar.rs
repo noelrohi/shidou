@@ -2697,12 +2697,14 @@ mod tests {
             name: "Task".to_owned(),
             path: root.join("2026-08-23/task"),
             created_at: 0,
+            workspace_default: ProjectWorkspaceDefault::Local,
         };
         let ordinary = Project {
             id: Uuid::from_u128(2),
             name: "Ordinary".to_owned(),
             path: PathBuf::from("/tmp/dev/ordinary"),
             created_at: 0,
+            workspace_default: ProjectWorkspaceDefault::Local,
         };
 
         assert!(sidebar_project_is_projectless(&projectless, Some(root)));

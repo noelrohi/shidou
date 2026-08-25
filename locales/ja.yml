@@ -631,6 +631,7 @@ branches.checked_out_elsewhere: 別のワークツリーでチェックアウト
 workspace.work_in: 作業場所
 workspace.local: ローカル
 workspace.new_worktree: 新しいワークツリー
+workspace.default_for_new_tasks: 新しいタスクのデフォルト
 workspace.workspace: ワークスペース
 workspace.worktree: ワークツリー
 

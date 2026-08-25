@@ -43,6 +43,7 @@ export type { PlanWindow } from "./PlanWindow";
 export type { PricingStatus } from "./PricingStatus";
 export type { Project } from "./Project";
 export type { ProjectSlice } from "./ProjectSlice";
+export type { ProjectWorkspaceDefault } from "./ProjectWorkspaceDefault";
 export type { ProviderAgentPreset } from "./ProviderAgentPreset";
 export type { ProviderDay } from "./ProviderDay";
 export type { ProviderKind } from "./ProviderKind";
