@@ -59,4 +59,4 @@ pub use protocol::{
     WireComputerToolRequest, WireDriverEvent, WireDriverStartOptions, WireSessionOptions,
 };
 pub use settings::DaemonSettings;
-pub use workspace::{WorkspaceOperation, WorkspaceResult};
+pub use workspace::{WorkingTreeStatus, WorkspaceOperation, WorkspaceResult};
