@@ -15,6 +15,7 @@ pub(super) struct WorkingTreeEntry {
     file_icon: Option<&'static str>,
     expanded: bool,
     depth: usize,
+    git_status: Option<shidou_client::WorkingTreeStatus>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -738,6 +739,7 @@ fn visible_working_tree_entries(
                 file_icon,
                 expanded,
                 depth,
+                git_status: None,
             });
             if expanded {
                 visit(
@@ -2852,6 +2854,20 @@ impl Shidou {
             let absolute_path = entry.absolute_path.clone();
             let is_dir = entry.is_dir;
             let selected = selected_path == Some(relative_path.as_str());
+            // Git status tints the name and, so the meaning never rides on
+            // color alone, adds a letter badge on files (M/U); directories
+            // containing a change carry only the tint.
+            let status_color = entry.git_status.map(|status| match status {
+                shidou_client::WorkingTreeStatus::Modified => theme.warning,
+                shidou_client::WorkingTreeStatus::Untracked => theme.success,
+            });
+            let status_letter = (!is_dir)
+                .then_some(entry.git_status)
+                .flatten()
+                .map(|status| match status {
+                    shidou_client::WorkingTreeStatus::Modified => "M",
+                    shidou_client::WorkingTreeStatus::Untracked => "U",
+                });
             // Images route to the Visuals gallery instead of the browser.
             let is_image = !is_dir && super::visuals::supported_visual_path(&relative_path);
             let can_preview = !is_dir
@@ -2902,9 +2918,18 @@ impl Shidou {
                         .flex_1()
                         .truncate()
                         .text_size(sp(12.5))
-                        .text_color(theme.text_secondary)
+                        .text_color(status_color.unwrap_or(theme.text_secondary))
                         .child(entry.name),
                 )
+                .when_some(status_letter, |row, letter| {
+                    row.child(
+                        div()
+                            .flex_none()
+                            .text_size(sp(10.0))
+                            .text_color(status_color.unwrap_or(theme.text_secondary))
+                            .child(letter),
+                    )
+                })
                 .when(can_preview, |row| {
                     let open_path = preview_relative_path.clone();
                     row.child(self.render_icon_button(
@@ -4707,6 +4732,7 @@ impl Shidou {
                                                 is_dir: entry.is_dir,
                                                 expanded: entry.expanded,
                                                 depth: entry.depth,
+                                                git_status: entry.status,
                                             })
                                             .collect()
                                     }

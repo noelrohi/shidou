@@ -90,5 +90,6 @@ export type { WireDriverEvent } from "./WireDriverEvent";
 export type { WireDriverStartOptions } from "./WireDriverStartOptions";
 export type { WireSessionOptions } from "./WireSessionOptions";
 export type { WorkingTreeEntry } from "./WorkingTreeEntry";
+export type { WorkingTreeStatus } from "./WorkingTreeStatus";
 export type { WorkspaceOperation } from "./WorkspaceOperation";
 export type { WorkspaceResult } from "./WorkspaceResult";

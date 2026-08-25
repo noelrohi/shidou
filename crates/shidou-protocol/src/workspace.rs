@@ -32,6 +32,15 @@ pub struct ReviewDiffData {
     pub complete_context: bool,
 }
 
+/// Working-copy state of a tree entry relative to the Git index. A directory
+/// carries the strongest status found among its descendants.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkingTreeStatus {
+    Modified,
+    Untracked,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkingTreeEntry {
@@ -42,6 +51,8 @@ pub struct WorkingTreeEntry {
     pub is_dir: bool,
     pub expanded: bool,
     pub depth: usize,
+    #[serde(default)]
+    pub status: Option<WorkingTreeStatus>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

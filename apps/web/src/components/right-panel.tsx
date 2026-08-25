@@ -981,7 +981,27 @@ function TreeRow({
       {entry.isDir
         ? <ShidouIcon className="size-3.5 shrink-0 text-[var(--text-tertiary)]" name="folder" />
         : <FileTypeIcon className="size-3.5" path={entry.name} />}
-      <span className="truncate">{entry.name}</span>
+      <span
+        className={cn(
+          'min-w-0 flex-1 truncate',
+          entry.status === 'modified' && 'text-[var(--warning)]',
+          entry.status === 'untracked' && 'text-[var(--success)]',
+        )}
+      >
+        {entry.name}
+      </span>
+      {/* Letter badge on files so the git status never rides on color alone;
+          directories carry only the name tint. */}
+      {!entry.isDir && entry.status && (
+        <span
+          className={cn(
+            'shrink-0 text-[10px]',
+            entry.status === 'modified' ? 'text-[var(--warning)]' : 'text-[var(--success)]',
+          )}
+        >
+          {entry.status === 'modified' ? 'M' : 'U'}
+        </span>
+      )}
     </button>
   )
 }

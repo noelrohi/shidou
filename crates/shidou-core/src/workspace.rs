@@ -3,7 +3,7 @@
 //! Paths in this module always name resources on the daemon host. A client
 //! may display them, but must never reinterpret them against its own machine.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Output;
@@ -14,7 +14,8 @@ const MAX_HYDRATED_PATCH_BYTES: usize = 32 * 1024 * 1024;
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 pub use shidou_protocol::workspace::{
-    ReviewDiffData, ReviewDiffSource, WorkingTreeEntry, WorkspaceOperation, WorkspaceResult,
+    ReviewDiffData, ReviewDiffSource, WorkingTreeEntry, WorkingTreeStatus, WorkspaceOperation,
+    WorkspaceResult,
 };
 
 pub fn execute(operation: WorkspaceOperation) -> anyhow::Result<WorkspaceResult> {
@@ -230,12 +231,58 @@ fn resolve_workspace_path(root: &Path, relative: &Path) -> anyhow::Result<PathBu
     Ok(root.join(relative))
 }
 
+/// Per-path Git working-copy statuses for the tree rooted at `root`, keyed by
+/// root-relative path. Directories inherit the strongest status among their
+/// descendants so a collapsed folder still signals the change inside it.
+/// Outside a repository (or if `git` fails) the map is empty and the tree
+/// renders without status decoration.
+fn working_tree_statuses(root: &Path) -> HashMap<PathBuf, WorkingTreeStatus> {
+    let Ok(status) = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]) else {
+        return HashMap::new();
+    };
+    // Porcelain paths are relative to the repository root; the tree root may
+    // sit deeper, so strip its prefix and drop entries outside it.
+    let prefix = git(root, ["rev-parse", "--show-prefix"])
+        .map(|prefix| PathBuf::from(prefix.trim_end()))
+        .unwrap_or_default();
+    let mut statuses = HashMap::new();
+    for line in status.lines() {
+        let Some((flags, rest)) = line.split_at_checked(3) else {
+            continue;
+        };
+        let status = match &flags[..2] {
+            "??" => WorkingTreeStatus::Untracked,
+            "!!" => continue,
+            _ => WorkingTreeStatus::Modified,
+        };
+        // A rename reads `R  old -> new`; the new path is the one on disk.
+        // Paths with special characters come C-quoted; unescaping them is not
+        // worth the complexity, so those rows just render undecorated.
+        let path = rest.rsplit(" -> ").next().unwrap_or(rest).trim_matches('"');
+        let Ok(relative) = Path::new(path).strip_prefix(&prefix) else {
+            continue;
+        };
+        statuses.insert(relative.to_path_buf(), status);
+        for ancestor in relative.ancestors().skip(1) {
+            if ancestor.as_os_str().is_empty() {
+                break;
+            }
+            let slot = statuses.entry(ancestor.to_path_buf()).or_insert(status);
+            if status == WorkingTreeStatus::Modified {
+                *slot = WorkingTreeStatus::Modified;
+            }
+        }
+    }
+    statuses
+}
+
 fn list_tree(root: &Path, expanded_paths: &HashSet<PathBuf>) -> Vec<WorkingTreeEntry> {
     fn visit(
         directory: &Path,
         relative_directory: &Path,
         depth: usize,
         expanded_paths: &HashSet<PathBuf>,
+        statuses: &HashMap<PathBuf, WorkingTreeStatus>,
         output: &mut Vec<WorkingTreeEntry>,
     ) {
         let Ok(entries) = fs::read_dir(directory) else {
@@ -263,6 +310,7 @@ fn list_tree(root: &Path, expanded_paths: &HashSet<PathBuf>) -> Vec<WorkingTreeE
                 is_dir,
                 expanded,
                 depth,
+                status: statuses.get(&relative_path).copied(),
             });
             if expanded {
                 visit(
@@ -270,13 +318,15 @@ fn list_tree(root: &Path, expanded_paths: &HashSet<PathBuf>) -> Vec<WorkingTreeE
                     &relative_path,
                     depth + 1,
                     expanded_paths,
+                    statuses,
                     output,
                 );
             }
         }
     }
+    let statuses = working_tree_statuses(root);
     let mut output = Vec::new();
-    visit(root, Path::new(""), 0, expanded_paths, &mut output);
+    visit(root, Path::new(""), 0, expanded_paths, &statuses, &mut output);
     output
 }
 
@@ -294,6 +344,7 @@ fn list_directory(directory: &Path) -> anyhow::Result<Vec<WorkingTreeEntry>> {
                 is_dir,
                 expanded: false,
                 depth: 0,
+                status: None,
             })
         })
         .collect::<Vec<_>>();
