@@ -23,9 +23,16 @@ use super::{activity, computer_use as computer_use_runtime};
 use crate::driver::{
     DriverControl, DriverEventSender, DriverEventSink, DriverStartOptions, SessionOptions,
 };
-use crate::model::{ActivityKind, DriverEvent, InteractionMode, ProviderResumeCursor, RuntimeMode};
+use crate::model::{
+    ActivityKind, DriverEvent, InteractionMode, ProviderResumeCursor, RuntimeMode, UserInputAnswer,
+    UserInputOption, UserInputQuestion,
+};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+const SHIDOU_USER_INPUT_PREFIX: &str = "__SHIDOU_USER_INPUT_V1__";
+const SHIDOU_QUESTION_ID_PREFIX: &str = "shidou-question-";
+const OMP_HOST_ASK_REQUEST_PREFIX: &str = "omp-host-ask:";
+const OMP_HOST_ASK_QUESTION_PREFIX: &str = "omp-host-ask-question:";
 
 /// Oh My Pi has to start a whole second agent to clone a session, so it needs
 /// more headroom than a request against the already-running process.
@@ -147,7 +154,7 @@ enum CommandMessage {
     Prompt(String),
     Steer(String),
     Cancel,
-    CancelExtensionRequest(String),
+    RespondExtensionRequest(Value),
     Options(SessionOptions),
     Rollback {
         turns: usize,
@@ -277,7 +284,6 @@ impl PiDriver {
         let (commands, command_rx) = unbounded();
         let pending = Arc::new(Mutex::new(HashMap::new()));
         let reader_pending = pending.clone();
-        let reader_commands = commands.clone();
         let reader_events = events.clone();
         let reader_thread = thread::Builder::new()
             .name("shidou-pi-reader".into())
@@ -298,7 +304,6 @@ impl PiDriver {
                                             flavor,
                                             value,
                                             &reader_pending,
-                                            &reader_commands,
                                             &reader_events,
                                             &mut stream_state,
                                         ),
@@ -365,6 +370,19 @@ impl PiDriver {
                         &mut next_request_id,
                         json!({"type": "get_state"}),
                     )?;
+                    if flavor == PiFlavor::OhMyPi {
+                        // RPC mode deliberately omits OMP's TUI-owned `ask`
+                        // tool. Register the same surface as a host tool so a
+                        // whole question batch crosses one native RPC frame.
+                        // A user extension may already own the name; keep that
+                        // setup intact if OMP rejects the registration.
+                        let _ = send_request(
+                            &mut stdin,
+                            &writer_pending,
+                            &mut next_request_id,
+                            omp_host_ask_registration(),
+                        );
+                    }
                     if let Some(session_file) = resume_session_file {
                         let response = send_request(
                             &mut stdin,
@@ -599,17 +617,8 @@ impl PiDriver {
                                 current_effort = options.reasoning_effort;
                             }
                         }
-                        CommandMessage::CancelExtensionRequest(id) => {
-                            if write_json_line(
-                                &mut stdin,
-                                &json!({
-                                    "type": "extension_ui_response",
-                                    "id": id,
-                                    "cancelled": true
-                                }),
-                            )
-                            .is_err()
-                            {
+                        CommandMessage::RespondExtensionRequest(response) => {
+                            if write_json_line(&mut stdin, &response).is_err() {
                                 break;
                             }
                         }
@@ -728,6 +737,12 @@ impl DriverControl for PiDriver {
     }
 
     fn respond(&self, _request_id: String, _option_id: String) {}
+
+    fn respond_user_input(&self, request_id: String, answers: Vec<UserInputAnswer>) {
+        let _ = self.commands.send(CommandMessage::RespondExtensionRequest(
+            extension_ui_response(request_id, &answers),
+        ));
+    }
 
     fn apply_options(&self, options: SessionOptions) -> bool {
         // Both flavors have setters for the model and thinking level, so those
@@ -1178,6 +1193,303 @@ fn clone_ohmypi_session(
     result
 }
 
+fn omp_host_ask_registration() -> Value {
+    json!({
+        "type": "set_host_tools",
+        "tools": [{
+            "name": "ask",
+            "label": "Ask",
+            "description": "Ask the user one or more related questions and wait for all answers.",
+            "loadMode": "always",
+            "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["questions"],
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 9,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["id", "question", "options"],
+                            "properties": {
+                                "id": { "type": "string" },
+                                "question": { "type": "string" },
+                                "options": {
+                                    "type": "array",
+                                    "maxItems": 9,
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["label"],
+                                        "properties": {
+                                            "label": { "type": "string" },
+                                            "description": { "type": "string" }
+                                        }
+                                    }
+                                },
+                                "multi": { "type": "boolean" },
+                                "recommended": { "type": "integer", "minimum": 0 }
+                            }
+                        }
+                    }
+                }
+            }
+        }]
+    })
+}
+
+/// The host `ask` call and its result travel through the UI layer as strings,
+/// so each prefixed id has a paired encode/decode helper here: the pair is the
+/// one place the two halves of the round trip are allowed to agree on a shape.
+fn omp_host_ask_request_id(host_call_id: &str) -> String {
+    format!("{OMP_HOST_ASK_REQUEST_PREFIX}{host_call_id}")
+}
+
+fn omp_host_ask_host_call_id(request_id: &str) -> Option<&str> {
+    request_id.strip_prefix(OMP_HOST_ASK_REQUEST_PREFIX)
+}
+
+fn omp_host_ask_question_id(index: usize, provider_id: &str) -> String {
+    format!("{OMP_HOST_ASK_QUESTION_PREFIX}{index}:{provider_id}")
+}
+
+fn omp_host_ask_provider_id(question_id: &str) -> Option<&str> {
+    question_id
+        .strip_prefix(OMP_HOST_ASK_QUESTION_PREFIX)?
+        .split_once(':')
+        .map(|(_, provider_id)| provider_id)
+}
+
+fn parse_omp_host_ask(value: &Value) -> Option<(String, Vec<UserInputQuestion>)> {
+    if value.get("toolName").and_then(Value::as_str)? != "ask" {
+        return None;
+    }
+    let request_id = omp_host_ask_request_id(value.get("id")?.as_str()?);
+    let questions = value
+        .pointer("/arguments/questions")
+        .and_then(Value::as_array)?
+        .iter()
+        .enumerate()
+        .filter_map(|(index, question)| {
+            let text = question.get("question")?.as_str()?.trim();
+            if text.is_empty() {
+                return None;
+            }
+            let provider_id = question
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("question_{}", index + 1));
+            let options = question
+                .get("options")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|option| {
+                    let label = option.get("label")?.as_str()?.trim();
+                    if label.is_empty() {
+                        return None;
+                    }
+                    Some(UserInputOption {
+                        label: label.to_owned(),
+                        description: option
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|description| !description.is_empty())
+                            .map(str::to_owned),
+                    })
+                })
+                .collect();
+            Some(UserInputQuestion {
+                id: omp_host_ask_question_id(index, &provider_id),
+                header: format!("Question {}", index + 1),
+                question: text.to_owned(),
+                options,
+                multi_select: question
+                    .get("multi")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .take(9)
+        .collect::<Vec<_>>();
+    (!questions.is_empty()).then_some((request_id, questions))
+}
+
+fn omp_host_ask_response(host_call_id: &str, answers: &[UserInputAnswer]) -> Value {
+    let lines = answers
+        .iter()
+        .map(|answer| {
+            let provider_id = omp_host_ask_provider_id(&answer.question_id)
+                .unwrap_or(answer.question_id.as_str());
+            let value = if answer.answers.len() > 1 {
+                format!("[{}]", answer.answers.join(", "))
+            } else {
+                answer.answers.first().cloned().unwrap_or_default()
+            };
+            format!("{provider_id}: {value}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    json!({
+        "type": "host_tool_result",
+        "id": host_call_id,
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": format!("User answers:\n{lines}")
+            }],
+            "details": { "answers": answers }
+        }
+    })
+}
+
+/// The blocking `rpc-ui` dialog methods Shidou can answer. The method name
+/// doubles as the single question's id, so the response side recovers the
+/// method from the answer instead of re-matching raw strings.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ExtensionUiMethod {
+    Select,
+    Confirm,
+    Input,
+    Editor,
+}
+
+impl ExtensionUiMethod {
+    fn parse(method: &str) -> Option<Self> {
+        Some(match method {
+            "select" => Self::Select,
+            "confirm" => Self::Confirm,
+            "input" => Self::Input,
+            "editor" => Self::Editor,
+            _ => return None,
+        })
+    }
+
+    fn question_id(self) -> &'static str {
+        match self {
+            Self::Select => "select",
+            Self::Confirm => "confirm",
+            Self::Input => "input",
+            Self::Editor => "editor",
+        }
+    }
+}
+
+fn extension_ui_questions(
+    flavor: PiFlavor,
+    value: &Value,
+) -> Option<(String, Vec<UserInputQuestion>)> {
+    let request_id = value.get("id")?.as_str()?.to_owned();
+    let method = ExtensionUiMethod::parse(value.get("method")?.as_str()?)?;
+    if method == ExtensionUiMethod::Input
+        && let Some(payload) = value
+            .get("title")
+            .and_then(Value::as_str)
+            .and_then(|title| title.strip_prefix(SHIDOU_USER_INPUT_PREFIX))
+        && let Ok(mut questions) = serde_json::from_str::<Vec<UserInputQuestion>>(payload)
+    {
+        questions.retain(|question| {
+            question.id.starts_with(SHIDOU_QUESTION_ID_PREFIX)
+                && !question.question.trim().is_empty()
+        });
+        questions.truncate(9);
+        if !questions.is_empty() {
+            return Some((request_id, questions));
+        }
+    }
+
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("Input required")
+        .to_owned();
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .filter(|message| !message.trim().is_empty());
+    let (header, question) = match message {
+        Some(message) => (title, message.to_owned()),
+        None => (flavor.display_name().to_owned(), title),
+    };
+    let options = match method {
+        ExtensionUiMethod::Select => value
+            .get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(|label| UserInputOption {
+                label: label.to_owned(),
+                description: None,
+            })
+            .collect(),
+        ExtensionUiMethod::Confirm => ["Yes", "No"]
+            .into_iter()
+            .map(|label| UserInputOption {
+                label: label.to_owned(),
+                description: None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+
+    Some((
+        request_id,
+        vec![UserInputQuestion {
+            id: method.question_id().to_owned(),
+            header,
+            question,
+            options,
+            multi_select: false,
+        }],
+    ))
+}
+
+fn extension_ui_response(request_id: String, answers: &[UserInputAnswer]) -> Value {
+    if let Some(host_call_id) = omp_host_ask_host_call_id(&request_id) {
+        return omp_host_ask_response(host_call_id, answers);
+    }
+
+    let Some((answer, value)) = answers
+        .first()
+        .and_then(|answer| Some((answer, answer.answers.first()?)))
+    else {
+        return json!({
+            "type": "extension_ui_response",
+            "id": request_id,
+            "cancelled": true,
+        });
+    };
+
+    if answer.question_id.starts_with(SHIDOU_QUESTION_ID_PREFIX) {
+        json!({
+            "type": "extension_ui_response",
+            "id": request_id,
+            "value": json!({ "answers": answers }).to_string(),
+        })
+    } else if ExtensionUiMethod::parse(&answer.question_id) == Some(ExtensionUiMethod::Confirm) {
+        json!({
+            "type": "extension_ui_response",
+            "id": request_id,
+            "confirmed": value.eq_ignore_ascii_case("yes"),
+        })
+    } else {
+        json!({
+            "type": "extension_ui_response",
+            "id": request_id,
+            "value": value,
+        })
+    }
+}
+
 #[derive(Default)]
 struct PiStreamState {
     run_started: bool,
@@ -1191,7 +1503,6 @@ fn handle_pi_message(
     flavor: PiFlavor,
     value: Value,
     pending: &PendingResponses,
-    commands: &Sender<CommandMessage>,
     events: &impl DriverEventSink,
     state: &mut PiStreamState,
 ) {
@@ -1376,12 +1687,19 @@ fn handle_pi_message(
             }
         }
         "extension_ui_request" => {
-            let method = value.get("method").and_then(Value::as_str);
-            let id = value.get("id").and_then(Value::as_str);
-            if matches!(method, Some("select" | "confirm" | "input" | "editor"))
-                && let Some(id) = id
-            {
-                let _ = commands.send(CommandMessage::CancelExtensionRequest(id.to_owned()));
+            if let Some((request_id, questions)) = extension_ui_questions(flavor, &value) {
+                let _ = events.send(DriverEvent::UserInputRequested {
+                    request_id,
+                    questions,
+                });
+            }
+        }
+        "host_tool_call" if flavor == PiFlavor::OhMyPi => {
+            if let Some((request_id, questions)) = parse_omp_host_ask(&value) {
+                let _ = events.send(DriverEvent::UserInputRequested {
+                    request_id,
+                    questions,
+                });
             }
         }
         "extension_error" => {
@@ -1466,19 +1784,208 @@ mod tests {
     use super::*;
     use crossbeam_channel::TryRecvError;
 
-    fn harness() -> (
-        PendingResponses,
-        Sender<CommandMessage>,
-        crossbeam_channel::Receiver<CommandMessage>,
-        PiStreamState,
-    ) {
-        let (commands, receiver) = unbounded();
+    fn harness() -> (PendingResponses, PiStreamState) {
         (
             Arc::new(Mutex::new(HashMap::new())),
-            commands,
-            receiver,
             PiStreamState::default(),
         )
+    }
+
+    #[test]
+    fn extension_dialogs_wait_for_shidou_user_input() {
+        let (pending, mut state) = harness();
+        let (events, event_rx) = unbounded();
+        handle_pi_message(
+            PiFlavor::Pi,
+            json!({
+                "type": "extension_ui_request",
+                "id": "question-1",
+                "method": "select",
+                "title": "Choose a direction",
+                "options": ["Fast", "Careful"]
+            }),
+            &pending,
+            &events,
+            &mut state,
+        );
+
+        let DriverEvent::UserInputRequested {
+            request_id,
+            questions,
+        } = event_rx.recv().unwrap()
+        else {
+            panic!("expected Pi extension user input");
+        };
+        assert_eq!(request_id, "question-1");
+        assert_eq!(questions[0].question, "Choose a direction");
+        assert_eq!(questions[0].options[0].label, "Fast");
+    }
+
+    #[test]
+    fn shidou_extension_dialogs_preserve_batched_questions() {
+        let (pending, mut state) = harness();
+        let (events, event_rx) = unbounded();
+        let questions = json!([
+            {
+                "id": "shidou-question-0",
+                "header": "Question 1",
+                "question": "Choose a direction",
+                "options": [{ "label": "Fast" }, { "label": "Careful" }],
+                "multiSelect": false
+            },
+            {
+                "id": "shidou-question-1",
+                "header": "Question 2",
+                "question": "Anything else?",
+                "options": [],
+                "multiSelect": false
+            }
+        ]);
+        handle_pi_message(
+            PiFlavor::Pi,
+            json!({
+                "type": "extension_ui_request",
+                "id": "questions-1",
+                "method": "input",
+                "title": format!("{SHIDOU_USER_INPUT_PREFIX}{questions}")
+            }),
+            &pending,
+            &events,
+            &mut state,
+        );
+
+        let DriverEvent::UserInputRequested { questions, .. } = event_rx.recv().unwrap() else {
+            panic!("expected batched Pi user input");
+        };
+        assert_eq!(questions.len(), 2);
+        assert_eq!(questions[0].options[1].label, "Careful");
+        assert_eq!(questions[1].question, "Anything else?");
+    }
+
+    #[test]
+    fn ohmypi_host_ask_uses_one_batched_user_input_request() {
+        assert_eq!(omp_host_ask_registration()["tools"][0]["name"], "ask");
+        assert_eq!(
+            omp_host_ask_registration()["tools"][0]["parameters"]["required"][0],
+            "questions"
+        );
+
+        let (pending, mut state) = harness();
+        let (events, event_rx) = unbounded();
+        handle_pi_message(
+            PiFlavor::OhMyPi,
+            json!({
+                "type": "host_tool_call",
+                "id": "host-1",
+                "toolCallId": "tool-1",
+                "toolName": "ask",
+                "arguments": {
+                    "questions": [
+                        {
+                            "id": "database",
+                            "question": "Which database?",
+                            "options": [
+                                { "label": "SQLite", "description": "Local" },
+                                { "label": "Postgres" }
+                            ]
+                        },
+                        {
+                            "id": "features",
+                            "question": "Which features?",
+                            "options": [{ "label": "Search" }, { "label": "Sync" }],
+                            "multi": true
+                        }
+                    ]
+                }
+            }),
+            &pending,
+            &events,
+            &mut state,
+        );
+
+        let DriverEvent::UserInputRequested {
+            request_id,
+            questions,
+        } = event_rx.recv().unwrap()
+        else {
+            panic!("expected OMP host ask user input");
+        };
+        assert_eq!(request_id, "omp-host-ask:host-1");
+        assert_eq!(questions.len(), 2);
+        assert_eq!(
+            questions[0].options[0].description.as_deref(),
+            Some("Local")
+        );
+        assert!(questions[1].multi_select);
+    }
+
+    #[test]
+    fn extension_answers_use_the_pi_rpc_response_shape() {
+        assert_eq!(
+            extension_ui_response(
+                "select-1".into(),
+                &[UserInputAnswer {
+                    question_id: "select".into(),
+                    answers: vec!["Careful".into()],
+                }],
+            ),
+            json!({
+                "type": "extension_ui_response",
+                "id": "select-1",
+                "value": "Careful"
+            })
+        );
+        assert_eq!(
+            extension_ui_response(
+                "confirm-1".into(),
+                &[UserInputAnswer {
+                    question_id: "confirm".into(),
+                    answers: vec!["Yes".into()],
+                }],
+            ),
+            json!({
+                "type": "extension_ui_response",
+                "id": "confirm-1",
+                "confirmed": true
+            })
+        );
+
+        let response = extension_ui_response(
+            "batch-1".into(),
+            &[
+                UserInputAnswer {
+                    question_id: "shidou-question-0".into(),
+                    answers: vec!["Fast".into()],
+                },
+                UserInputAnswer {
+                    question_id: "shidou-question-1".into(),
+                    answers: vec!["Notes".into()],
+                },
+            ],
+        );
+        assert_eq!(response["type"], "extension_ui_response");
+        let payload: Value = serde_json::from_str(response["value"].as_str().unwrap()).unwrap();
+        assert_eq!(payload["answers"][1]["answers"][0], "Notes");
+
+        let response = extension_ui_response(
+            "omp-host-ask:host-1".into(),
+            &[
+                UserInputAnswer {
+                    question_id: "omp-host-ask-question:0:database".into(),
+                    answers: vec!["Postgres".into()],
+                },
+                UserInputAnswer {
+                    question_id: "omp-host-ask-question:1:features".into(),
+                    answers: vec!["Search".into(), "Sync".into()],
+                },
+            ],
+        );
+        assert_eq!(response["type"], "host_tool_result");
+        assert_eq!(response["id"], "host-1");
+        assert_eq!(
+            response["result"]["content"][0]["text"],
+            "User answers:\ndatabase: Postgres\nfeatures: [Search, Sync]"
+        );
     }
 
     /// Drives the installed Pi RPC through one real provider turn. Ignored by
@@ -1653,7 +2160,7 @@ mod tests {
 
     #[test]
     fn streams_pi_text_reasoning_tools_and_settles_once() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         for value in [
             json!({"type": "agent_start"}),
@@ -1682,14 +2189,7 @@ mod tests {
             json!({"type": "agent_end", "willRetry": false}),
             json!({"type": "agent_settled"}),
         ] {
-            handle_pi_message(
-                PiFlavor::Pi,
-                value,
-                &pending,
-                &commands,
-                &events,
-                &mut state,
-            );
+            handle_pi_message(PiFlavor::Pi, value, &pending, &events, &mut state);
         }
 
         assert!(matches!(event_rx.recv().unwrap(), DriverEvent::TurnStarted));
@@ -1779,12 +2279,36 @@ mod tests {
             "Oh My Pi should report its own cursor with a session file, got {cursor:?}"
         );
 
-        driver.prompt("Reply with exactly: OK. Do not use any tools.".into());
+        driver.prompt(
+            "Use the ask tool exactly once with two questions. First: choose Alpha or Beta. Second: choose Red or Blue. After the answers, reply briefly."
+                .into(),
+        );
         let mut finished = false;
+        let mut answered = false;
         let mut context_tokens = None;
         let mut context_window = None;
         while let Ok(event) = event_rx.recv_timeout(Duration::from_secs(180)) {
             match event {
+                DriverEvent::UserInputRequested {
+                    request_id,
+                    questions,
+                } => {
+                    assert_eq!(questions.len(), 2);
+                    driver.respond_user_input(
+                        request_id,
+                        vec![
+                            UserInputAnswer {
+                                question_id: questions[0].id.clone(),
+                                answers: vec!["Beta".into()],
+                            },
+                            UserInputAnswer {
+                                question_id: questions[1].id.clone(),
+                                answers: vec!["Blue".into()],
+                            },
+                        ],
+                    );
+                    answered = true;
+                }
                 DriverEvent::UsageUpdated {
                     context_tokens: tokens,
                     context_window: window,
@@ -1803,6 +2327,7 @@ mod tests {
         }
 
         assert!(finished, "Oh My Pi never settled the probe turn");
+        assert!(answered, "Oh My Pi never called its Shidou-hosted ask tool");
         assert!(context_tokens.is_some_and(|tokens| tokens > 0));
         assert!(context_window.is_some_and(|window| window > 0));
     }
@@ -1825,7 +2350,7 @@ mod tests {
     /// terminal one may end the turn.
     #[test]
     fn ohmypi_settles_on_the_terminal_agent_end_only() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         for value in [
             json!({"type": "agent_start"}),
@@ -1836,14 +2361,7 @@ mod tests {
             json!({"type": "agent_end", "isTerminal": false}),
             json!({"type": "agent_end", "messages": []}),
         ] {
-            handle_pi_message(
-                PiFlavor::OhMyPi,
-                value,
-                &pending,
-                &commands,
-                &events,
-                &mut state,
-            );
+            handle_pi_message(PiFlavor::OhMyPi, value, &pending, &events, &mut state);
         }
 
         assert!(matches!(event_rx.recv().unwrap(), DriverEvent::TurnStarted));
@@ -1861,7 +2379,7 @@ mod tests {
     /// Pi's own settle event carries no meaning for Oh My Pi, and vice versa.
     #[test]
     fn each_flavor_ignores_the_other_settle_and_title_events() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         for (flavor, value) in [
             (PiFlavor::OhMyPi, json!({"type": "agent_start"})),
@@ -1876,7 +2394,7 @@ mod tests {
                 json!({"type": "session_info_update", "title": "Oh My Pi's spelling"}),
             ),
         ] {
-            handle_pi_message(flavor, value, &pending, &commands, &events, &mut state);
+            handle_pi_message(flavor, value, &pending, &events, &mut state);
         }
 
         assert!(matches!(event_rx.recv().unwrap(), DriverEvent::TurnStarted));
@@ -1885,13 +2403,12 @@ mod tests {
 
     #[test]
     fn ohmypi_session_titles_arrive_on_its_own_event() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         handle_pi_message(
             PiFlavor::OhMyPi,
             json!({"type": "session_info_update", "title": "Named by Oh My Pi"}),
             &pending,
-            &commands,
             &events,
             &mut state,
         );
@@ -1942,14 +2459,13 @@ mod tests {
 
     #[test]
     fn session_name_changes_are_forwarded_as_automatic_titles() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
 
         handle_pi_message(
             PiFlavor::Pi,
             json!({"type": "session_info_changed", "name": "Named by Pi"}),
             &pending,
-            &commands,
             &events,
             &mut state,
         );
@@ -1962,7 +2478,6 @@ mod tests {
             PiFlavor::Pi,
             json!({"type": "session_info_changed", "name": null}),
             &pending,
-            &commands,
             &events,
             &mut state,
         );
@@ -1974,7 +2489,7 @@ mod tests {
 
     #[test]
     fn tool_only_intermediate_message_does_not_emit_empty_text() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         handle_pi_message(
             PiFlavor::Pi,
@@ -1986,7 +2501,6 @@ mod tests {
                 }
             }),
             &pending,
-            &commands,
             &events,
             &mut state,
         );
@@ -1996,7 +2510,7 @@ mod tests {
 
     #[test]
     fn completed_message_is_used_when_deltas_were_not_streamed() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         handle_pi_message(
             PiFlavor::Pi,
@@ -2011,7 +2525,6 @@ mod tests {
                 }
             }),
             &pending,
-            &commands,
             &events,
             &mut state,
         );
@@ -2028,7 +2541,7 @@ mod tests {
 
     #[test]
     fn context_usage_uses_pi_components_when_total_is_zero() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         handle_pi_message(
             PiFlavor::Pi,
@@ -2047,7 +2560,6 @@ mod tests {
                 }
             }),
             &pending,
-            &commands,
             &events,
             &mut state,
         );
@@ -2084,7 +2596,7 @@ mod tests {
 
     #[test]
     fn recoverable_tool_error_does_not_fail_the_turn() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         for value in [
             json!({"type": "agent_start"}),
@@ -2097,14 +2609,7 @@ mod tests {
             }),
             json!({"type": "agent_settled"}),
         ] {
-            handle_pi_message(
-                PiFlavor::Pi,
-                value,
-                &pending,
-                &commands,
-                &events,
-                &mut state,
-            );
+            handle_pi_message(PiFlavor::Pi, value, &pending, &events, &mut state);
         }
 
         assert!(matches!(event_rx.recv().unwrap(), DriverEvent::TurnStarted));
@@ -2126,7 +2631,7 @@ mod tests {
 
     #[test]
     fn successful_auto_retry_recovers_the_turn() {
-        let (pending, commands, _command_rx, mut state) = harness();
+        let (pending, mut state) = harness();
         let (events, event_rx) = unbounded();
         for value in [
             json!({"type": "agent_start"}),
@@ -2137,14 +2642,7 @@ mod tests {
             json!({"type": "auto_retry_end", "success": true}),
             json!({"type": "agent_settled"}),
         ] {
-            handle_pi_message(
-                PiFlavor::Pi,
-                value,
-                &pending,
-                &commands,
-                &events,
-                &mut state,
-            );
+            handle_pi_message(PiFlavor::Pi, value, &pending, &events, &mut state);
         }
 
         assert!(matches!(event_rx.recv().unwrap(), DriverEvent::TurnStarted));

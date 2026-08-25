@@ -306,10 +306,15 @@ events keep flowing on the reader thread meanwhile.
 `abort` over the existing connection. It ends when the runtime is dropped, by
 stdin EOF; nothing reaps it afterwards.
 
-**Handshake** — `get_state` → optional `switch_session {sessionPath}` when
-resuming → `set_model {provider, modelId}` → `set_thinking_level {level}` →
-`get_state`. The final state supplies `/data/sessionId` and `/data/sessionFile`;
-both go into the cursor, and resume needs the **file path**, not just the id.
+**Handshake** — `get_state` → Oh My Pi only: `set_host_tools` for Shidou's
+host-owned `ask` → optional `switch_session {sessionPath}` when resuming →
+`set_model {provider, modelId}` → `set_thinking_level {level}` → `get_state`.
+The final state supplies `/data/sessionId` and `/data/sessionFile`; both go into
+the cursor, and resume needs the **file path**, not just the id. OMP omits its
+TUI-owned `ask` in RPC mode, so the host tool exposes the same batched
+`questions[]` surface without switching to the sequential `rpc-ui` dialogs. If
+a user extension already owns `ask`, OMP rejects the registration and Shidou
+leaves that tool untouched.
 
 **Per turn** — `{"type": "prompt", "message": …}`.
 
@@ -323,7 +328,8 @@ both go into the cursor, and resume needs the **file path**, not just the id.
 | `tool_execution_start` / `_update` / `_end` | `RichActivity` |
 | `auto_retry_end` | clears or sets the failure flag |
 | `agent_settled` (Pi) / `agent_end` (Oh My Pi) | `TurnFinished`, then resets stream state |
-| `extension_ui_request` | auto-cancelled — Shidou has no UI for extension prompts |
+| `extension_ui_request` | blocking dialogs become `UserInputRequested`; Shidou returns the user's answer |
+| `host_tool_call` for Oh My Pi's host-owned `ask` | the whole `questions[]` batch becomes one `UserInputRequested`; answers return as `host_tool_result` |
 
 **Access modes** — Build + Full access only, enforced at driver start rather
 than degraded silently: any other combination fails with "currently supports
