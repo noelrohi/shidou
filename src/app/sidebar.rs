@@ -1317,6 +1317,25 @@ impl Shidou {
             .clone();
         let show_folder_icon =
             matches!(group, SidebarGroup::Project(_) | SidebarGroup::Projectless);
+        // Resolve an ordinary project once for both its label and menu. Date
+        // groups are derived, and the projectless section is pruned with the
+        // task inside it.
+        let project = match group {
+            SidebarGroup::Project(project_id) => self
+                .state
+                .projects
+                .iter()
+                .find(|project| project.id == project_id)
+                .filter(|project| !project.is_projectless()),
+            SidebarGroup::Projectless | SidebarGroup::Updated(_) => None,
+        };
+        let project_menu = project.map(|project| {
+            (
+                project.id,
+                self.menu_handle(format!("sidebar-project-{}", project.id), cx),
+            )
+        });
+        let keyboard_menu = project_menu.clone();
         let folder_icon = if collapsed {
             "icons/folder.svg"
         } else {
@@ -1324,11 +1343,7 @@ impl Shidou {
         };
         let label = match group {
             SidebarGroup::Updated(group) => group.label(),
-            SidebarGroup::Project(project_id) => self
-                .state
-                .projects
-                .iter()
-                .find(|project| project.id == project_id)
+            SidebarGroup::Project(_) => project
                 .map(Project::display_name)
                 .unwrap_or_else(|| tr!("project.no_project_name")),
             SidebarGroup::Projectless => tr!("project.no_project_name"),
@@ -1454,8 +1469,9 @@ impl Shidou {
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.toggle_sidebar_group(group, cx);
             }))
-            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
-                match event.keystroke.key.as_str() {
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                let key = event.keystroke.key.as_str();
+                match key {
                     "enter" | "space" => {
                         this.toggle_sidebar_group(group, cx);
                         cx.stop_propagation();
@@ -1468,11 +1484,78 @@ impl Shidou {
                         this.set_sidebar_group_collapsed(group, false, cx);
                         cx.stop_propagation();
                     }
+                    // The same two gestures the task rows offer, so a project
+                    // is never mouse-only.
+                    "f10" if event.keystroke.modifiers.shift => {
+                        if let Some((_, menu)) = keyboard_menu.as_ref() {
+                            menu.open_context_menu(window, cx);
+                            cx.stop_propagation();
+                        }
+                    }
+                    "backspace" if event.keystroke.modifiers.secondary() => {
+                        if let Some((project_id, _)) = keyboard_menu.as_ref() {
+                            this.confirm_project_removal(*project_id, window, cx);
+                            cx.stop_propagation();
+                        }
+                    }
                     _ => {}
                 }
             }));
 
+        let header = match project_menu {
+            Some((project_id, menu)) => {
+                let shidou = cx.entity().downgrade();
+                context_menu(
+                    div().w_full().child(header),
+                    SharedString::from(format!("sidebar-project-menu-{project_id}")),
+                    &menu,
+                    move |_| {
+                        let compose_shidou = shidou.clone();
+                        let remove_shidou = shidou.clone();
+                        vec![
+                            MenuItem::new(tr!("menu.new_task"), move |window, cx| {
+                                let _ = compose_shidou.update(cx, |shidou, cx| {
+                                    shidou.open_new_task_for_sidebar_group(
+                                        SidebarGroup::Project(project_id),
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                            MenuItem::Separator,
+                            MenuItem::new(tr!("project.remove"), move |window, cx| {
+                                let _ = remove_shidou.update(cx, |shidou, cx| {
+                                    shidou.confirm_project_removal(project_id, window, cx);
+                                });
+                            }),
+                        ]
+                    },
+                )
+            }
+            None => header.into_any_element(),
+        };
+
         div().w_full().pb(px(2.0)).child(header)
+    }
+
+    /// Drop the runtime-only state keyed to a group that no longer exists, so
+    /// a removed project cannot leave collapse, reveal, and focus entries
+    /// behind for the rest of the session.
+    pub(super) fn forget_sidebar_group(&mut self, group: SidebarGroup) {
+        self.sidebar_collapsed_groups.remove(&group);
+        self.sidebar_project_reveal_counts.remove(&group);
+        self.sidebar_group_header_focuses
+            .borrow_mut()
+            .remove(&group);
+        self.sidebar_group_compose_focuses
+            .borrow_mut()
+            .remove(&group);
+        self.sidebar_show_more_focuses.borrow_mut().remove(&group);
+        if let SidebarGroup::Project(project_id) = group {
+            self.menus
+                .borrow_mut()
+                .remove(&SharedString::from(format!("sidebar-project-{project_id}")));
+        }
     }
 
     fn open_new_task_for_sidebar_group(

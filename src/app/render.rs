@@ -241,6 +241,7 @@ impl Render for Shidou {
             let command_palette = self.render_command_palette(window, cx);
             let commit_dialog = self.render_commit_dialog(cx);
             let session_delete_dialog = self.render_session_delete_dialog(cx);
+            let project_delete_dialog = self.render_project_delete_dialog(cx);
             let terminal_close_dialog = self.render_terminal_close_dialog(cx);
             let toast = self.render_active_toast(cx);
             let content = div()
@@ -259,6 +260,7 @@ impl Render for Shidou {
                 .children(command_palette)
                 .children(commit_dialog)
                 .children(session_delete_dialog)
+                .children(project_delete_dialog)
                 .children(terminal_close_dialog)
                 .children(image_preview)
                 .children(task_switcher)
@@ -276,6 +278,7 @@ impl Render for Shidou {
         let command_palette = self.render_command_palette(window, cx);
         let commit_dialog = self.render_commit_dialog(cx);
         let session_delete_dialog = self.render_session_delete_dialog(cx);
+        let project_delete_dialog = self.render_project_delete_dialog(cx);
         let terminal_close_dialog = self.render_terminal_close_dialog(cx);
         let toast = self.render_active_toast(cx);
         let content = div()
@@ -408,6 +411,7 @@ impl Render for Shidou {
             .children(command_palette)
             .children(commit_dialog)
             .children(session_delete_dialog)
+            .children(project_delete_dialog)
             .children(terminal_close_dialog)
             .children(image_preview)
             .children(task_switcher)

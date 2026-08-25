@@ -571,6 +571,18 @@ project.default_folder:
   en: Default folder
 project.project_lower:
   en: project
+project.remove:
+  en: Remove project
+project.remove_title:
+  en: Remove “%{name}”?
+project.remove_body:
+  en: This removes the project and its saved tasks from Shidou, along with their checkpoints. Your files are not deleted.
+project.remove_body_empty:
+  en: This removes the project from Shidou. Your files are not deleted.
+project.remove_one_task:
+  en: 1 saved task
+project.remove_many_tasks:
+  en: "%{count} saved tasks"
 project.without_a_project:
   en: without a project
 project.your_project:

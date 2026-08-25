@@ -384,6 +384,10 @@ impl Shidou {
             self.state
                 .projects
                 .retain(|project| project.id != project_id);
+            // The section goes with the project, so its runtime-only state has
+            // to go too: the next scratch task would otherwise reappear folded
+            // under a stale reveal count.
+            self.forget_sidebar_group(SidebarGroup::Projectless);
             if self.state.selected_project == Some(project_id) {
                 self.state.selected_project = None;
             }
@@ -430,6 +434,108 @@ impl Shidou {
         cx.background_executor()
             .spawn(async move { sweep() })
             .detach();
+    }
+
+    /// Drop `project_id` and everything Shidou stored under it.
+    ///
+    /// Tasks leave first, through the ordinary removal path, so each one still
+    /// tears down its runtime, drafts, checkpoint refs, and blobs. The
+    /// selection is parked before that loop runs: `remove_session` opens a
+    /// fresh draft in the project it just emptied when the active task was the
+    /// one removed, which would resurrect the project being dropped.
+    pub(super) fn remove_project(&mut self, project_id: Uuid, cx: &mut Context<Self>) {
+        let Some(project) = self
+            .state
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+        else {
+            return;
+        };
+        // The projectless scratch project is bookkeeping for a single task and
+        // is pruned with it, so there is nothing here for the user to remove.
+        if project.is_projectless() {
+            return;
+        }
+        let session_ids = self
+            .state
+            .sessions
+            .iter()
+            .filter(|session| session.project_id == project_id)
+            .map(|session| session.id)
+            .collect::<Vec<_>>();
+        // Mirrors `remove_session`: a task whose fork is mid-flight cannot go,
+        // and a project half removed is worse than one still listed.
+        if session_ids
+            .iter()
+            .any(|id| self.response_fork_preparations.contains_key(id))
+        {
+            self.show_toast(tr!("session.response_fork_in_progress"));
+            cx.notify();
+            return;
+        }
+        // Only a selection that is actually going away needs re-landing. With
+        // no task selected at all the window is showing the project itself, so
+        // dropping that project has to land somewhere too.
+        let reselect = match self.state.selected_session {
+            Some(selected) => session_ids.contains(&selected),
+            None => self.state.selected_project == Some(project_id),
+        };
+        if reselect {
+            self.state.selected_session = None;
+        }
+        for session_id in session_ids {
+            self.remove_session(session_id, cx);
+        }
+        self.remove_composer_draft(
+            crate::persistence::ComposerDraftKey::NewSession(project_id),
+            cx,
+        );
+        self.state
+            .projects
+            .retain(|project| project.id != project_id);
+        self.forget_sidebar_group(SidebarGroup::Project(project_id));
+        // A surviving selection keeps its own project; only a dangling pointer
+        // at the project just dropped has to be repaired.
+        if self.state.selected_project == Some(project_id) {
+            self.state.selected_project = self
+                .selected_session()
+                .map(|session| session.project_id)
+                .filter(|_| !reselect);
+        }
+        // Persist before landing. Activation defers when the task still needs
+        // hydrating — which is every task until it is first opened after a
+        // launch — and the deferred path never reaches `activate_session`'s
+        // save. Leaving it to that save loses the removal outright when
+        // hydration fails or the window closes first: the tasks are gone from
+        // the store, the project row is not, and it returns empty on relaunch.
+        self.save();
+        if !reselect {
+            cx.notify();
+            return;
+        }
+        // One reselection, now that the rows are gone, so the transcript
+        // switches once instead of hopping through each task on its way out.
+        match project_removal_landing(&self.state.sessions, &self.state.projects) {
+            ProjectRemovalLanding::Session {
+                session_id,
+                project_id,
+            } => {
+                // Set eagerly for the same deferral: an unset project reads as
+                // "no project yet" and would flash the onboarding empty state.
+                self.state.selected_project = Some(project_id);
+                self.select_session(session_id, cx);
+            }
+            ProjectRemovalLanding::NewTask { project_id } => {
+                self.state.selected_project = Some(project_id);
+                self.create_session_for(project_id, self.state.last_provider, cx);
+            }
+            ProjectRemovalLanding::Onboarding => {
+                self.state.selected_project = None;
+                self.save();
+                cx.notify();
+            }
+        }
     }
 
     pub(super) fn new_session_action(
@@ -1701,6 +1807,39 @@ impl Shidou {
     }
 }
 
+/// Where the window lands once a removed project and its tasks are gone.
+///
+/// Read after the removals, so it only ever sees what survived. Preferring the
+/// most recent surviving task keeps the landing predictable from the sidebar;
+/// with nothing left at all the caller clears both selections and the window
+/// falls back to the onboarding empty state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProjectRemovalLanding {
+    Session { session_id: Uuid, project_id: Uuid },
+    NewTask { project_id: Uuid },
+    Onboarding,
+}
+
+fn project_removal_landing(
+    sessions: &[AgentSession],
+    projects: &[Project],
+) -> ProjectRemovalLanding {
+    if let Some(session) = sessions.iter().max_by_key(|session| session.updated_at) {
+        return ProjectRemovalLanding::Session {
+            session_id: session.id,
+            project_id: session.project_id,
+        };
+    }
+    // Skips the projectless scratch project for the same reason every other
+    // path does: it is bookkeeping for one task, not somewhere to land.
+    match projects.iter().find(|project| !project.is_projectless()) {
+        Some(project) => ProjectRemovalLanding::NewTask {
+            project_id: project.id,
+        },
+        None => ProjectRemovalLanding::Onboarding,
+    }
+}
+
 /// Filesystem context a task created in `project_id` starts with. A
 /// projectless scratch directory is already disposable, so it stays local
 /// whatever the stored default says.
@@ -1737,6 +1876,43 @@ mod tests {
         assert_eq!(
             new_task_workspace(&projects, Uuid::new_v4()),
             SessionWorkspace::Local
+        );
+    }
+
+    #[test]
+    fn removing_a_project_lands_on_the_most_recent_surviving_task() {
+        let survivor_project = Project::from_path(PathBuf::from("/tmp/survivor"));
+        let mut older = AgentSession::new(survivor_project.id, ProviderKind::Claude);
+        older.updated_at = 100;
+        let mut newer = AgentSession::new(survivor_project.id, ProviderKind::Codex);
+        newer.updated_at = 200;
+
+        // Newest first, so a `.last()` implementation would fail this.
+        assert_eq!(
+            project_removal_landing(
+                &[newer.clone(), older],
+                std::slice::from_ref(&survivor_project)
+            ),
+            ProjectRemovalLanding::Session {
+                session_id: newer.id,
+                project_id: survivor_project.id,
+            }
+        );
+
+        // A project with no tasks left still opens rather than dropping the
+        // window to onboarding while a project is listed.
+        assert_eq!(
+            project_removal_landing(&[], std::slice::from_ref(&survivor_project)),
+            ProjectRemovalLanding::NewTask {
+                project_id: survivor_project.id,
+            }
+        );
+
+        // Nothing survived the removal: the caller clears both selections and
+        // the window falls back to the onboarding empty state.
+        assert_eq!(
+            project_removal_landing(&[], &[]),
+            ProjectRemovalLanding::Onboarding
         );
     }
 

@@ -1331,6 +1331,9 @@ pub struct Shidou {
     /// irreversible — it drops the row, its refs on disk, and its blobs — so
     /// the one-keystroke path is gated behind this.
     session_delete_dialog: Option<session_delete_dialog::SessionDeleteDialogState>,
+    /// Window-modal confirmation guarding project removal. A project leaves
+    /// with every task filed under it, so it is gated the same way.
+    project_delete_dialog: Option<project_delete_dialog::ProjectDeleteDialogState>,
     /// User-initiated terminal teardown stops the shell and discards its
     /// scrollback, so a live terminal closes only after confirmation.
     terminal_close_dialog: Option<terminal_close_dialog::TerminalCloseDialogState>,
@@ -1727,6 +1730,7 @@ mod composer;
 mod drafts;
 mod file_search;
 mod image_preview;
+mod project_delete_dialog;
 mod render;
 mod right_panel;
 mod runtime;
@@ -1754,6 +1758,7 @@ pub use command_palette::init as init_command_palette;
 pub use commit_dialog::init as init_commit_dialog_keys;
 use components::*;
 pub use image_preview::init as init_image_preview_keys;
+pub use project_delete_dialog::init as init_project_delete_dialog_keys;
 pub use session_delete_dialog::init as init_session_delete_dialog_keys;
 pub use settings::init as init_settings_keys;
 pub use sidebar::init as init_sidebar_keys;
@@ -2919,6 +2924,7 @@ impl Shidou {
                 branch_operation_pending: false,
                 commit_dialog: None,
                 session_delete_dialog: None,
+                project_delete_dialog: None,
                 terminal_close_dialog: None,
                 commit_operation: None,
                 // Providers × workspaces; both scans are small, the cache

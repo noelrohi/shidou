@@ -278,6 +278,12 @@ project.no_project_name: 无项目
 project.choose_project: 选择项目
 project.default_folder: 默认文件夹
 project.project_lower: 项目
+project.remove: 移除项目
+project.remove_title: 移除“%{name}”？
+project.remove_body: 这会从 Shidou 移除该项目及其保存的任务，连同它们的检查点。你的文件不会被删除。
+project.remove_body_empty: 这会从 Shidou 移除该项目。你的文件不会被删除。
+project.remove_one_task: 1 个保存的任务
+project.remove_many_tasks: "%{count} 个保存的任务"
 project.without_a_project: 不使用项目
 project.your_project: 你的项目
 onboarding.open_project_to_begin: 打开一个项目即可开始

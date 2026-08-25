@@ -2502,8 +2502,8 @@ fn detection_checked_label(elapsed: Duration) -> String {
     }
 }
 
-/// Keep the full binary path, abbreviating only the user's home directory.
-fn abbreviate_home_path(path: &Path, home: Option<&Path>) -> String {
+/// Keep the full path, abbreviating only the user's home directory.
+pub(super) fn abbreviate_home_path(path: &Path, home: Option<&Path>) -> String {
     match home.and_then(|home| path.strip_prefix(home).ok()) {
         Some(relative) if relative.as_os_str().is_empty() => "~".to_owned(),
         Some(relative) => format!("~/{}", relative.display()),

@@ -293,6 +293,12 @@ project.no_project_name: プロジェクトなし
 project.choose_project: プロジェクトを選択
 project.default_folder: デフォルトフォルダ
 project.project_lower: プロジェクト
+project.remove: プロジェクトを削除
+project.remove_title: 「%{name}」を削除しますか？
+project.remove_body: このプロジェクトと保存されたタスクを、チェックポイントごと Shidou から削除します。ファイル自体は削除されません。
+project.remove_body_empty: このプロジェクトを Shidou から削除します。ファイル自体は削除されません。
+project.remove_one_task: 保存されたタスク 1 件
+project.remove_many_tasks: "保存されたタスク %{count} 件"
 project.without_a_project: プロジェクトなし
 project.your_project: あなたのプロジェクト
 
