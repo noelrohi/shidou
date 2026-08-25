@@ -709,6 +709,14 @@ impl TerminalView {
         &self.working_directory
     }
 
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn requires_close_confirmation(&self) -> bool {
+        !self.exited
+    }
+
     pub fn set_panel_width(&mut self, width: f32) {
         self.panel_width = width;
     }

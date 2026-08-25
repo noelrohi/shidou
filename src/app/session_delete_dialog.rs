@@ -259,7 +259,7 @@ impl Shidou {
     }
 }
 
-fn render_dialog_button(
+pub(super) fn render_dialog_button(
     id: &'static str,
     focus: &FocusHandle,
     label: String,

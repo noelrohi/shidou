@@ -601,6 +601,8 @@ workspace.default_for_new_tasks: 新任务的默认设置
 workspace.workspace: 工作区
 workspace.worktree: 工作树
 terminal.starting: 正在启动终端…
+terminal.close_title: "关闭终端“%{title}”？"
+terminal.close_body: 这将停止正在运行的进程并清除其历史记录。
 project.add_project: 添加项目
 errors.remote_project_picker: 添加守护进程主机上的项目需要远程路径选择器，但该功能尚不可用
 session.stopped: 已停止

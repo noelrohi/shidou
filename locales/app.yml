@@ -1236,6 +1236,10 @@ workspace.worktree:
 
 terminal.starting:
   en: Starting terminal…
+terminal.close_title:
+  en: Close terminal “%{title}”?
+terminal.close_body:
+  en: This stops the running process and clears its history.
 
 project.add_project:
   en: Add project

@@ -636,6 +636,8 @@ workspace.workspace: ワークスペース
 workspace.worktree: ワークツリー
 
 terminal.starting: ターミナルを起動中…
+terminal.close_title: "ターミナル「%{title}」を閉じますか？"
+terminal.close_body: 実行中のプロセスが停止し、履歴が消去されます。
 
 project.add_project: プロジェクトを追加
 errors.remote_project_picker: デーモンホスト上のプロジェクトを追加するにはリモートパス選択が必要ですが、まだ利用できません

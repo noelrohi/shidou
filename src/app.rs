@@ -1331,6 +1331,9 @@ pub struct Shidou {
     /// irreversible — it drops the row, its refs on disk, and its blobs — so
     /// the one-keystroke path is gated behind this.
     session_delete_dialog: Option<session_delete_dialog::SessionDeleteDialogState>,
+    /// User-initiated terminal teardown stops the shell and discards its
+    /// scrollback, so a live terminal closes only after confirmation.
+    terminal_close_dialog: Option<terminal_close_dialog::TerminalCloseDialogState>,
     /// Commit-message generation and Git mutation outlive the modal that
     /// started them. Keeping the operation on the app also lets every
     /// Environment surface reflect and gate the same in-flight action.
@@ -1734,6 +1737,7 @@ mod sidebar;
 mod skills_page;
 mod streaming;
 mod task_switcher;
+mod terminal_close_dialog;
 mod transcript;
 mod transcript_search;
 mod transcript_view;
@@ -1756,6 +1760,7 @@ pub use sidebar::init as init_sidebar_keys;
 use sidebar::{SidebarGroup, SidebarRow};
 pub use skills_page::init as init_skills_keys;
 use streaming::*;
+pub use terminal_close_dialog::init as init_terminal_close_dialog_keys;
 use transcript::*;
 use transcript_view::ConversationNavigationRail;
 
@@ -2914,6 +2919,7 @@ impl Shidou {
                 branch_operation_pending: false,
                 commit_dialog: None,
                 session_delete_dialog: None,
+                terminal_close_dialog: None,
                 commit_operation: None,
                 // Providers × workspaces; both scans are small, the cache
                 // only exists to keep them off the frame path.

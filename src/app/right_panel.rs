@@ -954,7 +954,7 @@ impl RightPanelSurface {
         Self::Terminal(Uuid::new_v4())
     }
 
-    fn terminal_id(&self) -> Option<Uuid> {
+    pub(super) fn terminal_id(&self) -> Option<Uuid> {
         match self {
             Self::Terminal(id) => Some(*id),
             _ => None,
@@ -2372,7 +2372,7 @@ impl Shidou {
         }
     }
 
-    fn close_right_panel_surface(&mut self, index: usize, cx: &mut Context<Self>) {
+    pub(super) fn close_right_panel_surface(&mut self, index: usize, cx: &mut Context<Self>) {
         if index >= self.right_panel_surfaces.len() {
             return;
         }
@@ -2413,7 +2413,7 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) {
         if let Some(active) = self.right_panel_active_surface {
-            self.close_right_panel_surface(active, cx);
+            self.request_close_right_panel_surface(active, window, cx);
             if self.right_panel_surfaces.is_empty() {
                 let focus_handle = self.composer_focus(cx);
                 window.focus(&focus_handle, cx);
@@ -2769,10 +2769,10 @@ impl Shidou {
                             .justify_center()
                             .hover(|element| element.bg(theme.overlay_strong))
                             .child(icon("icons/x.svg", 10.0, theme.text_tertiary))
-                            .on_click(move |_, _, cx| {
+                            .on_click(move |_, window, cx| {
                                 cx.stop_propagation();
                                 let _ = close_weak.update(cx, |this, cx| {
-                                    this.close_right_panel_surface(index, cx);
+                                    this.request_close_right_panel_surface(index, window, cx);
                                 });
                             }),
                     )
