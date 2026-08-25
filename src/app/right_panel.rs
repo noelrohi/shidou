@@ -2827,12 +2827,13 @@ impl Shidou {
         if !self.right_panel_surfaces.is_empty() {
             let weak = cx.entity().downgrade();
             let existing_surfaces = self.right_panel_surfaces.clone();
+            // Same order as the empty-panel chooser cards: Visuals last.
             let options = [
-                RightPanelSurface::Visuals,
                 RightPanelSurface::new_browser(),
                 RightPanelSurface::new_terminal(),
                 RightPanelSurface::Files,
                 RightPanelSurface::Diff,
+                RightPanelSurface::Visuals,
             ];
             let handle = self.menu_handle("add-right-panel-surface", cx);
             header = header.child(
