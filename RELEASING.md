@@ -116,12 +116,27 @@ sets the matching GitHub secrets for CI.
 
 ## Cutting a release
 
-1. **Bump `version` in `Cargo.toml`** — the single source of truth.
+1. **Bump the version:**
+   ```sh
+   bun run bump patch   # or: minor, major, or an explicit 0.3.0
+   ```
+   `version` in `Cargo.toml` is the single source of truth.
    `CFBundleShortVersionString` is the version, and `CFBundleVersion` is
    derived from it (`major*1e6 + minor*1e3 + patch`, so `0.2.0` → `2000`),
    which keeps Sparkle's build-number comparison monotonic without a manual
    counter. Prerelease versions (`-beta.1`) are refused for publishing — the
    appcast serves one stable channel.
+
+   Two generated files embed that version, so the bump is not just a manifest
+   edit: `Cargo.lock`'s workspace entry, and the Rust license report
+   (`licenses/THIRD_PARTY_RUST_LICENSES.html`, which lists every workspace
+   crate as `shidou <version>`). `bun run bump` rewrites the manifest, runs
+   `cargo update --workspace`, and regenerates every license report, so all
+   three land in one commit. Editing `Cargo.toml` by hand instead leaves the
+   report describing the previous release, and CI's `licenses:check` fails on
+   the next push. It needs `cargo-about` (`cargo install cargo-about
+   --locked`); `bun run release` refuses to build a version the report does not
+   list.
 2. **Write the release notes** — add a `## [<version>]` section at the top of
    [`CHANGELOG.md`](CHANGELOG.md).
 3. **Run it:**

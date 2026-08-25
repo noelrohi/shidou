@@ -259,6 +259,23 @@ if (publishing) {
   }
 }
 
+// The Rust license report lists every workspace crate by version, so a bump
+// that skipped `bun run bump` leaves it describing the previous release. The
+// source archive and the bundle both ship this file, so catch it here rather
+// than publishing licensing metadata for the wrong version.
+const rustLicenseReport = join(
+  projectRoot,
+  "licenses",
+  "THIRD_PARTY_RUST_LICENSES.html",
+);
+if (!(await Bun.file(rustLicenseReport).text()).includes(`shidou ${version}<`)) {
+  throw new Error(
+    `licenses/THIRD_PARTY_RUST_LICENSES.html does not list shidou ${version}. ` +
+      "Run `bun run licenses:generate` (or bump with `bun run bump`) and " +
+      "commit the result.",
+  );
+}
+
 const outputPath = resolve(
   projectRoot,
   values.output ?? join("dist", dmgName),

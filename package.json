@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "bun ./scripts/dev.ts",
     "release": "bun ./scripts/release.ts",
+    "bump": "bun ./scripts/bump.ts",
     "licenses:generate": "bun ./scripts/licenses.ts",
     "licenses:check": "bun ./scripts/licenses.ts --check",
     "protocol:generate": "cargo run -p shidou-protocol --bin export_types",
