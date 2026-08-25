@@ -811,42 +811,24 @@ export function Composer({
               >
                 <ShidouIcon className="size-[14px]" name="paperclip" />
               </Button>
-              {busy && (
-                <Button
-                  aria-label={t(escapeStopArmed ? 'composer.stop_confirm' : 'composer.stop')}
-                  className="rounded-full"
-                  size="icon-sm"
-                  variant="secondary"
-                  onClick={stopTurn}
-                >
-                  {escapeStopArmed
+              <Button
+                aria-label={busy
+                  ? t(escapeStopArmed ? 'composer.stop_confirm' : 'composer.stop')
+                  : t('common.send')}
+                className="rounded-full"
+                disabled={!busy && (submitting || uploading || !hasDraft)}
+                size="icon-sm"
+                onClick={() => {
+                  if (busy) stopTurn()
+                  else void submit()
+                }}
+              >
+                {busy
+                  ? escapeStopArmed
                     ? <span className="text-[10px] font-semibold">Esc</span>
-                    : <ShidouIcon className="size-[18px]" name="stopFilled" />}
-                </Button>
-              )}
-              {busy ? (
-                hasDraft && (
-                  <Button
-                    aria-label={t('composer.queue_followup')}
-                    className="rounded-full"
-                    disabled={submitting || uploading}
-                    size="icon-sm"
-                    onClick={() => void submit()}
-                  >
-                    <ShidouIcon name="arrowUp" />
-                  </Button>
-                )
-              ) : (
-                <Button
-                  aria-label={t('common.send')}
-                  className="rounded-full"
-                  disabled={submitting || uploading || !hasDraft}
-                  size="icon-sm"
-                  onClick={() => void submit()}
-                >
-                  <ShidouIcon name="arrowUp" />
-                </Button>
-              )}
+                    : <ShidouIcon className="size-[14px]" name="stop" />
+                  : <ShidouIcon name="arrowUp" />}
+              </Button>
             </div>
             </div>
           </section>
