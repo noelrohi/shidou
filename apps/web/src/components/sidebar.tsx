@@ -98,6 +98,29 @@ export function Sidebar({
   useEffect(() => {
     groupKeys.current = groups.map((group) => group.key)
   })
+  // Unlike a project's, the projectless key is reused: the section is
+  // bookkeeping for the one task inside it, and the next scratch task rebuilds
+  // it under the same key. Its runtime-only state has to go with it, or that
+  // task reappears collapsed and folded under a stale reveal count.
+  const hasProjectless = groups.some(
+    (group) => group.kind === 'projectless' && group.sessions.length > 0,
+  )
+  useEffect(() => {
+    if (hasProjectless) return
+    setCollapsed((current) => {
+      if (!current.has('projectless')) return current
+      const next = new Set(current)
+      next.delete('projectless')
+      return next
+    })
+    setRevealed((current) => {
+      if (!current.has('projectless')) return current
+      const next = new Map(current)
+      next.delete('projectless')
+      return next
+    })
+  }, [hasProjectless])
+
   function chooseGrouping(next: SidebarGrouping) {
     setGrouping(next)
     storeChoice('shidou.sidebarGrouping', next)
