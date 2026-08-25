@@ -397,14 +397,8 @@ export function RightPanel({
             placement="below"
             selectionMode="status"
             triggerClassName="size-7 justify-center px-0"
+            // Same order as the empty-panel chooser cards: Visuals last.
             items={[
-              {
-                id: 'visuals',
-                label: t('right_panel.visuals'),
-                icon: 'sparkle',
-                selected: tabs.some((tab) => tab.surface === 'visuals'),
-                onSelect: () => openSurface('visuals'),
-              },
               {
                 id: 'terminal',
                 label: t('right_panel.terminal'),
@@ -424,6 +418,13 @@ export function RightPanel({
                 icon: 'fileDiff',
                 selected: tabs.some((tab) => tab.surface === 'changes'),
                 onSelect: () => openSurface('changes'),
+              },
+              {
+                id: 'visuals',
+                label: t('right_panel.visuals'),
+                icon: 'sparkle',
+                selected: tabs.some((tab) => tab.surface === 'visuals'),
+                onSelect: () => openSurface('visuals'),
               },
             ]}
           >
