@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { CommandPalette, type CommandPaletteActions } from '@/components/command-palette'
 import { CommitDialog } from '@/components/commit-dialog'
+import { ConfirmDialog, ConfirmDialogDetails } from '@/components/confirm-dialog'
 import { Composer } from '@/components/composer'
 import { ControlMenu } from '@/components/control-menu'
 import { DaemonFilePicker } from '@/components/daemon-file-picker'
@@ -146,6 +147,7 @@ export function ShidouApp() {
   const [commitDialogOpen, setCommitDialogOpen] = useState(false)
   const commitDialogReturnFocus = useRef<HTMLElement | null>(null)
   const [projectPendingRemoval, setProjectPendingRemoval] = useState<Project | null>(null)
+  const [sessionPendingRemoval, setSessionPendingRemoval] = useState<AgentSession | null>(null)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const projectPickerReturnFocus = useRef<HTMLElement | null>(null)
   const [projectlessPending, setProjectlessPending] = useState(false)
@@ -1102,7 +1104,10 @@ export function ShidouApp() {
           onNewTaskInProject={(project) => startNewTask(project)}
           onNewProjectlessTask={() => void createProjectlessTask()}
           onRemoveProject={setProjectPendingRemoval}
-          onRemoveSession={removeSessionById}
+          onRemoveSession={async (sessionId) => {
+            const session = taskState.data?.sessions.find((item) => item.id === sessionId)
+            if (session) setSessionPendingRemoval(session)
+          }}
           onRenameSession={renameSession}
           onSearch={() => setPaletteOpen(true)}
           onSelectSession={selectSession}
@@ -1317,6 +1322,19 @@ export function ShidouApp() {
         session={activeSession}
         onOpenChange={setCommitDialogOpen}
       />
+
+      {sessionPendingRemoval && (
+        <ConfirmDialog
+          open
+          body={t('session.remove_body')}
+          confirmLabel={t('common.remove')}
+          title={t('session.remove_one_title')}
+          onConfirm={() => removeSessionById(sessionPendingRemoval.id)}
+          onOpenChange={(open) => { if (!open) setSessionPendingRemoval(null) }}
+        >
+          <ConfirmDialogDetails lines={[displayTitle(sessionPendingRemoval)]} />
+        </ConfirmDialog>
+      )}
 
       <ProjectDeleteDialog
         project={projectPendingRemoval}
