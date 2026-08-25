@@ -708,6 +708,24 @@ impl Shidou {
         }
     }
 
+    pub(super) fn return_from_background_task_submission(
+        &mut self,
+        session_id: Uuid,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.selected_session != Some(session_id) {
+            return;
+        }
+        let Some(target) = self.session_navigation.back_target() else {
+            return;
+        };
+        self.request_session_activation(
+            target,
+            SessionActivationTransition::Back { from: session_id },
+            cx,
+        );
+    }
+
     pub(super) fn navigate_back_action(
         &mut self,
         _: &NavigateBack,

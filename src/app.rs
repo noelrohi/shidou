@@ -2496,7 +2496,7 @@ impl Shidou {
                             this.submit_composer_submission(submission, cx);
                         }
                     }
-                    ComposerEvent::SubmitSteer(prompt) => {
+                    ComposerEvent::SubmitAlternate(prompt) => {
                         if let Some(session_id) = this.selected_session().and_then(|session| {
                             this.response_fork_preparations
                                 .contains_key(&session.id)
@@ -2506,7 +2506,7 @@ impl Shidou {
                         } else if let Some(submission) =
                             this.submission_with_attachments(prompt, cx)
                         {
-                            this.steer_composer_submission(submission, cx);
+                            this.submit_alternate_composer_submission(submission, cx);
                         }
                     }
                     ComposerEvent::SteerQueued => {

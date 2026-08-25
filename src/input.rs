@@ -2504,16 +2504,17 @@ impl Focusable for TextInput {
     }
 }
 
-/// What the composer tells its owner. `Submit` and `SubmitSteer` carry the
+/// What the composer tells its owner. `Submit` and `SubmitAlternate` carry the
 /// trimmed prompt; the remaining events report composer-level interactions
 /// or mirror [`InputEvent`] from the embedded field.
 #[derive(Clone)]
 pub enum ComposerEvent {
     /// Enter: send the prompt, or queue it behind the running turn.
     Submit(String),
-    /// Primary modifier + Enter: deliver the prompt into the running turn
-    /// instead of queueing it behind the turn.
-    SubmitSteer(String),
+    /// Primary modifier + Enter. What this means is the owner's to decide:
+    /// an unstarted task submits in the background, a working one takes the
+    /// prompt into its running turn, and a past message resubmits from there.
+    SubmitAlternate(String),
     /// Primary modifier + Enter in an empty composer: activate the oldest
     /// queued follow-up's Steer control.
     SteerQueued,
@@ -2532,7 +2533,7 @@ pub struct ComposerAttachmentPaste(pub Vec<ClipboardEntry>);
 
 /// The prompt composer, built on [`TextInput`]: a self-sizing multi-line
 /// field where Enter submits the trimmed prompt and clears, the primary
-/// modifier + Enter steers it into the running turn instead, and image or
+/// modifier + Enter requests the owner's alternate submit behavior, and image or
 /// file pastes surface as attachments rather than text. Everything textual —
 /// editing, IME, undo, selection — is the embedded field's; this component
 /// owns only the prompt policy on top.
@@ -2664,7 +2665,7 @@ impl Render for ComposerInput {
                     return;
                 }
                 composer.input.update(cx, |input, cx| input.clear(cx));
-                cx.emit(ComposerEvent::SubmitSteer(value));
+                cx.emit(ComposerEvent::SubmitAlternate(value));
             }))
             .child(self.input.clone())
     }
@@ -2777,11 +2778,9 @@ mod tests {
         composer.update(cx, |composer, cx| composer.set_content("hold on", cx));
         events.borrow_mut().clear();
         cx.simulate_keystrokes("secondary-enter");
-        assert!(
-            events.borrow().iter().any(
-                |event| matches!(event, ComposerEvent::SubmitSteer(text) if text == "hold on")
-            )
-        );
+        assert!(events.borrow().iter().any(
+            |event| matches!(event, ComposerEvent::SubmitAlternate(text) if text == "hold on")
+        ));
         cx.read_entity(&composer, |composer, cx| {
             assert_eq!(composer.content(cx), "")
         });

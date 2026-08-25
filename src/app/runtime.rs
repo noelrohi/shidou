@@ -2068,7 +2068,7 @@ impl Shidou {
                 }
                 // An edited past message resubmits from that point; there is
                 // no running turn for it to steer.
-                ComposerEvent::SubmitSteer(prompt) => {
+                ComposerEvent::SubmitAlternate(prompt) => {
                     this.submit_message_edit_prompt(prompt.clone(), cx)
                 }
                 ComposerEvent::SteerQueued => {}
@@ -2770,6 +2770,44 @@ impl Shidou {
             return;
         }
         self.submit_submission_for_session(session.id, submission, cx);
+    }
+
+    /// Start an unsubmitted task, then return to the task that opened its
+    /// composer. The provider preparation keeps running against the new task
+    /// while the user continues working in the previous one.
+    /// The task a background submission would start: selected, unstarted, and
+    /// not already working. One predicate, so the composer's dispatch and the
+    /// submission itself cannot disagree about what counts as a new task.
+    fn background_task_submission_target(&self) -> Option<Uuid> {
+        self.selected_session()
+            .filter(|session| !session.has_started() && !session.is_busy())
+            .map(|session| session.id)
+    }
+
+    /// Primary modifier + Enter from the composer. An unstarted task submits
+    /// in the background; anything else steers the turn in flight.
+    pub(super) fn submit_alternate_composer_submission(
+        &mut self,
+        submission: ComposerSubmission,
+        cx: &mut Context<Self>,
+    ) {
+        if self.background_task_submission_target().is_some() {
+            self.submit_new_task_in_background(submission, cx);
+        } else {
+            self.steer_composer_submission(submission, cx);
+        }
+    }
+
+    pub(super) fn submit_new_task_in_background(
+        &mut self,
+        submission: ComposerSubmission,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session_id) = self.background_task_submission_target() else {
+            return;
+        };
+        self.submit_submission_for_session(session_id, submission, cx);
+        self.return_from_background_task_submission(session_id, cx);
     }
 
     /// Deliver a steering message into the running turn. Providers without a
