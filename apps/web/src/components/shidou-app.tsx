@@ -1180,11 +1180,24 @@ export function ShidouApp() {
                   type: 'newSession',
                   projectId: activeProject.id,
                 })}
-                onActivated={(session) => {
-                  setDisplayed(session)
+                onActivated={(session, options) => {
                   setNewTaskMode(false)
                   setDraft(null)
                   setDraftProject(null)
+                  // A background start returns to the task that opened this
+                  // composer, with the provider preparation continuing against
+                  // the new one. With nothing to return to, follow it as usual.
+                  const back = options?.background
+                    ? recentTaskIds.current.find((id) => id !== session.id
+                      && taskState.data?.sessions.some((item) => item.id === id))
+                    : undefined
+                  if (back) {
+                    setDisplayed(null)
+                    rememberNavigation({ kind: 'session', sessionId: back })
+                    void navigate({ search: { session: back } })
+                    return
+                  }
+                  setDisplayed(session)
                   rememberNavigation({ kind: 'session', sessionId: session.id })
                   void navigate({ search: { session: session.id } })
                 }}

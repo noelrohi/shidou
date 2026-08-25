@@ -442,11 +442,30 @@ function activeTurn(session: AgentSession) {
   return turn?.status === 'running' ? turn : undefined
 }
 
+/**
+ * Foreground output is stronger evidence of a started provider turn than a
+ * replayed lifecycle cursor, so repair both pieces of transient state here. A
+ * runtime attachment that missed `turnStarted` would otherwise leave the
+ * primary modifier and Enter permanently falling back to the follow-up queue
+ * while output is visible.
+ */
 function acceptsTurnOutput(session: AgentSession) {
-  return Boolean(
-    activeTurn(session)
-      && ['connecting', 'working', 'waiting'].includes(session.status),
-  )
+  const turn = activeTurn(session)
+  if (!turn || !['connecting', 'working', 'waiting'].includes(session.status)) return false
+  turn.provider_turn_started = true
+  if (session.status === 'connecting') session.status = 'working'
+  return true
+}
+
+/**
+ * Whether the session has a provider turn actually under way — the condition
+ * for steering into it, as opposed to queueing a follow-up. A busy session
+ * whose prompt has not reached the provider yet has nothing to steer.
+ */
+export function sessionHasActiveProviderTurn(session: AgentSession): boolean {
+  if (!['connecting', 'working', 'waiting'].includes(session.status)) return false
+  const turn = session.turns[session.turns.length - 1]
+  return Boolean(turn && turn.status === 'running' && turn.provider_turn_started)
 }
 
 function isActivityKind(value: unknown): value is ActivityKind {

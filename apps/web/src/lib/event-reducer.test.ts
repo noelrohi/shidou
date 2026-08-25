@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentSession, SequencedEvent } from '@shidou/client'
-import { reduceRuntimeEvent } from './event-reducer'
+import { reduceRuntimeEvent, sessionHasActiveProviderTurn } from './event-reducer'
 
 const clock = {
   nowSeconds: () => 200,
@@ -197,6 +197,33 @@ function event(kind: string, payload: unknown): SequencedEvent {
     event: { kind, payload: payload as never },
   }
 }
+
+describe('steering readiness', () => {
+  test('a busy turn the provider has not started yet has nothing to steer', () => {
+    const session = runningSession()
+    expect(session.turns.at(-1)?.provider_turn_started).toBe(false)
+    expect(sessionHasActiveProviderTurn(session)).toBe(false)
+  })
+
+  test('turnStarted opens steering', () => {
+    const session = apply(runningSession(), 'turnStarted', null)
+    expect(sessionHasActiveProviderTurn(session)).toBe(true)
+  })
+
+  test('foreground output repairs a runtime that missed turnStarted', () => {
+    // Otherwise the chord stays stuck on the follow-up queue while output is
+    // visibly streaming in.
+    const session = apply(runningSession(), 'textDelta', 'Working')
+    expect(session.status).toBe('working')
+    expect(sessionHasActiveProviderTurn(session)).toBe(true)
+  })
+
+  test('a settled turn closes steering again', () => {
+    let session = apply(runningSession(), 'turnStarted', null)
+    session = apply(session, 'turnFinished', { success: true, summary: null })
+    expect(sessionHasActiveProviderTurn(session)).toBe(false)
+  })
+})
 
 function runningSession(): AgentSession {
   return {

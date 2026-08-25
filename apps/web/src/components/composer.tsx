@@ -49,6 +49,7 @@ import {
   sessionWorkspace,
 } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
+import { sessionHasActiveProviderTurn } from '@/lib/event-reducer'
 import { useI18n } from '@/lib/i18n'
 import {
   composerAutocompleteRows,
@@ -173,7 +174,7 @@ export function Composer({
   projects: Project[]
   draft?: boolean
   onDraftChange?: (session: AgentSession) => void
-  onActivated?: (session: AgentSession) => void
+  onActivated?: (session: AgentSession, options?: { background?: boolean }) => void
   focusSignal?: number
   modelPickerSignal?: number
   usagePanelSignal?: number
@@ -243,7 +244,14 @@ export function Composer({
     ?? probe.data?.models.find((model) => model.is_default)
     ?? probe.data?.models[0]
   const hasDraft = Boolean(prompt.trim() || attachments.length)
-  const canSteer = busy && session.status !== 'connecting' && runtime?.supportsSteer
+  // Busy is not enough: a prompt that has not reached the provider yet has no
+  // turn to steer, and a runtime that missed `turnStarted` must not strand the
+  // chord on the follow-up queue.
+  const canSteer = sessionHasActiveProviderTurn(session) && runtime?.supportsSteer
+  // The web's unstarted task is the unsaved draft; a busy one has a turn to
+  // steer instead. One predicate, so the chord and the submission cannot
+  // disagree about what counts as a new task.
+  const canStartInBackground = Boolean(draft) && !busy
   const workspace = session.workspace ?? { kind: 'local' as const }
   const projectChoices = selectableProjects(projects, project)
   const projectless = isProjectlessProject(project)
@@ -425,7 +433,12 @@ export function Composer({
     return true
   }
 
-  async function submit() {
+  /**
+   * `background` starts an unstarted task without following it, so the owner
+   * can return to the task that opened this composer while the provider comes
+   * up against the new one.
+   */
+  async function submit(background = false) {
     if (submitting || (!prompt.trim() && attachments.length === 0)) return
     if (executeLocalComposerCommand()) return
     const submittedPrompt = prompt
@@ -450,7 +463,7 @@ export function Composer({
         const optimistic = config
           ? queryClient.getQueryData<AgentSession>(daemonKeys.session(config.address, target.id))
           : undefined
-        onActivated?.(optimistic ?? target)
+        onActivated?.(optimistic ?? target, { background })
       }
       await pending
     } catch (error) {
@@ -586,7 +599,12 @@ export function Composer({
     }
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
-    if ((event.metaKey || event.ctrlKey) && canSteer) void steer()
+    // What the primary modifier and Enter mean is the task's to decide: a
+    // working task takes the prompt into its running turn, an unstarted one
+    // starts in the background, and anything else just sends.
+    if (!(event.metaKey || event.ctrlKey)) void submit()
+    else if (canSteer) void steer()
+    else if (canStartInBackground) void submit(true)
     else void submit()
   }
 
