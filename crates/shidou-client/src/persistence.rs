@@ -234,6 +234,19 @@ pub struct PersistedWindowState {
     pub display: Option<Uuid>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewDiffMode {
+    LastTurn,
+    Turn(usize),
+    #[default]
+    Uncommitted,
+    Unstaged,
+    Staged,
+    Committed,
+    Branch,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -330,6 +343,8 @@ struct AppState {
     /// instead of source. One global mode, not per file.
     #[serde(default)]
     markdown_preview: bool,
+    #[serde(default)]
+    review_diff_mode: ReviewDiffMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     window_state: Option<PersistedWindowState>,
 }
@@ -388,6 +403,8 @@ pub struct PersistedState {
     /// instead of source. One global mode, not per file.
     #[serde(default)]
     pub markdown_preview: bool,
+    #[serde(default)]
+    pub review_diff_mode: ReviewDiffMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_state: Option<PersistedWindowState>,
     #[serde(default = "default_computer_use_enabled")]
@@ -452,6 +469,7 @@ impl PersistedState {
             sidebar_ordering: SidebarOrdering::Newest,
             right_panel_width: DEFAULT_RIGHT_PANEL_WIDTH,
             markdown_preview: false,
+            review_diff_mode: ReviewDiffMode::default(),
             window_state: None,
             computer_use_enabled: false,
             computer_use_allowed_apps: Vec::new(),
@@ -594,6 +612,7 @@ impl PersistedState {
             sidebar_ordering: self.sidebar_ordering,
             right_panel_width: self.right_panel_width,
             markdown_preview: self.markdown_preview,
+            review_diff_mode: self.review_diff_mode,
             window_state: self.window_state,
         }
     }
@@ -627,6 +646,7 @@ impl PersistedState {
         self.sidebar_ordering = app_state.sidebar_ordering;
         self.right_panel_width = app_state.right_panel_width;
         self.markdown_preview = app_state.markdown_preview;
+        self.review_diff_mode = app_state.review_diff_mode;
         self.window_state = app_state.window_state;
     }
 

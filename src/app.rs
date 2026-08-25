@@ -54,7 +54,8 @@ use crate::ui::tooltip::Tooltip;
 use crate::browser::BrowserView;
 use crate::persistence::{
     ComposerDraftStore, ComposerDrafts, DEFAULT_RIGHT_PANEL_WIDTH, DEFAULT_SIDEBAR_WIDTH,
-    PersistedState, PersistedWindowState, SidebarGrouping, SidebarOrdering, StateStore,
+    PersistedState, PersistedWindowState, ReviewDiffMode, SidebarGrouping, SidebarOrdering,
+    StateStore,
 };
 use crate::query::{Query, QueryCache};
 use crate::review_diff::{Snapshot as ReviewDiffSnapshot, Source as ReviewDiffSource};
@@ -873,6 +874,8 @@ impl RightPanelSessionState {
         }
     }
 
+    /// The stored panel for `session_id`, or a closed panel when that session
+    /// has never had one.
     fn take_or_closed(states: &mut HashMap<Uuid, Self>, session_id: Uuid) -> Self {
         states
             .remove(&session_id)
@@ -2803,6 +2806,13 @@ impl Shidou {
                 })
             };
 
+            let initial_review_diff_source = right_panel::review_diff_source_for_mode(
+                state.review_diff_mode,
+                state
+                    .selected_session
+                    .and_then(|id| state.sessions.iter().find(|session| session.id == id)),
+            );
+
             Self {
                 daemon,
                 daemon_hostname,
@@ -2992,7 +3002,7 @@ impl Shidou {
                 right_panel_file_tree_width: DEFAULT_FILE_TREE_WIDTH,
                 right_panel_file_editors: HashMap::new(),
                 file_search: None,
-                right_panel_diff_source: ReviewDiffSource::default(),
+                right_panel_diff_source: initial_review_diff_source,
                 right_panel_diff_snapshot: None,
                 right_panel_diff_loading: false,
                 right_panel_diff_error: None,

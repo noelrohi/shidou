@@ -6,6 +6,70 @@ use super::*;
 const TAB_SCROLL_FADE_WIDTH: f32 = 24.0;
 const RIGHT_PANEL_CHOOSER_MAX_CONTENT_WIDTH: f32 = 420.0;
 
+/// The newest turn in `session` holding a ready checkpoint, optionally pinned
+/// to one turn number. Both the mode mapping and the toolbar's "last turn"
+/// entry resolve a turn this way, so the walk lives here rather than in each.
+fn ready_turn_source(
+    session: Option<&AgentSession>,
+    turn_count: Option<usize>,
+) -> Option<ReviewDiffSource> {
+    let session = session?;
+    session
+        .turns
+        .iter()
+        .rev()
+        .find(|turn| {
+            turn.turn_count > 0
+                && turn_count.is_none_or(|count| turn.turn_count == count)
+                && turn
+                    .checkpoint
+                    .as_ref()
+                    .is_some_and(|checkpoint| checkpoint.status == CheckpointStatus::Ready)
+        })
+        .map(|turn| ReviewDiffSource::LastTurn {
+            session_id: session.id,
+            turn_id: turn.id,
+            turn_count: turn.turn_count,
+        })
+}
+
+/// Resolve the remembered mode against one session. A turn-scoped mode has to
+/// degrade: the turn it names may not exist here, and a session may have no
+/// ready checkpoint at all, so both fall back rather than showing nothing.
+pub(super) fn review_diff_source_for_mode(
+    mode: ReviewDiffMode,
+    session: Option<&AgentSession>,
+) -> ReviewDiffSource {
+    match mode {
+        ReviewDiffMode::LastTurn => {
+            ready_turn_source(session, None).unwrap_or(ReviewDiffSource::Uncommitted)
+        }
+        ReviewDiffMode::Turn(turn_count) => ready_turn_source(session, Some(turn_count))
+            .or_else(|| ready_turn_source(session, None))
+            .unwrap_or(ReviewDiffSource::Uncommitted),
+        ReviewDiffMode::Uncommitted => ReviewDiffSource::Uncommitted,
+        ReviewDiffMode::Unstaged => ReviewDiffSource::Unstaged,
+        ReviewDiffMode::Staged => ReviewDiffSource::Staged,
+        ReviewDiffMode::Committed => ReviewDiffSource::Committed,
+        ReviewDiffMode::Branch => ReviewDiffSource::Branch,
+    }
+}
+
+fn review_diff_mode_for_source(
+    source: ReviewDiffSource,
+    latest: Option<ReviewDiffSource>,
+) -> ReviewDiffMode {
+    match source {
+        ReviewDiffSource::LastTurn { .. } if latest == Some(source) => ReviewDiffMode::LastTurn,
+        ReviewDiffSource::LastTurn { turn_count, .. } => ReviewDiffMode::Turn(turn_count),
+        ReviewDiffSource::Uncommitted => ReviewDiffMode::Uncommitted,
+        ReviewDiffSource::Unstaged => ReviewDiffMode::Unstaged,
+        ReviewDiffSource::Staged => ReviewDiffMode::Staged,
+        ReviewDiffSource::Committed => ReviewDiffMode::Committed,
+        ReviewDiffSource::Branch => ReviewDiffMode::Branch,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct WorkingTreeEntry {
     relative_path: String,
@@ -1104,6 +1168,138 @@ fn tab_scroll_fade(
 mod tests {
     use super::*;
 
+    /// A session whose turns each carry a ready checkpoint, so a turn-scoped
+    /// mode has something to resolve against.
+    fn session_with_ready_turns(count: usize) -> AgentSession {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        for index in 0..count {
+            let turn_id = session.begin_turn(format!("prompt {index}"));
+            let turn = session
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == turn_id)
+                .expect("the turn just pushed");
+            turn.checkpoint = Some(Checkpoint {
+                turn_count: turn.turn_count,
+                git_ref: format!("checkpoint-{index}"),
+                status: CheckpointStatus::Ready,
+                files: Vec::new(),
+                additions: 0,
+                deletions: 0,
+                created_at: 0,
+            });
+        }
+        session
+    }
+
+    #[test]
+    fn remembered_diff_mode_resolves_against_the_session_on_screen() {
+        let session = session_with_ready_turns(3);
+        let newest = ReviewDiffSource::LastTurn {
+            session_id: session.id,
+            turn_id: session.turns[2].id,
+            turn_count: 3,
+        };
+
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::LastTurn, Some(&session)),
+            newest
+        );
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::Turn(2), Some(&session)),
+            ReviewDiffSource::LastTurn {
+                session_id: session.id,
+                turn_id: session.turns[1].id,
+                turn_count: 2,
+            }
+        );
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::Staged, Some(&session)),
+            ReviewDiffSource::Staged
+        );
+    }
+
+    #[test]
+    fn a_turn_the_session_lacks_falls_back_rather_than_showing_nothing() {
+        let session = session_with_ready_turns(2);
+
+        // Switching to a shorter session keeps the reviewing intent: show its
+        // newest checkpoint instead of the turn number that does not exist.
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::Turn(9), Some(&session)),
+            ReviewDiffSource::LastTurn {
+                session_id: session.id,
+                turn_id: session.turns[1].id,
+                turn_count: 2,
+            }
+        );
+
+        // A turn whose checkpoint never became ready is not reviewable.
+        let mut pending = session_with_ready_turns(1);
+        pending.turns[0]
+            .checkpoint
+            .as_mut()
+            .expect("checkpoint")
+            .status = CheckpointStatus::Unavailable;
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::LastTurn, Some(&pending)),
+            ReviewDiffSource::Uncommitted
+        );
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::Turn(1), Some(&pending)),
+            ReviewDiffSource::Uncommitted
+        );
+
+        // A draft, or a session whose transcript has not loaded yet.
+        assert_eq!(
+            review_diff_source_for_mode(ReviewDiffMode::LastTurn, None),
+            ReviewDiffSource::Uncommitted
+        );
+    }
+
+    #[test]
+    fn a_picked_source_remembers_a_mode_that_survives_a_newer_turn() {
+        let session = session_with_ready_turns(3);
+        let latest = review_diff_source_for_mode(ReviewDiffMode::LastTurn, Some(&session));
+        let older = ReviewDiffSource::LastTurn {
+            session_id: session.id,
+            turn_id: session.turns[0].id,
+            turn_count: 1,
+        };
+
+        // "Last turn" tracks whatever is newest; a specific turn is pinned.
+        assert_eq!(
+            review_diff_mode_for_source(latest, Some(latest)),
+            ReviewDiffMode::LastTurn
+        );
+        assert_eq!(
+            review_diff_mode_for_source(older, Some(latest)),
+            ReviewDiffMode::Turn(1)
+        );
+        assert_eq!(
+            review_diff_mode_for_source(ReviewDiffSource::Branch, Some(latest)),
+            ReviewDiffMode::Branch
+        );
+
+        // Round trip: the mode a pick stores reopens on that same range.
+        for source in [
+            ReviewDiffSource::Uncommitted,
+            ReviewDiffSource::Unstaged,
+            ReviewDiffSource::Staged,
+            ReviewDiffSource::Committed,
+            ReviewDiffSource::Branch,
+            older,
+            latest,
+        ] {
+            let mode = review_diff_mode_for_source(source, Some(latest));
+            assert_eq!(
+                review_diff_source_for_mode(mode, Some(&session)),
+                source,
+                "{source:?} did not survive a mode round trip"
+            );
+        }
+    }
+
     #[test]
     fn transcript_file_links_route_by_the_active_workspace() {
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1826,10 +2022,26 @@ impl Shidou {
     }
 
     pub(super) fn restore_right_panel_state(&mut self, session_id: Uuid, cx: &mut Context<Self>) {
-        let state = RightPanelSessionState::take_or_closed(
+        let preferred_source = review_diff_source_for_mode(
+            self.state.review_diff_mode,
+            self.state
+                .sessions
+                .iter()
+                .find(|session| session.id == session_id),
+        );
+        let mut state = RightPanelSessionState::take_or_closed(
             &mut self.right_panel_session_states,
             session_id,
         );
+        if state.diff_source != preferred_source {
+            // The snapshot and the index into its file list describe the range
+            // being replaced, so both go. Expanded directories are keyed by
+            // path and still apply, and dropping them would collapse the tree
+            // on every source change.
+            state.diff_source = preferred_source;
+            state.diff_snapshot = None;
+            state.diff_selected_file = None;
+        }
         self.replace_active_right_panel_state(state);
         self.sync_right_panel_diff_tree_rows(cx);
         // A read in flight when this session was switched away from had its
@@ -2048,15 +2260,14 @@ impl Shidou {
         }) else {
             return;
         };
-        self.right_panel_diff_source = ReviewDiffSource::LastTurn {
-            session_id,
-            turn_id,
-            turn_count,
-        };
-        self.right_panel_diff_selection.clear();
-        self.right_panel_diff_snapshot = None;
-        self.right_panel_diff_selected_file = None;
-        self.open_right_panel_surface(RightPanelSurface::Diff, cx);
+        self.set_right_panel_diff_source(
+            ReviewDiffSource::LastTurn {
+                session_id,
+                turn_id,
+                turn_count,
+            },
+            cx,
+        );
     }
 
     fn open_workspace_file_in_browser(
@@ -3816,7 +4027,7 @@ impl Shidou {
                 items.push(
                     MenuItem::new(tr!("diff.source_last_turn"), move |_, cx| {
                         let _ = last_turn_weak.update(cx, |this, cx| {
-                            this.set_right_panel_diff_source(last_turn_source, cx)
+                            this.select_right_panel_diff_source(last_turn_source, cx)
                         });
                     })
                     .selected(latest_turn == Some(selected))
@@ -3835,7 +4046,7 @@ impl Shidou {
                     items.push(
                         MenuItem::new(label, move |_, cx| {
                             let _ = choice_weak.update(cx, |this, cx| {
-                                this.set_right_panel_diff_source(choice, cx)
+                                this.select_right_panel_diff_source(choice, cx)
                             });
                         })
                         .selected(choice == selected),
@@ -3850,7 +4061,7 @@ impl Shidou {
                     items.push(
                         MenuItem::new(label, move |_, cx| {
                             let _ = choice_weak.update(cx, |this, cx| {
-                                this.set_right_panel_diff_source(choice, cx)
+                                this.select_right_panel_diff_source(choice, cx)
                             });
                         })
                         .selected(choice == selected),
@@ -4760,23 +4971,7 @@ impl Shidou {
     }
 
     fn latest_review_turn_source(&self) -> Option<ReviewDiffSource> {
-        let session = self.selected_session()?;
-        session
-            .turns
-            .iter()
-            .rev()
-            .find(|turn| {
-                turn.turn_count > 0
-                    && turn
-                        .checkpoint
-                        .as_ref()
-                        .is_some_and(|checkpoint| checkpoint.status == CheckpointStatus::Ready)
-            })
-            .map(|turn| ReviewDiffSource::LastTurn {
-                session_id: session.id,
-                turn_id: turn.id,
-                turn_count: turn.turn_count,
-            })
+        ready_turn_source(self.selected_session(), None)
     }
 
     fn review_diff_source_label(&self, source: ReviewDiffSource) -> String {
@@ -4795,6 +4990,23 @@ impl Shidou {
             ReviewDiffSource::Committed => tr!("diff.source_committed"),
             ReviewDiffSource::Branch => tr!("diff.source_branch"),
         }
+    }
+
+    /// A source the user picked from the diff toolbar. Only an explicit pick
+    /// rewrites the remembered mode; incidental navigation — a transcript
+    /// turn, the environment summary — shows its range without claiming to be
+    /// the preference every other session should open with.
+    pub(super) fn select_right_panel_diff_source(
+        &mut self,
+        source: ReviewDiffSource,
+        cx: &mut Context<Self>,
+    ) {
+        let mode = review_diff_mode_for_source(source, self.latest_review_turn_source());
+        if self.state.review_diff_mode != mode {
+            self.state.review_diff_mode = mode;
+            self.save();
+        }
+        self.set_right_panel_diff_source(source, cx);
     }
 
     pub(super) fn set_right_panel_diff_source(
