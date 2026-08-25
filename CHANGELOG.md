@@ -16,6 +16,14 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.8]
+
+- Bring the desktop's removal flows to the web client: remove a project from its header menu, and confirm before a task, a project, or a live terminal is torn down
+- Let the web client's project removal reach the daemon, so a removed project no longer syncs back from another client
+- Remember the web review panel's diff range across sessions, falling back to the newest checkpoint or uncommitted changes when a range no longer applies
+- Steer from the web composer only once the provider's turn is actually under way, and start an unstarted task in the background with Command-Enter
+- Order the web client's add-surface menu the same way its chooser cards are ordered
+
 ## [0.2.7]
 
 - Remove a project from its header menu, with a confirmation step before its tasks are torn down
