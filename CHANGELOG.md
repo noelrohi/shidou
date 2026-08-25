@@ -16,6 +16,17 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.6]
+
+- Highlight modified and untracked files in the file tree, with the status rolled up to collapsed folders
+- Give a project a default workspace so a repository that should be worked on in isolation no longer needs the worktree picked for every task
+- Remember the review panel's diff range across sessions and launches, falling back to the newest checkpoint or uncommitted changes when a range no longer applies
+- Ask before closing a terminal whose process is still running
+- Start an unstarted task in the background with Command-Enter and stay on the task you were watching
+- Show a single composer control that turns into stop while a task is running
+- Order the right panel's add-surface menu the same way its chooser cards are ordered
+- Make the web client's settings usable on narrow screens
+
 ## [0.2.5]
 
 - Add direct license and source links to the website and browser client
