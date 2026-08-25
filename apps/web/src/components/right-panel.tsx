@@ -17,6 +17,7 @@ import {
 } from 'react'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { toast } from 'sonner'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ControlMenu } from '@/components/control-menu'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
 import { Button } from '@/components/ui/button'
@@ -74,6 +75,8 @@ interface PanelTab {
   title?: string
   selectedFile?: string | null
   dirty?: boolean
+  /** A terminal whose shell has already exited has nothing left to lose. */
+  exited?: boolean
   backgroundWorkKey?: BackgroundWorkKey
 }
 
@@ -117,6 +120,7 @@ export function RightPanel({
     activeId: null,
   })
   const [fileBuffers, setFileBuffers] = useState<Record<string, FileBuffer>>({})
+  const [tabPendingClose, setTabPendingClose] = useState<string | null>(null)
   const [diffSource, setDiffSource] = useState<ReviewDiffSource>('uncommitted')
   const [visualsReveal, setVisualsReveal] = useState<VisualsRevealRequest | null>(null)
   const tabStrip = useRef<HTMLDivElement>(null)
@@ -242,6 +246,21 @@ export function RightPanel({
     return () => window.cancelAnimationFrame(frame)
   }, [activeTab, updateTabOverflow])
 
+  /**
+   * Closing a terminal stops its running process and discards its scrollback,
+   * and the tab's close control sits one stray click away from a long-running
+   * build. A live terminal asks first; an exited one, and every other surface,
+   * closes immediately.
+   */
+  function requestCloseTab(tabId: string) {
+    const tab = tabs.find((candidate) => candidate.id === tabId)
+    if (tab?.surface === 'terminal' && !tab.exited) {
+      setTabPendingClose(tabId)
+      return
+    }
+    closeTab(tabId)
+  }
+
   function closeTab(tabId: string) {
     const index = tabs.findIndex((tab) => tab.id === tabId)
     if (index < 0) return
@@ -329,7 +348,7 @@ export function RightPanel({
                 key={tab.id}
                 tab={tab}
                 onActivate={() => setPanelState((current) => ({ ...current, activeId: tab.id }))}
-                onClose={() => closeTab(tab.id)}
+                onClose={() => requestCloseTab(tab.id)}
                 onNavigate={(key) => focusTab(tabNavigationIndex(tabs.length, index, key))}
               />
             ))}
@@ -443,6 +462,7 @@ export function RightPanel({
               project={project}
               session={session}
               terminalId={tab.terminalId}
+              onExit={() => updateTab(tab.id, { exited: true })}
               onTitle={(title) => updateTab(tab.id, { title })}
             />
           )}
@@ -455,6 +475,18 @@ export function RightPanel({
           )}
         </div>
       ))}
+      <ConfirmDialog
+        body={t('terminal.close_body')}
+        confirmLabel={t('common.close')}
+        icon="terminal"
+        open={tabPendingClose !== null}
+        title={t('terminal.close_title', {
+          title: tabs.find((tab) => tab.id === tabPendingClose)?.title?.trim()
+            || t('right_panel.terminal'),
+        })}
+        onConfirm={() => { if (tabPendingClose) closeTab(tabPendingClose) }}
+        onOpenChange={(open) => { if (!open) setTabPendingClose(null) }}
+      />
     </aside>
   )
 }
@@ -1484,11 +1516,13 @@ function TerminalPanel({
   terminalId,
   session,
   project,
+  onExit,
   onTitle,
 }: {
   terminalId: string
   session: AgentSession | null
   project?: Project
+  onExit: () => void
   onTitle: (title: string) => void
 }) {
   const { t } = useI18n()
@@ -1531,6 +1565,7 @@ function TerminalPanel({
         else queuedOutput.current.push(bytes)
       } else if (event.event.kind === 'terminalExited') {
         setExited(true)
+        onExit()
       } else if (event.event.kind === 'terminalError') {
         setError(typeof event.event.payload === 'string' ? event.event.payload : t('terminal.transport_failed'))
       }
