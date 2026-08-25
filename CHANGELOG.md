@@ -16,6 +16,11 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.7]
+
+- Remove a project from its header menu, with a confirmation step before its tasks are torn down
+- Answer an extension's questions instead of having them cancelled, including Oh My Pi's batched prompts
+
 ## [0.2.6]
 
 - Highlight modified and untracked files in the file tree, with the status rolled up to collapsed folders
