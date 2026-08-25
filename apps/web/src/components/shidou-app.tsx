@@ -140,7 +140,7 @@ export function ShidouApp() {
   } | null>(null)
   const [requestedPanel, setRequestedPanel] = useState<PanelSurface>('files')
   const [requestedFile, setRequestedFile] = useState<string | null>(null)
-  const [requestedDiffSource, setRequestedDiffSource] = useState<ReviewDiffSource>('uncommitted')
+  const [requestedDiffSource, setRequestedDiffSource] = useState<ReviewDiffSource | null>(null)
   const [requestedBackgroundWorkKey, setRequestedBackgroundWorkKey] = useState<BackgroundWorkKey | null>(null)
   const [panelRequestSessionId, setPanelRequestSessionId] = useState<string | null>(null)
   const [panelRequestSignal, setPanelRequestSignal] = useState(0)
@@ -602,9 +602,13 @@ export function ShidouApp() {
     else setSidebarVisible(false)
   }
 
+  /**
+   * `source` pins the review panel to one range. Leaving it unset lets the
+   * remembered range decide, which is what a plain "review changes" means.
+   */
   function openPanel(
     surface: PanelSurface,
-    source: ReviewDiffSource = 'uncommitted',
+    source: ReviewDiffSource | null = null,
     file: string | null = null,
   ) {
     if (!activeSession) return
@@ -627,7 +631,7 @@ export function ShidouApp() {
       toast.error(t('errors.path_outside_workspace'))
       return true
     }
-    openPanel('files', 'uncommitted', route.path)
+    openPanel('files', null, route.path)
     return true
   }
 
@@ -1129,7 +1133,7 @@ export function ShidouApp() {
           onCompareBranch={() => openPanel('changes', 'branch')}
           onOpenBackgroundWork={openBackgroundWork}
           onMenu={showSidebar}
-          onOpenChanges={() => openPanel('changes', 'uncommitted')}
+          onOpenChanges={() => openPanel('changes')}
           onTogglePanel={toggleRightPanel}
           project={activeProject}
           session={activeSession}

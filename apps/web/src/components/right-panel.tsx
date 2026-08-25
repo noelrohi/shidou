@@ -38,8 +38,13 @@ import { usePrimaryShortcut } from '@/lib/platform'
 import { projectDisplayName } from '@/lib/project-presentation'
 import {
   latestReviewTurnSource,
+  readReviewDiffMode,
+  reviewDiffModeForSource,
+  reviewDiffSourceForMode,
   reviewDiffSourceLabel,
   sameReviewDiffSource,
+  writeReviewDiffMode,
+  type ReviewDiffMode,
 } from '@/lib/review-diff'
 import {
   mergeReviewDiffFiles,
@@ -106,7 +111,7 @@ export function RightPanel({
   session: AgentSession | null
   project?: Project
   requestedSurface: PanelSurface
-  requestedDiffSource: ReviewDiffSource
+  requestedDiffSource: ReviewDiffSource | null
   requestedBackgroundWorkKey: BackgroundWorkKey | null
   requestedFile: string | null
   requestSignal: number
@@ -121,7 +126,17 @@ export function RightPanel({
   })
   const [fileBuffers, setFileBuffers] = useState<Record<string, FileBuffer>>({})
   const [tabPendingClose, setTabPendingClose] = useState<string | null>(null)
-  const [diffSource, setDiffSource] = useState<ReviewDiffSource>('uncommitted')
+  // The remembered range is an intent; each session resolves it for itself, and
+  // it keeps resolving as the transcript hydrates. A pick made inside this
+  // panel pins the source, but only for the session it was made in — carried
+  // into another session it could name a turn that session does not have.
+  const [diffMode, setDiffMode] = useState<ReviewDiffMode>(readReviewDiffMode)
+  const [pickedDiff, setPickedDiff] = useState<{ sessionId: string | null; source: ReviewDiffSource } | null>(null)
+  const sessionId = session?.id ?? null
+  const latestSessionId = useRef(sessionId)
+  latestSessionId.current = sessionId
+  const pickedDiffSource = pickedDiff && pickedDiff.sessionId === sessionId ? pickedDiff.source : null
+  const diffSource = pickedDiffSource ?? reviewDiffSourceForMode(diffMode, session)
   const [visualsReveal, setVisualsReveal] = useState<VisualsRevealRequest | null>(null)
   const tabStrip = useRef<HTMLDivElement>(null)
   const [tabOverflow, setTabOverflow] = useState({ start: false, end: false })
@@ -136,11 +151,15 @@ export function RightPanel({
 
   const openSurface = useCallback((
     surface: PanelSurface,
-    source: ReviewDiffSource = 'uncommitted',
+    source?: ReviewDiffSource | null,
     backgroundWorkKey?: BackgroundWorkKey | null,
     file?: string | null,
   ) => {
-    if (surface === 'changes') setDiffSource(source)
+    // A requested range shows without claiming to be what every other session
+    // should open with, so it pins the panel but never rewrites the preference.
+    if (surface === 'changes' && source) {
+      setPickedDiff({ sessionId: latestSessionId.current, source })
+    }
     if (surface === 'changes') onPanelWidthChange((current) => Math.max(current, 820))
     if (surface === 'files' && file) {
       onPanelWidthChange((current) => Math.max(current, 684))
@@ -454,7 +473,12 @@ export function RightPanel({
               panelWidth={fittedPanelWidth}
               project={project}
               session={session}
-              onDiffSourceChange={setDiffSource}
+              onDiffSourceChange={(source) => {
+                setPickedDiff({ sessionId, source })
+                const mode = reviewDiffModeForSource(source, latestReviewTurnSource(session))
+                setDiffMode(mode)
+                writeReviewDiffMode(mode)
+              }}
             />
           )}
           {tab.surface === 'terminal' && tab.terminalId && (

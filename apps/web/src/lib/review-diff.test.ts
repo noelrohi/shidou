@@ -5,6 +5,9 @@ import {
   compactReviewPatch,
   createReviewDiffLoader,
   latestReviewTurnSource,
+  parseReviewDiffMode,
+  reviewDiffModeForSource,
+  reviewDiffSourceForMode,
   reviewDiffSourceLabel,
   sameReviewDiffSource,
 } from './review-diff'
@@ -32,6 +35,50 @@ describe('desktop review sources', () => {
     expect(reviewDiffSourceLabel(latest, latest)).toBe('Last turn')
     expect(reviewDiffSourceLabel(older, latest)).toBe('Turn 1')
     expect(reviewDiffSourceLabel('staged', latest)).toBe('Staged')
+  })
+})
+
+describe('remembered review range', () => {
+  const session = {
+    id: 'session-1',
+    turns: [turn('turn-1', 1, 'ready'), turn('turn-2', 2, 'ready'), turn('turn-3', 3, 'ready')],
+  } as AgentSession
+
+  test('resolves against the session on screen', () => {
+    expect(reviewDiffSourceForMode('lastTurn', session)).toEqual(lastTurn('session-1', 'turn-3', 3))
+    expect(reviewDiffSourceForMode({ turn: 2 }, session)).toEqual(lastTurn('session-1', 'turn-2', 2))
+    expect(reviewDiffSourceForMode('staged', session)).toBe('staged')
+  })
+
+  test('a turn the session lacks falls back rather than showing nothing', () => {
+    const shorter = {
+      id: 'session-2',
+      turns: [turn('turn-1', 1, 'ready'), turn('turn-2', 2, 'ready')],
+    } as AgentSession
+    expect(reviewDiffSourceForMode({ turn: 9 }, shorter)).toEqual(lastTurn('session-2', 'turn-2', 2))
+
+    // A turn whose checkpoint never became ready is not reviewable.
+    const pending = { id: 'session-3', turns: [turn('turn-1', 1, 'unavailable')] } as AgentSession
+    expect(reviewDiffSourceForMode('lastTurn', pending)).toBe('uncommitted')
+    expect(reviewDiffSourceForMode({ turn: 1 }, pending)).toBe('uncommitted')
+
+    // A draft, or a session whose transcript has not loaded yet.
+    expect(reviewDiffSourceForMode('lastTurn', null)).toBe('uncommitted')
+  })
+
+  test('remembers the newest turn as an intent, an older one by number', () => {
+    const latest = lastTurn('session-1', 'turn-3', 3)
+    expect(reviewDiffModeForSource(latest, latest)).toBe('lastTurn')
+    expect(reviewDiffModeForSource(lastTurn('session-1', 'turn-1', 1), latest)).toEqual({ turn: 1 })
+    expect(reviewDiffModeForSource('branch', latest)).toBe('branch')
+  })
+
+  test('falls back to uncommitted on malformed stored state', () => {
+    expect(parseReviewDiffMode('lastTurn')).toBe('lastTurn')
+    expect(parseReviewDiffMode({ turn: 4 })).toEqual({ turn: 4 })
+    expect(parseReviewDiffMode({ turn: 0 })).toBe('uncommitted')
+    expect(parseReviewDiffMode('nonsense')).toBe('uncommitted')
+    expect(parseReviewDiffMode(null)).toBe('uncommitted')
   })
 })
 
