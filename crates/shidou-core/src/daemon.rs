@@ -33,6 +33,7 @@ pub struct ShidouBackend {
     task_store: StateStore,
     task_state: Mutex<PersistedState>,
     removed_session_ids: Mutex<HashSet<Uuid>>,
+    removed_project_ids: Mutex<HashSet<Uuid>>,
     composer_drafts: ComposerDraftStore,
     attachments: AttachmentStore,
     usage_scan_cache: Mutex<crate::usage_history::ScanCache>,
@@ -67,6 +68,7 @@ impl ShidouBackend {
             task_store,
             task_state: Mutex::new(task_state),
             removed_session_ids: Mutex::new(HashSet::new()),
+            removed_project_ids: Mutex::new(HashSet::new()),
             composer_drafts,
             attachments,
             usage_scan_cache: Mutex::new(HashMap::new()),
@@ -316,17 +318,9 @@ impl Backend for ShidouBackend {
                     .collect::<HashMap<_, _>>();
                 let mut state = self.task_state.lock();
                 let removed_session_ids = self.removed_session_ids.lock();
-                for project in projects {
-                    if let Some(existing) = state
-                        .projects
-                        .iter_mut()
-                        .find(|existing| existing.id == project.id)
-                    {
-                        *existing = project;
-                    } else {
-                        state.projects.push(project);
-                    }
-                }
+                let removed_project_ids = self.removed_project_ids.lock();
+                merge_saved_projects(&mut state.projects, projects, &removed_project_ids);
+                drop(removed_project_ids);
                 let sessions = sessions
                     .into_iter()
                     .filter(|session| !removed_session_ids.contains(&session.id))
@@ -379,6 +373,37 @@ impl Backend for ShidouBackend {
                     })
                     .collect();
                 Ok(ResponsePayload::TaskStateSaved { sessions })
+            }
+            Command::RemoveProject { project_id } => {
+                let mut state = self.task_state.lock();
+                self.removed_project_ids.lock().insert(project_id);
+                state.projects.retain(|project| project.id != project_id);
+                // The desktop removes the project's tasks first, each through
+                // `RemoveSession`. Anything still filed under it here came from
+                // another client and would otherwise be stranded.
+                let stranded = state
+                    .sessions
+                    .iter()
+                    .filter(|session| session.project_id == project_id)
+                    .map(|session| session.id)
+                    .collect::<Vec<_>>();
+                if !stranded.is_empty() {
+                    let mut removed_session_ids = self.removed_session_ids.lock();
+                    for session_id in &stranded {
+                        removed_session_ids.insert(*session_id);
+                    }
+                    drop(removed_session_ids);
+                    state
+                        .sessions
+                        .retain(|session| session.project_id != project_id);
+                }
+                self.task_store.save(&mut state)?;
+                drop(state);
+                let mut sessions = self.sessions.lock();
+                for session_id in stranded {
+                    drop(sessions.remove(&session_id));
+                }
+                Ok(ResponsePayload::Ack)
             }
             Command::RemoveSession => {
                 {
@@ -1564,6 +1589,7 @@ fn handle_driver_command(
         | Command::LoadTaskState
         | Command::SaveTaskState { .. }
         | Command::RemoveSession
+        | Command::RemoveProject { .. }
         | Command::HydrateSession { .. }
         | Command::SearchSessionMessages { .. }
         | Command::LoadComposerDrafts
@@ -1847,9 +1873,65 @@ struct TurnFinishedWire {
     summary: Option<String>,
 }
 
+/// Fold a client's project snapshot into the daemon's own list.
+///
+/// Merge-only, exactly like the session merge below it: a project missing from
+/// the snapshot is left alone, because the client may simply be stale rather
+/// than reporting a deletion. `Command::RemoveProject` is the only thing that
+/// deletes, and `removed` carries its tombstones so a save already in flight
+/// when it landed cannot hand the project back.
+fn merge_saved_projects(
+    existing_projects: &mut Vec<Project>,
+    incoming: Vec<Project>,
+    removed: &HashSet<Uuid>,
+) {
+    for project in incoming {
+        if removed.contains(&project.id) {
+            continue;
+        }
+        match existing_projects
+            .iter_mut()
+            .find(|existing| existing.id == project.id)
+        {
+            Some(existing) => *existing = project,
+            None => existing_projects.push(project),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_removed_project_is_not_restored_by_a_save_already_in_flight() {
+        let kept = Project::from_path(std::path::PathBuf::from("/tmp/kept"));
+        let removed = Project::from_path(std::path::PathBuf::from("/tmp/removed"));
+        let mut daemon_projects = vec![kept.clone()];
+        let tombstones = HashSet::from([removed.id]);
+
+        // The client captured this snapshot before it removed the project, so
+        // it still lists it alongside the survivor.
+        merge_saved_projects(
+            &mut daemon_projects,
+            vec![kept.clone(), removed.clone()],
+            &tombstones,
+        );
+
+        assert_eq!(
+            daemon_projects.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![kept.id]
+        );
+
+        // Without the tombstone the same snapshot is an ordinary merge, and an
+        // unknown project is still added rather than ignored.
+        let mut fresh = vec![kept.clone()];
+        merge_saved_projects(&mut fresh, vec![removed.clone()], &HashSet::new());
+        assert_eq!(
+            fresh.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![kept.id, removed.id]
+        );
+    }
 
     #[test]
     fn stale_runtime_projection_keeps_newer_transcript_cursor() {

@@ -22,6 +22,7 @@ import {
   updateDaemonSettings,
 } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
+import { abbreviateHomePath } from '@/lib/project-presentation'
 import {
   applyThemeChoice,
   readThemeChoice,
@@ -485,13 +486,6 @@ function providerCheckedLabel(updatedAt: number, t: Translator) {
 }
 
 type Translator = (key: string, params?: Record<string, string | number>) => string
-
-function abbreviateHomePath(path: string) {
-  return path
-    .replace(/^\/Users\/[^/]+(?=\/|$)/, '~')
-    .replace(/^\/home\/[^/]+(?=\/|$)/, '~')
-    .replace(/^\/root(?=\/|$)/, '~')
-}
 
 function DaemonSettings() {
   const { t } = useI18n()

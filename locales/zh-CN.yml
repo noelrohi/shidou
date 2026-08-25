@@ -659,6 +659,7 @@ errors.daemon_disconnected: Shidou 守护进程未连接
 errors.path_outside_workspace: 此路径位于守护进程主机上的当前工作区之外
 errors.rename_task: "无法重命名任务：%{error}"
 errors.remove_task: "无法移除任务：%{error}"
+errors.remove_project: "无法移除项目：%{error}"
 errors.save_draft: "无法保存草稿：%{error}"
 errors.rewind_task: "无法回退任务：%{error}"
 errors.project_not_found: 找不到项目

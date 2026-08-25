@@ -19,6 +19,7 @@ import {
   sidebarRows,
   PROJECT_REVEAL_BATCH,
   type DateGroup,
+  type SessionGroup,
   type SessionItem,
   type SidebarGrouping,
   type SidebarOrdering,
@@ -41,6 +42,7 @@ interface SidebarProps {
   onSelectSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, title: string) => Promise<void>
   onRemoveSession: (sessionId: string) => Promise<void>
+  onRemoveProject?: (project: Project) => void
   onSearch: () => void
   onSettings: () => void
 }
@@ -72,6 +74,7 @@ export function Sidebar({
   onSelectSession,
   onRenameSession,
   onRemoveSession,
+  onRemoveProject,
   onSearch,
   onSettings,
 }: SidebarProps) {
@@ -95,7 +98,6 @@ export function Sidebar({
   useEffect(() => {
     groupKeys.current = groups.map((group) => group.key)
   })
-
   function chooseGrouping(next: SidebarGrouping) {
     setGrouping(next)
     storeChoice('shidou.sidebarGrouping', next)
@@ -201,9 +203,6 @@ export function Sidebar({
               if (row.kind === 'spacer') return <div className="h-2.5" />
               if (row.kind === 'group') {
                 const folder = row.group.kind !== 'date'
-                const label = row.group.kind === 'date'
-                  ? t(GROUP_TRANSLATION_KEYS[row.group.dateId!])
-                  : row.group.label
                 const compose = folder
                   ? row.group.kind === 'projectless'
                     ? onNewProjectlessTask
@@ -212,74 +211,23 @@ export function Sidebar({
                       : undefined
                   : undefined
                 return (
-                  <div className="px-2.5">
-                    <div className="group/header relative flex h-7 items-center justify-between px-2">
-                      <button
-                        aria-expanded={!row.collapsed}
-                        className={cn(
-                          'group flex h-[22px] min-w-0 items-center gap-[5px] rounded px-1 text-[12.5px] font-medium text-[var(--text-tertiary)] outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring',
-                          folder && 'text-[var(--text-secondary)]',
-                        )}
-                        type="button"
-                        onClick={() => toggleGroup(row.group.key)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'ArrowLeft' && !row.collapsed) {
-                            event.preventDefault()
-                            toggleGroup(row.group.key, true)
-                          } else if (event.key === 'ArrowRight' && row.collapsed) {
-                            event.preventDefault()
-                            toggleGroup(row.group.key, false)
-                          }
-                        }}
-                      >
-                        {folder && <ShidouIcon className="size-3.5 shrink-0" name="folder" />}
-                        <span className="min-w-0 truncate">{label}</span>
-                        <ShidouIcon
-                          className="size-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-                          name={row.collapsed ? 'chevronRight' : 'chevronDown'}
-                        />
-                      </button>
-                      <span className="flex shrink-0 items-center">
-                        {compose && (
-                          <Button
-                            aria-label={t('menu.new_task')}
-                            className="text-[var(--text-tertiary)] opacity-0 focus-visible:opacity-100 group-hover/header:opacity-100"
-                            size="icon-sm"
-                            variant="ghost"
-                            onClick={() => {
-                              compose()
-                              onMobileOpenChange(false)
-                            }}
-                          >
-                            <ShidouIcon name="pencil" />
-                          </Button>
-                        )}
-                        {row.first && (
-                          <>
-                            <SidebarOptionsMenu
-                              grouping={grouping}
-                              ordering={ordering}
-                              t={t}
-                              onGrouping={chooseGrouping}
-                              onOrdering={chooseOrdering}
-                            />
-                            <Button
-                              aria-label={t('sidebar.add_project')}
-                              className="text-[var(--text-tertiary)]"
-                              size="icon-sm"
-                              variant="ghost"
-                              onClick={onAddProject}
-                            >
-                              <ShidouIcon name="folderNew" />
-                            </Button>
-                          </>
-                        )}
-                      </span>
-                      {folder && !row.collapsed && row.group.sessions.length > 0 && (
-                        <span aria-hidden className="absolute -bottom-0.5 left-[15px] top-[19px] w-px bg-border" />
-                      )}
-                    </div>
-                  </div>
+                  <GroupRow
+                    collapsed={row.collapsed}
+                    first={row.first}
+                    group={row.group}
+                    grouping={grouping}
+                    ordering={ordering}
+                    t={t}
+                    onAddProject={onAddProject}
+                    onCompose={compose && (() => {
+                      compose()
+                      onMobileOpenChange(false)
+                    })}
+                    onGrouping={chooseGrouping}
+                    onOrdering={chooseOrdering}
+                    onRemoveProject={onRemoveProject}
+                    onToggle={toggleGroup}
+                  />
                 )
               }
               if (row.kind === 'showMore') {
@@ -357,6 +305,183 @@ export function Sidebar({
       </aside>
 
     </>
+  )
+}
+
+/**
+ * One collapsible sidebar section header.
+ *
+ * An ordinary project gains a context menu — mouse, Shift+F10, and the primary
+ * modifier with Backspace — whose removal path is gated behind a confirmation.
+ * Date groups are derived from timestamps and the projectless section is pruned
+ * with the task inside it, so neither offers removal.
+ */
+function GroupRow({
+  group,
+  collapsed,
+  first,
+  grouping,
+  ordering,
+  t,
+  onToggle,
+  onCompose,
+  onAddProject,
+  onGrouping,
+  onOrdering,
+  onRemoveProject,
+}: {
+  group: SessionGroup
+  collapsed: boolean
+  first: boolean
+  grouping: SidebarGrouping
+  ordering: SidebarOrdering
+  t: Translator
+  onToggle: (key: string, force?: boolean) => void
+  onCompose?: () => void
+  onAddProject: () => void
+  onGrouping: (grouping: SidebarGrouping) => void
+  onOrdering: (ordering: SidebarOrdering) => void
+  onRemoveProject?: (project: Project) => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const headerButton = useRef<HTMLButtonElement>(null)
+  const restoreMenuFocus = useRef(false)
+  const folder = group.kind !== 'date'
+  const removable = group.kind === 'project' && group.project && onRemoveProject
+    ? group.project
+    : undefined
+  const label = group.kind === 'date' ? t(GROUP_TRANSLATION_KEYS[group.dateId!]) : group.label
+
+  const header = (
+    <div className="group/header relative flex h-7 items-center justify-between px-2">
+      <button
+        aria-expanded={!collapsed}
+        aria-haspopup={removable ? 'menu' : undefined}
+        className={cn(
+          'group flex h-[22px] min-w-0 items-center gap-[5px] rounded px-1 text-[12.5px] font-medium text-[var(--text-tertiary)] outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring',
+          folder && 'text-[var(--text-secondary)]',
+        )}
+        ref={headerButton}
+        type="button"
+        onClick={() => onToggle(group.key)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' && !collapsed) {
+            event.preventDefault()
+            onToggle(group.key, true)
+            return
+          }
+          if (event.key === 'ArrowRight' && collapsed) {
+            event.preventDefault()
+            onToggle(group.key, false)
+            return
+          }
+          // The same two gestures the task rows offer, so a project is never
+          // mouse-only. Nothing is behind them on a group without a menu.
+          if (!removable) return
+          if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+            event.preventDefault()
+            restoreMenuFocus.current = true
+            setMenuOpen(true)
+          } else if ((event.metaKey || event.ctrlKey) && event.key === 'Backspace') {
+            event.preventDefault()
+            onRemoveProject?.(removable)
+          }
+        }}
+      >
+        {folder && <ShidouIcon className="size-3.5 shrink-0" name="folder" />}
+        <span className="min-w-0 truncate">{label}</span>
+        <ShidouIcon
+          className="size-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+          name={collapsed ? 'chevronRight' : 'chevronDown'}
+        />
+      </button>
+      <span className="flex shrink-0 items-center">
+        {onCompose && (
+          <Button
+            aria-label={t('menu.new_task')}
+            className="text-[var(--text-tertiary)] opacity-0 focus-visible:opacity-100 group-hover/header:opacity-100"
+            size="icon-sm"
+            variant="ghost"
+            onClick={onCompose}
+          >
+            <ShidouIcon name="pencil" />
+          </Button>
+        )}
+        {first && (
+          <>
+            <SidebarOptionsMenu
+              grouping={grouping}
+              ordering={ordering}
+              t={t}
+              onGrouping={onGrouping}
+              onOrdering={onOrdering}
+            />
+            <Button
+              aria-label={t('sidebar.add_project')}
+              className="text-[var(--text-tertiary)]"
+              size="icon-sm"
+              variant="ghost"
+              onClick={onAddProject}
+            >
+              <ShidouIcon name="folderNew" />
+            </Button>
+          </>
+        )}
+      </span>
+      {folder && !collapsed && group.sessions.length > 0 && (
+        <span aria-hidden className="absolute -bottom-0.5 left-[15px] top-[19px] w-px bg-border" />
+      )}
+    </div>
+  )
+
+  if (!removable) return <div className="px-2.5">{header}</div>
+
+  return (
+    <div className="px-2.5">
+      <ContextMenu.Root
+        open={menuOpen}
+        onOpenChange={(open) => {
+          setMenuOpen(open)
+          if (!open && restoreMenuFocus.current) {
+            restoreMenuFocus.current = false
+            requestAnimationFrame(() => headerButton.current?.focus())
+          }
+        }}
+      >
+        <ContextMenu.Trigger>{header}</ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Positioner className="z-[100] outline-none">
+            <ContextMenu.Popup className="shidou-menu-surface" finalFocus={false}>
+              {onCompose && (
+                <>
+                  <ContextMenu.Item
+                    className="shidou-menu-item"
+                    onClick={() => {
+                      restoreMenuFocus.current = false
+                      setMenuOpen(false)
+                      onCompose()
+                    }}
+                  >
+                    <ShidouIcon className="size-3" name="pencil" /> {t('menu.new_task')}
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator className="shidou-menu-separator" />
+                </>
+              )}
+              <ContextMenu.Item
+                className="shidou-menu-item text-destructive data-[highlighted]:bg-[var(--danger-soft)]"
+                onClick={() => {
+                  restoreMenuFocus.current = false
+                  setMenuOpen(false)
+                  onRemoveProject?.(removable)
+                }}
+              >
+                <ShidouIcon className="size-3" name="trash" /> {t('project.remove')}
+              </ContextMenu.Item>
+            </ContextMenu.Popup>
+          </ContextMenu.Positioner>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    </div>
   )
 }
 

@@ -170,6 +170,12 @@ pub enum Command {
     /// merge-only so a stale client snapshot cannot delete tasks another
     /// client just created.
     RemoveSession,
+    /// Explicitly remove one daemon-owned project. Saves merge projects the
+    /// same way they merge tasks, so dropping one from a client snapshot can
+    /// never delete it — only this can.
+    RemoveProject {
+        project_id: Uuid,
+    },
     HydrateSession {
         session_id: Uuid,
     },

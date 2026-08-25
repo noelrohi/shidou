@@ -19,6 +19,7 @@ import { CommitDialog } from '@/components/commit-dialog'
 import { Composer } from '@/components/composer'
 import { ControlMenu } from '@/components/control-menu'
 import { DaemonFilePicker } from '@/components/daemon-file-picker'
+import { ProjectDeleteDialog } from '@/components/project-delete-dialog'
 import { RightPanel, type PanelSurface } from '@/components/right-panel'
 import { Sidebar } from '@/components/sidebar'
 import { StartupScreen } from '@/components/startup-screen'
@@ -43,6 +44,7 @@ import {
   displayTitle,
   hydrateSession,
   persistProject,
+  removeProject,
   removeSession,
   selectableProjects,
   sessionCwd,
@@ -63,6 +65,7 @@ import {
 } from '@/lib/composer-preferences'
 import {
   browserNavigationStorage,
+  projectRemovalDestination,
   readRememberedNavigation,
   routeDestinationTransition,
   taskRemovalDestination,
@@ -142,6 +145,7 @@ export function ShidouApp() {
   const [panelRequestSignal, setPanelRequestSignal] = useState(0)
   const [commitDialogOpen, setCommitDialogOpen] = useState(false)
   const commitDialogReturnFocus = useRef<HTMLElement | null>(null)
+  const [projectPendingRemoval, setProjectPendingRemoval] = useState<Project | null>(null)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const projectPickerReturnFocus = useRef<HTMLElement | null>(null)
   const [projectlessPending, setProjectlessPending] = useState(false)
@@ -800,8 +804,21 @@ export function ShidouApp() {
     }
   }
 
+  /** Everything the client keeps for a task that the daemon no longer has. */
+  function forgetRemovedSession(sessionId: string) {
+    if (config) queryClient.removeQueries({ queryKey: daemonKeys.session(config.address, sessionId) })
+    removeStoredComposerDraft({ type: 'session', sessionId })
+    forgetRightPanelSession(sessionId)
+  }
+
   async function removeSessionById(sessionId: string) {
     if (!client || !config) throw new Error(t('errors.daemon_disconnected'))
+    // A task whose fork is still mid-flight cannot go: the fork reads the
+    // source transcript it is copying from.
+    if (responseForks[sessionId] !== undefined) {
+      toast.error(t('session.response_fork_in_progress'))
+      return
+    }
     const stateKey = daemonKeys.taskState(config.address)
     const previousState = queryClient.getQueryData<TaskState>(stateKey)
     const removedIndex = previousState?.sessions.findIndex((session) => session.id === sessionId) ?? -1
@@ -814,9 +831,7 @@ export function ShidouApp() {
       await closeSession(sessionId)
       const next = await removeSession(client, sessionId)
       queryClient.setQueryData(stateKey, next)
-      queryClient.removeQueries({ queryKey: daemonKeys.session(config.address, sessionId) })
-      removeStoredComposerDraft({ type: 'session', sessionId })
-      forgetRightPanelSession(sessionId)
+      forgetRemovedSession(sessionId)
       if (search.session === sessionId && removed && previousState) {
         const destination = taskRemovalDestination(
           previousState.projects,
@@ -849,6 +864,55 @@ export function ShidouApp() {
         })
       }
       toast.error(t('errors.remove_task', { error: errorMessage(error) }))
+      throw error
+    }
+  }
+
+  /**
+   * Drop `projectId` and everything Shidou stored under it.
+   *
+   * Tasks leave first, each through the ordinary removal path, so every one
+   * still tears down its runtime, drafts, and panel state. The landing is
+   * decided once, after the removals, so the transcript switches a single time
+   * instead of hopping through each task on its way out.
+   */
+  async function removeProjectById(projectId: string) {
+    if (!client || !config) throw new Error(t('errors.daemon_disconnected'))
+    const stateKey = daemonKeys.taskState(config.address)
+    const previousState = queryClient.getQueryData<TaskState>(stateKey)
+    const doomed = (previousState?.sessions ?? [])
+      .filter((session) => session.project_id === projectId)
+    // Mirrors task removal: a task whose fork is mid-flight cannot go, and a
+    // project half removed is worse than one still listed.
+    if (doomed.some((session) => responseForks[session.id] !== undefined)) {
+      toast.error(t('session.response_fork_in_progress'))
+      return
+    }
+    // Only a selection that is actually going away needs re-landing. With no
+    // task selected the window is showing the project itself, so dropping that
+    // project has to land somewhere too.
+    const reselect = search.session
+      ? doomed.some((session) => session.id === search.session)
+      : draftProject?.id === projectId
+    queryClient.setQueryData<TaskState>(stateKey, (currentState) => currentState && ({
+      ...currentState,
+      projects: currentState.projects.filter((project) => project.id !== projectId),
+      sessions: currentState.sessions.filter((session) => session.project_id !== projectId),
+    }))
+    try {
+      for (const session of doomed) await closeSession(session.id)
+      const next = await removeProject(client, projectId, doomed.map((session) => session.id))
+      queryClient.setQueryData(stateKey, next)
+      for (const session of doomed) forgetRemovedSession(session.id)
+      removeStoredComposerDraft({ type: 'newSession', projectId })
+      if (!reselect) return
+      const destination = projectRemovalDestination(next.projects, next.sessions)
+      if (destination.kind === 'session') selectSession(destination.sessionId)
+      else if (destination.kind === 'newTask') startNewTask(destination.project)
+      else startNewTask(null)
+    } catch (error) {
+      if (previousState) queryClient.setQueryData(stateKey, previousState)
+      toast.error(t('errors.remove_project', { error: errorMessage(error) }))
       throw error
     }
   }
@@ -1037,6 +1101,7 @@ export function ShidouApp() {
           onNewTask={() => startNewTask()}
           onNewTaskInProject={(project) => startNewTask(project)}
           onNewProjectlessTask={() => void createProjectlessTask()}
+          onRemoveProject={setProjectPendingRemoval}
           onRemoveSession={removeSessionById}
           onRenameSession={renameSession}
           onSearch={() => setPaletteOpen(true)}
@@ -1251,6 +1316,16 @@ export function ShidouApp() {
         returnFocus={commitDialogReturnFocus}
         session={activeSession}
         onOpenChange={setCommitDialogOpen}
+      />
+
+      <ProjectDeleteDialog
+        project={projectPendingRemoval}
+        startedTaskCount={projectPendingRemoval
+          ? (taskState.data?.sessions ?? []).filter((session) =>
+              session.project_id === projectPendingRemoval.id && sessionHasStarted(session)).length
+          : 0}
+        onConfirm={removeProjectById}
+        onOpenChange={(open) => { if (!open) setProjectPendingRemoval(null) }}
       />
 
       {projectPickerOpen && (

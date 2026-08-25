@@ -246,8 +246,42 @@ export async function removeSession(
   client: ShidouClient,
   sessionId: string,
 ): Promise<TaskState> {
+  await requestSessionRemoval(client, sessionId)
+  return loadTaskState(client)
+}
+
+/** Remove one daemon-owned task without reloading the whole catalog. */
+async function requestSessionRemoval(
+  client: ShidouClient,
+  sessionId: string,
+): Promise<void> {
   expectResponse(
     await client.request({ type: 'removeSession' }, sessionId),
+    'ack',
+  )
+}
+
+/**
+ * Drop one daemon-owned project and everything filed under it.
+ *
+ * `sessionIds` leave first, each through the ordinary task-removal command, so
+ * every one still tears down its runtime and stored state the way a single
+ * removal does. The project itself needs its own command: saves merge projects
+ * rather than replace them, so one simply absent from the next snapshot
+ * survives and syncs straight back.
+ *
+ * The catalog reloads once, at the end, rather than after every task.
+ */
+export async function removeProject(
+  client: ShidouClient,
+  projectId: string,
+  sessionIds: string[] = [],
+): Promise<TaskState> {
+  for (const sessionId of sessionIds) {
+    await requestSessionRemoval(client, sessionId)
+  }
+  expectResponse(
+    await client.request({ type: 'removeProject', projectId }),
     'ack',
   )
   return loadTaskState(client)

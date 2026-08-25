@@ -494,6 +494,13 @@ impl Shidou {
         self.state
             .projects
             .retain(|project| project.id != project_id);
+        // Dropping it locally is not enough. Saves merge projects rather than
+        // replace them, so a removed project is simply absent from the next
+        // snapshot and the daemon keeps its own copy — which the next sync
+        // hands straight back. Only this tells the daemon it is gone.
+        if let Err(error) = self.store.remove_project(project_id) {
+            self.show_toast(tr!("errors.save_local_state", error = error));
+        }
         self.forget_sidebar_group(SidebarGroup::Project(project_id));
         // A surviving selection keeps its own project; only a dangling pointer
         // at the project just dropped has to be repaired.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  projectRemovalDestination,
   readRememberedNavigation,
   routeDestinationTransition,
   taskRemovalDestination,
@@ -91,6 +92,49 @@ describe('selected task removal', () => {
     expect(taskRemovalDestination([project], [], [], removed)).toEqual({
       kind: 'projectless',
     })
+  })
+})
+
+describe('project removal', () => {
+  test('lands on the most recent surviving task', () => {
+    const survivor = { ...createProject('/repos/survivor'), id: 'survivor' }
+    const older = {
+      ...createSession(survivor.id, 'codex', 'local'),
+      id: 'older',
+      updated_at: 100,
+    }
+    const newer = {
+      ...createSession(survivor.id, 'claude', 'local'),
+      id: 'newer',
+      updated_at: 200,
+    }
+
+    // Newest first, so an implementation reading the last entry would fail this.
+    expect(projectRemovalDestination([survivor], [newer, older])).toEqual({
+      kind: 'session',
+      sessionId: 'newer',
+    })
+  })
+
+  test('opens a fresh task in a surviving project when no task is left', () => {
+    const survivor = { ...createProject('/repos/survivor'), id: 'survivor' }
+    expect(projectRemovalDestination([survivor], [])).toEqual({
+      kind: 'newTask',
+      project: survivor,
+    })
+  })
+
+  test('skips the projectless scratch project when choosing where to land', () => {
+    const scratch = {
+      ...createProject('/home/user/.shidou/projects/old-task'),
+      id: 'projectless',
+      name: 'No project',
+    }
+    expect(projectRemovalDestination([scratch], [])).toEqual({ kind: 'none' })
+  })
+
+  test('falls back to onboarding when nothing survived', () => {
+    expect(projectRemovalDestination([], [])).toEqual({ kind: 'none' })
   })
 })
 

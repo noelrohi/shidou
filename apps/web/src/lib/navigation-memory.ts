@@ -13,6 +13,11 @@ export type TaskRemovalDestination =
   | { kind: 'projectless' }
   | { kind: 'none' }
 
+export type ProjectRemovalDestination =
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'newTask'; project: Project }
+  | { kind: 'none' }
+
 interface NavigationStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
@@ -48,6 +53,30 @@ export function taskRemovalDestination(
   }
 
   const project = nextProjects.find((project) => project.id === removed.project_id)
+  return project ? { kind: 'newTask', project } : { kind: 'none' }
+}
+
+/**
+ * Where the window lands once a removed project and its tasks are gone.
+ *
+ * Read after the removals, so it only ever sees what survived. Matches
+ * Desktop's `project_removal_landing`: the most recent surviving task keeps
+ * the landing predictable from the sidebar, and with nothing left at all the
+ * caller clears the selection and the window falls back to onboarding.
+ */
+export function projectRemovalDestination(
+  nextProjects: Project[],
+  nextSessions: AgentSession[],
+): ProjectRemovalDestination {
+  const newest = nextSessions.reduce<AgentSession | undefined>(
+    (best, session) => (!best || session.updated_at > best.updated_at ? session : best),
+    undefined,
+  )
+  if (newest) return { kind: 'session', sessionId: newest.id }
+
+  // Skips the projectless scratch project for the same reason every other path
+  // does: it is bookkeeping for one task, not somewhere to land.
+  const project = nextProjects.find((project) => !isProjectlessProject(project))
   return project ? { kind: 'newTask', project } : { kind: 'none' }
 }
 
