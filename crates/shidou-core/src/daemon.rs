@@ -1844,6 +1844,9 @@ fn event_to_wire(event: DriverEvent) -> anyhow::Result<WireDriverEvent> {
                 "questions": questions,
             }),
         ),
+        DriverEvent::InteractionResolved { request_id } => {
+            ("interactionResolved", json!({ "requestId": request_id }))
+        }
         DriverEvent::ComputerUseUpdated(state) => (
             "computerUseUpdated",
             serde_json::to_value(ComputerUseWire {
@@ -1919,6 +1922,12 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
                 questions: request.questions,
             }
         }
+        "interactionResolved" => {
+            let interaction: InteractionResolvedWire = serde_json::from_value(payload)?;
+            DriverEvent::InteractionResolved {
+                request_id: interaction.request_id,
+            }
+        }
         "computerUseUpdated" => {
             let state: ComputerUseWire = serde_json::from_value(payload)?;
             DriverEvent::ComputerUseUpdated(ComputerUseState {
@@ -1986,6 +1995,12 @@ struct PermissionWire {
 struct UserInputWire {
     request_id: String,
     questions: Vec<crate::model::UserInputQuestion>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InteractionResolvedWire {
+    request_id: String,
 }
 
 #[derive(Deserialize, Serialize)]

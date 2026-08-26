@@ -142,6 +142,16 @@ describe('reduceRuntimeEvent', () => {
       options: [{ label: 'Preview' }],
     })
 
+    const resolved = reduceRuntimeEvent(
+      requested.session,
+      event('interactionResolved', { requestId: 'question-request' }),
+      clock,
+    )
+    expect(resolved.session.status).toBe('waiting')
+    expect(resolved.resolvedInteractionId).toBe('question-request')
+    expect(resolved.userInput).toBeUndefined()
+    expect(resolved.permission).toBeUndefined()
+
     const settled = reduceRuntimeEvent(
       requested.session,
       event('turnFinished', { success: true, summary: null }),

@@ -358,6 +358,31 @@ impl Shidou {
                     }
                 }
             }
+            DriverEvent::InteractionResolved { request_id } => {
+                let permission_matches = runtime
+                    .pending_permission
+                    .as_ref()
+                    .is_some_and(|pending| pending.request_id == request_id);
+                let user_input_matches = runtime
+                    .pending_user_input
+                    .as_ref()
+                    .is_some_and(|pending| pending.request_id == request_id);
+                if permission_matches {
+                    runtime.pending_permission = None;
+                }
+                if user_input_matches {
+                    runtime.pending_user_input = None;
+                    if self.state.selected_session == Some(session_id) {
+                        self.user_input_answer
+                            .update(cx, |input, cx| input.clear(cx));
+                    }
+                }
+                if (permission_matches || user_input_matches)
+                    && let Some(session) = self.state.session_mut(session_id)
+                {
+                    session.status = SessionStatus::Working;
+                }
+            }
             DriverEvent::ComputerUseUpdated(state) => {
                 if self.accepts_turn_output(session_id) {
                     Self::upsert_computer_use_preview(runtime, state);

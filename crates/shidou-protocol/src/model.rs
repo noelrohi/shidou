@@ -1664,6 +1664,11 @@ pub enum DriverEvent {
         request_id: String,
         questions: Vec<UserInputQuestion>,
     },
+    /// Another connected client answered or dismissed a blocking interaction.
+    /// All projections clear the matching prompt before provider work resumes.
+    InteractionResolved {
+        request_id: String,
+    },
     ComputerUseUpdated(crate::computer_use::ComputerUseState),
     /// The provider accepted a steering message into the running turn.
     SteerAccepted {

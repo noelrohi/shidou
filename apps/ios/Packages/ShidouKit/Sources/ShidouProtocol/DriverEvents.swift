@@ -15,6 +15,7 @@ public enum DriverEvent: Sendable {
     case richActivity(ActivityItem)
     case permission(requestId: String, title: String, detail: String, options: [PermissionOption])
     case userInputRequested(requestId: String, questions: [UserInputQuestion])
+    case interactionResolved(requestId: String)
     case steerAccepted(message: String)
     case steerRejected(message: String, reason: String)
     case usageUpdated(contextTokens: UInt64?, contextWindow: UInt64?)
@@ -80,6 +81,8 @@ extension DriverEvent {
                 requestId: payload["requestId"]?.stringValue ?? "",
                 questions: try (payload["questions"] ?? .array([])).decode(as: [UserInputQuestion].self)
             )
+        case "interactionResolved":
+            return .interactionResolved(requestId: payload["requestId"]?.stringValue ?? "")
         case "steerAccepted":
             return .steerAccepted(message: payload["message"]?.stringValue ?? "")
         case "steerRejected":

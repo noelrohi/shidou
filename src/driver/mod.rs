@@ -73,42 +73,20 @@ fn connect_remote(
     replay_cursor: Option<RuntimeEventCursor>,
     events: DriverEventSender,
 ) -> anyhow::Result<DriverHandle> {
-    let remote_events = client.subscribe(session_id, runtime_id);
+    let (subscription_id, pending_interaction, remote_events) =
+        client.subscribe_runtime(session_id, runtime_id);
     let forwarding_events = events.clone();
     let thread_client = client.clone();
     let spawn = std::thread::Builder::new()
         .name(format!("shidou-daemon-session-{session_id}"))
         .spawn(move || {
-            let mut saw_process_exit = false;
-            while let Ok(sequenced) = remote_events.recv() {
-                if replay_cursor.is_some_and(|cursor| {
-                    cursor.runtime_id == sequenced.runtime_id
-                        && cursor.epoch == sequenced.epoch
-                        && cursor.sequence >= sequenced.sequence
-                }) {
-                    continue;
-                }
-                let cursor = RuntimeEventCursor {
-                    runtime_id: sequenced.runtime_id,
-                    epoch: sequenced.epoch,
-                    sequence: sequenced.sequence,
-                };
-                let event = match shidou_client::event_from_wire(sequenced.event) {
-                    Ok(event) => event,
-                    Err(error) => {
-                        DriverEvent::Error(format!("Shidou daemon sent an invalid event: {error}"))
-                    }
-                };
-                saw_process_exit |= matches!(&event, DriverEvent::ProcessExited);
-                if forwarding_events.send(event).is_err()
-                    || forwarding_events
-                        .send(DriverEvent::RuntimeEventCursorAdvanced(cursor))
-                        .is_err()
-                {
-                    break;
-                }
-            }
-            thread_client.unsubscribe(session_id, runtime_id);
+            let saw_process_exit = forward_remote_events(
+                remote_events,
+                pending_interaction,
+                replay_cursor,
+                &forwarding_events,
+            );
+            thread_client.unsubscribe_runtime(session_id, runtime_id, subscription_id);
             // A development hot-swap (or daemon crash) closes the old event
             // channel. Surface that as an ordinary provider exit so the task
             // cannot remain stuck in Working while the supervisor connects
@@ -118,7 +96,7 @@ fn connect_remote(
             }
         });
     if let Err(error) = spawn {
-        client.unsubscribe(session_id, runtime_id);
+        client.unsubscribe_runtime(session_id, runtime_id, subscription_id);
         return Err(error.into());
     }
     Ok(DriverHandle::from_control(Arc::new(RemoteDriverControl {
@@ -127,7 +105,61 @@ fn connect_remote(
         runtime_id,
         supports_steer,
         events,
+        subscription_id,
     })))
+}
+
+fn forward_remote_events(
+    remote_events: crossbeam_channel::Receiver<shidou_client::SequencedEvent>,
+    pending_interaction: Option<shidou_client::SequencedEvent>,
+    replay_cursor: Option<RuntimeEventCursor>,
+    forwarding_events: &DriverEventSender,
+) -> bool {
+    let mut saw_process_exit = false;
+    let replayed_interaction = pending_interaction
+        .as_ref()
+        .map(|event| (event.runtime_id, event.epoch, event.sequence));
+    if let Some(sequenced) = pending_interaction {
+        let event = shidou_client::event_from_wire(sequenced.event).unwrap_or_else(|error| {
+            DriverEvent::Error(format!("Shidou daemon sent an invalid event: {error}"))
+        });
+        saw_process_exit |= matches!(&event, DriverEvent::ProcessExited);
+        if forwarding_events.send(event).is_err() {
+            return saw_process_exit;
+        }
+    }
+    while let Ok(sequenced) = remote_events.recv() {
+        let identity = (sequenced.runtime_id, sequenced.epoch, sequenced.sequence);
+        if replayed_interaction == Some(identity)
+            || replay_cursor.is_some_and(|cursor| {
+                cursor.runtime_id == sequenced.runtime_id
+                    && cursor.epoch == sequenced.epoch
+                    && cursor.sequence >= sequenced.sequence
+            })
+        {
+            continue;
+        }
+        let cursor = RuntimeEventCursor {
+            runtime_id: sequenced.runtime_id,
+            epoch: sequenced.epoch,
+            sequence: sequenced.sequence,
+        };
+        let event = match shidou_client::event_from_wire(sequenced.event) {
+            Ok(event) => event,
+            Err(error) => {
+                DriverEvent::Error(format!("Shidou daemon sent an invalid event: {error}"))
+            }
+        };
+        saw_process_exit |= matches!(&event, DriverEvent::ProcessExited);
+        if forwarding_events.send(event).is_err()
+            || forwarding_events
+                .send(DriverEvent::RuntimeEventCursorAdvanced(cursor))
+                .is_err()
+        {
+            break;
+        }
+    }
+    saw_process_exit
 }
 
 struct RemoteDriverControl {
@@ -136,6 +168,7 @@ struct RemoteDriverControl {
     runtime_id: uuid::Uuid,
     supports_steer: bool,
     events: DriverEventSender,
+    subscription_id: uuid::Uuid,
 }
 
 impl RemoteDriverControl {
@@ -284,6 +317,64 @@ impl DriverControl for RemoteDriverControl {
 
 impl Drop for RemoteDriverControl {
     fn drop(&mut self) {
-        self.client.unsubscribe(self.session_id, self.runtime_id);
+        self.client
+            .unsubscribe_runtime(self.session_id, self.runtime_id, self.subscription_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cached_interaction_bypasses_cursor_and_duplicate_stream_event() {
+        let session_id = uuid::Uuid::new_v4();
+        let runtime_id = uuid::Uuid::new_v4();
+        let epoch = uuid::Uuid::new_v4();
+        let pending = shidou_client::SequencedEvent {
+            session_id,
+            runtime_id,
+            epoch,
+            sequence: 7,
+            event: shidou_client::WireDriverEvent::new(
+                "userInputRequested",
+                json!({
+                    "requestId": "question-1",
+                    "questions": [{
+                        "id": "direction",
+                        "header": "Direction",
+                        "question": "Which way?",
+                        "options": [{ "label": "Left" }],
+                        "multiSelect": false
+                    }]
+                }),
+            ),
+        };
+        let (remote_tx, remote_rx) = crossbeam_channel::unbounded();
+        remote_tx.send(pending.clone()).unwrap();
+        drop(remote_tx);
+        let (wake, _wake_rx) = smol::channel::bounded(1);
+        let (forwarding, events) = event_channel(wake);
+
+        forward_remote_events(
+            remote_rx,
+            Some(pending),
+            Some(RuntimeEventCursor {
+                runtime_id,
+                epoch,
+                sequence: 7,
+            }),
+            &forwarding,
+        );
+
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            DriverEvent::UserInputRequested { request_id, .. } if request_id == "question-1"
+        ));
+        assert!(
+            events.try_recv().is_err(),
+            "the interaction was forwarded twice"
+        );
     }
 }

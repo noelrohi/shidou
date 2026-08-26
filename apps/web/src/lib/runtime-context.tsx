@@ -54,6 +54,7 @@ interface RuntimeSummary {
 
 interface RuntimeEntry extends RuntimeSummary {
   lastDriverError: string | null
+  pendingInteractionId: string | null
   unsubscribe: () => void
 }
 
@@ -442,6 +443,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         supportsSteer: false,
         starting: true,
         lastDriverError: null,
+        pendingInteractionId: null,
         unsubscribe: () => {},
       }
       entries.current.set(session.id, entry)
@@ -509,15 +511,23 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           }
         }
         const result = reduceRuntimeEvent(current, event, undefined, entry.lastDriverError)
+        if (result.resolvedInteractionId === entry.pendingInteractionId) {
+          entry.pendingInteractionId = null
+          result.session.status = result.session.status === 'waiting' ? 'working' : result.session.status
+          setPermissions((previous) => ({ ...previous, [session.id]: undefined }))
+          setUserInputs((previous) => ({ ...previous, [session.id]: undefined }))
+        }
         cacheSession(result.session)
         scheduleProjectionPersist(session.id)
         if (result.permission !== undefined) {
+          entry.pendingInteractionId = result.permission?.requestId ?? null
           setPermissions((previous) => ({
             ...previous,
             [session.id]: result.permission ?? undefined,
           }))
         }
         if (result.userInput !== undefined) {
+          entry.pendingInteractionId = result.userInput?.requestId ?? null
           setUserInputs((previous) => ({
             ...previous,
             [session.id]: result.userInput ?? undefined,

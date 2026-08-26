@@ -198,12 +198,54 @@ final class SessionProjectionTests: XCTestCase {
         XCTAssertEqual(userInput.questions[0].id, "deployment")
         XCTAssertEqual(userInput.questions[0].options[0].label, "Preview")
 
+        let resolved = reduceRuntimeEvent(
+            requested.session,
+            event("interactionResolved", ["requestId": "question-request"]),
+            clock: clock
+        )
+        XCTAssertEqual(resolved.session.status, .waiting)
+        XCTAssertEqual(resolved.resolvedInteractionId, "question-request")
+        if case .some = resolved.userInput {
+            XCTFail("the reducer must leave interaction ownership to the runtime model")
+        }
+        if case .some = resolved.permission {
+            XCTFail("the reducer must leave interaction ownership to the runtime model")
+        }
+
         let settled = reduceRuntimeEvent(
             requested.session, event("turnFinished", ["success": true, "summary": nil]), clock: clock
         )
         guard case .some(.none) = settled.userInput else {
             return XCTFail("expected the user input to clear")
         }
+    }
+
+    @MainActor
+    func testRuntimeClearsOnlyTheInteractionAnotherClientResolved() {
+        let model = SessionRuntimeModel(session: runningSession())
+        _ = model.apply(event("userInputRequested", [
+            "requestId": "question-request",
+            "questions": [[
+                "id": "direction",
+                "header": "Direction",
+                "question": "Which way?",
+                "options": [["label": "Left"]],
+                "multiSelect": false,
+            ]],
+        ], sequence: 1))
+        XCTAssertEqual(model.pendingUserInput?.requestId, "question-request")
+
+        _ = model.apply(event(
+            "interactionResolved", ["requestId": "older-request"], sequence: 2
+        ))
+        XCTAssertEqual(model.pendingUserInput?.requestId, "question-request")
+        XCTAssertEqual(model.currentProjection.status, .waiting)
+
+        _ = model.apply(event(
+            "interactionResolved", ["requestId": "question-request"], sequence: 3
+        ))
+        XCTAssertNil(model.pendingUserInput)
+        XCTAssertEqual(model.currentProjection.status, .working)
     }
 
     func testKeepsProviderErrorWhenWorkingRuntimeExits() {

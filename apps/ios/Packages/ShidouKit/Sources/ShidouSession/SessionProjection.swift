@@ -25,6 +25,7 @@ public struct RuntimeEventResult: Sendable {
     public var userInput: PendingUserInput??
     public var settled: Bool
     public var removeRuntime: Bool
+    public var resolvedInteractionId: String?
     public var error: String?
 }
 
@@ -72,7 +73,7 @@ public func reduceRuntimeEvent(
     let payload = wire.event.payload
     var result = RuntimeEventResult(
         session: session, permission: nil, userInput: nil,
-        settled: false, removeRuntime: false, error: nil
+        settled: false, removeRuntime: false, resolvedInteractionId: nil, error: nil
     )
 
     session.runtimeEventCursor = RuntimeEventCursor(
@@ -147,6 +148,8 @@ public func reduceRuntimeEvent(
         guard !questions.isEmpty else { break }
         result.userInput = .some(PendingUserInput(requestId: requestId, questions: questions))
         session.status = .waiting
+    case "interactionResolved":
+        result.resolvedInteractionId = payload["requestId"]?.stringValue
     case "usageUpdated":
         guard payload.objectValue != nil else { break }
         let previous = session.contextUsage ?? ContextUsage(tokens: 0, window: nil)

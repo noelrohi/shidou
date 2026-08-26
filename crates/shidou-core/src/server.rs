@@ -717,6 +717,12 @@ fn run_runtime_mailbox(
             },
         };
         let runtime_id = dispatched.request.runtime_id;
+        let resolved_interaction = match &dispatched.request.command {
+            Command::Respond { request_id, .. } | Command::RespondUserInput { request_id, .. } => {
+                Some(request_id.clone())
+            }
+            _ => None,
+        };
         let starts_runtime = matches!(
             &dispatched.request.command,
             Command::Start { .. } | Command::OpenTerminal { .. }
@@ -735,6 +741,19 @@ fn run_runtime_mailbox(
         );
 
         if handled.executed {
+            if let Some(request_id) = resolved_interaction
+                && matches!(&handled.outcome, ResponseOutcome::Ok { .. })
+            {
+                hub.emit(
+                    session_id,
+                    runtime_id,
+                    WireDriverEvent::new(
+                        "interactionResolved",
+                        serde_json::json!({ "requestId": request_id }),
+                    ),
+                    true,
+                );
+            }
             if starts_runtime {
                 active_runtime_id =
                     matches!(&handled.outcome, ResponseOutcome::Ok { .. }).then_some(runtime_id);
@@ -1068,7 +1087,23 @@ mod tests {
                     supports_steer: true,
                 }),
                 Command::Prompt { prompt } => {
-                    events.send(WireDriverEvent::new("textDelta", json!(prompt)))?;
+                    if prompt == "__test_question__" {
+                        events.send(WireDriverEvent::new(
+                            "userInputRequested",
+                            json!({
+                                "requestId": "question-1",
+                                "questions": [{
+                                    "id": "direction",
+                                    "header": "Direction",
+                                    "question": "Which way?",
+                                    "options": [{ "label": "Left" }],
+                                    "multiSelect": false
+                                }]
+                            }),
+                        ))?;
+                    } else {
+                        events.send(WireDriverEvent::new("textDelta", json!(prompt)))?;
+                    }
                     Ok(ResponsePayload::Ack)
                 }
                 Command::CloseSession => {
@@ -1663,6 +1698,44 @@ mod tests {
         }
 
         source
+            .request(
+                session_id,
+                runtime_id,
+                Command::Prompt {
+                    prompt: "__test_question__".into(),
+                },
+            )
+            .unwrap();
+        for events in [&source_events, &late_events] {
+            let question = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(question.sequence, 3);
+            assert_eq!(question.event.kind, "userInputRequested");
+        }
+        // The second client answers. Every subscriber must learn that the
+        // interaction is no longer pending before provider output resumes.
+        late.request(
+            session_id,
+            runtime_id,
+            Command::RespondUserInput {
+                request_id: "question-1".into(),
+                answers: Vec::new(),
+            },
+        )
+        .unwrap();
+        for events in [&source_events, &late_events] {
+            let resolved = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(resolved.sequence, 4);
+            assert_eq!(resolved.event.kind, "interactionResolved");
+            assert_eq!(resolved.event.payload["requestId"], "question-1");
+        }
+        let (_, pending_interaction, _replacement) =
+            source.subscribe_runtime(session_id, runtime_id);
+        assert!(
+            pending_interaction.is_none(),
+            "the first client retained a question answered by the second"
+        );
+
+        source
             .request(session_id, runtime_id, Command::CloseSession)
             .unwrap();
         let after_close = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
@@ -1709,6 +1782,68 @@ mod tests {
         assert!(
             finished.recv_timeout(Duration::from_secs(3)).is_ok(),
             "dropping an idle daemon terminal blocked on its output reader"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finished_reader_does_not_mask_a_live_hup_ignoring_child() {
+        let root = std::env::temp_dir().join(format!("shidou-terminal-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let hub = Arc::new(Hub::default());
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        hub.begin_runtime(session_id, runtime_id);
+        let (outgoing, events) = unbounded();
+        hub.subscribe(&[], outgoing);
+        let mut terminal = crate::terminal::DaemonTerminal::open(
+            &root,
+            80,
+            24,
+            hub.event_sink(session_id, runtime_id),
+        )
+        .unwrap();
+        terminal
+            .write(
+                b"exec sh -c \"trap '' HUP; printf 'SHIDOU_%s\\n' READER_STOPPED; while :; do sleep 1; done\"\r"
+                    .to_vec(),
+            )
+            .unwrap();
+
+        let marker = b"SHIDOU_READER_STOPPED";
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut output = Vec::new();
+        while std::time::Instant::now() < deadline
+            && !output.windows(marker.len()).any(|window| window == marker)
+        {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok(ServerMessage::Event(event)) = events.recv_timeout(remaining) else {
+                continue;
+            };
+            if event.event.kind == "terminalOutput" {
+                let data = event.event.payload["data"].as_str().unwrap();
+                output.extend(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .unwrap(),
+                );
+            }
+        }
+        assert!(
+            output.windows(marker.len()).any(|window| window == marker),
+            "the HUP-ignoring child did not start"
+        );
+
+        terminal.stop_reader_for_test();
+        let (dropped, finished) = bounded(1);
+        std::thread::spawn(move || {
+            drop(terminal);
+            let _ = dropped.send(());
+        });
+        assert!(
+            finished.recv_timeout(Duration::from_secs(2)).is_ok(),
+            "reader completion was mistaken for child exit"
         );
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1810,11 +1945,10 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// Regression: a shell with unread output in its PTY blocks writing its
-    /// exit output, so tearing the reader down before the child exited left
-    /// alacritty's unbounded `Child::wait` hanging and the session's request
-    /// worker never answered `CloseTerminal`. Closing after a write must still
-    /// return promptly.
+    /// Regression: stopping the reader before hanging up a shell let an exit
+    /// trap fill the PTY and block forever, while Alacritty waited to reap that
+    /// same shell. Keep draining through the trap and bound the assertion
+    /// independently of the client's normal 120-second request timeout.
     #[test]
     fn closing_a_terminal_with_pending_output_responds_promptly() {
         let root = std::env::temp_dir().join(format!("shidou-terminal-{}", Uuid::new_v4()));
@@ -1844,7 +1978,7 @@ mod tests {
 
         let client = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
         let terminal_id = Uuid::new_v4();
-        let _events = client.subscribe(terminal_id, terminal_id);
+        let events = client.subscribe(terminal_id, terminal_id);
         client
             .request(
                 terminal_id,
@@ -1856,30 +1990,53 @@ mod tests {
                 },
             )
             .unwrap();
-        // Leaves output in the PTY that no one is draining, which is what made
-        // the shell unable to finish exiting.
         client
             .request(
                 terminal_id,
                 terminal_id,
                 Command::WriteTerminal {
-                    data: b"shidou-terminal-close-regression\r".to_vec(),
+                    data: b"sh -c \"trap 'head -c 1048576 /dev/zero; exit' HUP; printf 'SHIDOU_%s\\n' TRAP_READY; while :; do sleep 1; done\"\r".to_vec(),
                 },
             )
             .unwrap();
 
-        let started = std::time::Instant::now();
-        assert!(matches!(
-            client
-                .request(terminal_id, terminal_id, Command::CloseTerminal)
-                .unwrap(),
-            ResponsePayload::Ack
-        ));
-        let elapsed = started.elapsed();
+        // Wait for the generated marker rather than the terminal's local echo;
+        // the command text never contains this contiguous byte sequence.
+        let marker = b"SHIDOU_TRAP_READY";
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut output = Vec::new();
+        while std::time::Instant::now() < deadline
+            && !output.windows(marker.len()).any(|window| window == marker)
+        {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok(event) = events.recv_timeout(remaining) else {
+                break;
+            };
+            if event.event.kind == "terminalOutput" {
+                let data = event.event.payload["data"].as_str().unwrap();
+                output.extend(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .unwrap(),
+                );
+            }
+        }
         assert!(
-            elapsed < Duration::from_secs(5),
-            "closing the terminal took {elapsed:?}; the shell teardown is hanging again"
+            output.windows(marker.len()).any(|window| window == marker),
+            "the terminal shell did not install its HUP trap; output={}",
+            String::from_utf8_lossy(&output)
         );
+
+        let close_client = client.clone();
+        let (closed, close_result) = bounded(1);
+        std::thread::spawn(move || {
+            let result = close_client.request(terminal_id, terminal_id, Command::CloseTerminal);
+            let _ = closed.send(result);
+        });
+        let result = close_result
+            .recv_timeout(Duration::from_secs(5))
+            .expect("terminal close did not answer within five seconds");
+        assert!(matches!(result.unwrap(), ResponsePayload::Ack));
 
         client.shutdown();
         server.join().unwrap();

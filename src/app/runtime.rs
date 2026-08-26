@@ -3462,6 +3462,8 @@ impl Shidou {
                         | DriverEvent::AgentPresetSelected(_)
                         | DriverEvent::AutoTitleUpdated(_)
                         | DriverEvent::Permission { .. }
+                        | DriverEvent::UserInputRequested { .. }
+                        | DriverEvent::InteractionResolved { .. }
                         | DriverEvent::SteerAccepted { .. }
                         | DriverEvent::SteerRejected { .. }
                         | DriverEvent::TurnFinished { .. }

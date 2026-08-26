@@ -72,9 +72,18 @@ public final class SessionRuntimeModel {
     @discardableResult
     public func apply(_ event: SequencedEvent, clock: ReducerClock = .live) -> RuntimeEventResult? {
         guard !runtimeEventAlreadyApplied(session: projection, event: event) else { return nil }
-        let result = reduceRuntimeEvent(
+        var result = reduceRuntimeEvent(
             projection, event, clock: clock, processExitError: lastDriverError
         )
+        if let requestId = result.resolvedInteractionId {
+            let matchesPermission = pendingPermission?.requestId == requestId
+            let matchesUserInput = pendingUserInput?.requestId == requestId
+            if matchesPermission { pendingPermission = nil }
+            if matchesUserInput { pendingUserInput = nil }
+            if (matchesPermission || matchesUserInput), result.session.status == .waiting {
+                result.session.status = .working
+            }
+        }
         projection = result.session
         if let error = result.error {
             lastDriverError = error

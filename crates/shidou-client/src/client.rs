@@ -31,11 +31,21 @@ enum Outgoing {
 struct ClientInner {
     outgoing: Sender<Outgoing>,
     pending: Mutex<HashMap<Uuid, Sender<Result<ResponsePayload, RpcError>>>>,
-    sessions: Mutex<HashMap<(Uuid, Uuid), Sender<SequencedEvent>>>,
+    sessions: Mutex<HashMap<(Uuid, Uuid), RuntimeEventSink>>,
     pending_events: Mutex<HashMap<(Uuid, Uuid), VecDeque<SequencedEvent>>>,
+    /// Latest unresolved provider interaction per runtime. Unlike transcript
+    /// projection, this is presentation state that must be offered again when
+    /// an in-process App Reload replaces its runtime subscription.
+    pending_interactions: Mutex<HashMap<(Uuid, Uuid), SequencedEvent>>,
     task_state_subscribers: Mutex<Vec<Sender<u64>>>,
     last_sequences: Mutex<HashMap<(Uuid, Uuid), LastSequence>>,
     disconnected: AtomicBool,
+}
+
+#[derive(Clone)]
+struct RuntimeEventSink {
+    subscription_id: Uuid,
+    events: Sender<SequencedEvent>,
 }
 
 #[derive(Clone, Copy)]
@@ -109,6 +119,7 @@ impl DaemonClient {
             pending: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
             pending_events: Mutex::new(HashMap::new()),
+            pending_interactions: Mutex::new(HashMap::new()),
             task_state_subscribers: Mutex::new(Vec::new()),
             last_sequences: Mutex::new(last_sequences),
             disconnected: AtomicBool::new(false),
@@ -122,10 +133,30 @@ impl DaemonClient {
     }
 
     pub fn subscribe(&self, session_id: Uuid, runtime_id: Uuid) -> Receiver<SequencedEvent> {
+        let (_, _, receiver) = self.subscribe_runtime(session_id, runtime_id);
+        receiver
+    }
+
+    /// Registers one runtime attachment and returns any unresolved blocking
+    /// interaction separately from the sequenced stream. The interaction may
+    /// sit at or before the caller's persisted replay cursor, but it still has
+    /// to be reconstructed after an App Reload.
+    pub fn subscribe_runtime(
+        &self,
+        session_id: Uuid,
+        runtime_id: Uuid,
+    ) -> (Uuid, Option<SequencedEvent>, Receiver<SequencedEvent>) {
         let (events, receiver) = unbounded();
         let key = (session_id, runtime_id);
+        let subscription_id = Uuid::new_v4();
         let mut sessions = self.inner.sessions.lock();
-        sessions.insert(key, events.clone());
+        sessions.insert(
+            key,
+            RuntimeEventSink {
+                subscription_id,
+                events: events.clone(),
+            },
+        );
         // Keep the subscription lock while draining the pre-subscription
         // replay queue. The socket thread takes these locks in the same order,
         // so a new live event cannot overtake older replayed events here.
@@ -134,11 +165,22 @@ impl DaemonClient {
                 let _ = events.send(event);
             }
         }
-        receiver
+        let pending_interaction = self.inner.pending_interactions.lock().get(&key).cloned();
+        (subscription_id, pending_interaction, receiver)
     }
 
-    pub fn unsubscribe(&self, session_id: Uuid, runtime_id: Uuid) {
-        self.inner.sessions.lock().remove(&(session_id, runtime_id));
+    /// Removes this attachment only if it is still the registered owner. A
+    /// forwarding thread from the tree replaced by App Reload can finish after
+    /// the new tree subscribes to the same runtime.
+    pub fn unsubscribe_runtime(&self, session_id: Uuid, runtime_id: Uuid, subscription_id: Uuid) {
+        let key = (session_id, runtime_id);
+        let mut sessions = self.inner.sessions.lock();
+        if sessions
+            .get(&key)
+            .is_some_and(|sink| sink.subscription_id == subscription_id)
+        {
+            sessions.remove(&key);
+        }
     }
 
     pub fn subscribe_task_state(&self) -> Receiver<u64> {
@@ -193,6 +235,13 @@ impl DaemonClient {
         if self.inner.disconnected.load(Ordering::Acquire) {
             bail!("Shidou daemon is disconnected");
         }
+        let resolved_request_id = match &command {
+            Command::Respond { request_id, .. } | Command::RespondUserInput { request_id, .. } => {
+                Some(request_id.clone())
+            }
+            _ => None,
+        };
+        let clears_all_interactions = matches!(command, Command::Cancel | Command::CloseSession);
         self.inner
             .outgoing
             .send(Outgoing::Message(ClientMessage::Request(Request {
@@ -204,7 +253,15 @@ impl DaemonClient {
                 runtime_id,
                 command,
             })))
-            .map_err(|_| anyhow!("Shidou daemon connection is closed"))
+            .map_err(|_| anyhow!("Shidou daemon connection is closed"))?;
+        let key = (session_id, runtime_id);
+        let mut pending = self.inner.pending_interactions.lock();
+        if clears_all_interactions {
+            pending.remove(&key);
+        } else if let Some(request_id) = resolved_request_id {
+            clear_matching_interaction(&mut pending, key, &request_id);
+        }
+        Ok(())
     }
 
     pub fn last_sequences(&self) -> Vec<ReplayCursor> {
@@ -298,9 +355,10 @@ fn run_client(
                         };
                         if should_deliver {
                             let key = (event.session_id, event.runtime_id);
+                            track_pending_interaction(&inner.pending_interactions, key, &event);
                             let sessions = inner.sessions.lock();
-                            if let Some(events) = sessions.get(&key) {
-                                let _ = events.send(event);
+                            if let Some(sink) = sessions.get(&key) {
+                                let _ = sink.events.send(event);
                             } else {
                                 let mut pending = inner.pending_events.lock();
                                 let buffered = pending.entry(key).or_default();
@@ -340,7 +398,7 @@ fn run_client(
         }));
     }
     let sessions = std::mem::take(&mut *inner.sessions.lock());
-    for ((session_id, runtime_id), events) in sessions {
+    for ((session_id, runtime_id), sink) in sessions {
         // This event is synthesized locally and is not present in the
         // daemon's replay journal. Do not advance the replay cursor for it or
         // reconnecting to the same daemon would skip the next real event.
@@ -350,7 +408,7 @@ fn run_client(
             .get(&(session_id, runtime_id))
             .map(|cursor| (cursor.epoch, cursor.sequence))
             .unwrap_or((Uuid::nil(), 0));
-        let _ = events.send(SequencedEvent {
+        let _ = sink.events.send(SequencedEvent {
             session_id,
             runtime_id,
             epoch,
@@ -359,6 +417,46 @@ fn run_client(
         });
     }
     inner.task_state_subscribers.lock().clear();
+}
+
+fn interaction_request_id(event: &SequencedEvent) -> Option<&str> {
+    event.event.payload.get("requestId")?.as_str()
+}
+
+fn clear_matching_interaction(
+    pending: &mut HashMap<(Uuid, Uuid), SequencedEvent>,
+    key: (Uuid, Uuid),
+    request_id: &str,
+) {
+    if pending
+        .get(&key)
+        .and_then(interaction_request_id)
+        .is_some_and(|pending_id| pending_id == request_id)
+    {
+        pending.remove(&key);
+    }
+}
+
+fn track_pending_interaction(
+    pending: &Mutex<HashMap<(Uuid, Uuid), SequencedEvent>>,
+    key: (Uuid, Uuid),
+    event: &SequencedEvent,
+) {
+    let mut pending = pending.lock();
+    match event.event.kind.as_str() {
+        "permission" | "userInputRequested" => {
+            pending.insert(key, event.clone());
+        }
+        "interactionResolved" => {
+            if let Some(request_id) = interaction_request_id(event) {
+                clear_matching_interaction(&mut pending, key, request_id);
+            }
+        }
+        "turnFinished" | "processExited" | "error" => {
+            pending.remove(&key);
+        }
+        _ => {}
+    }
 }
 
 fn set_client_read_timeout(
@@ -420,6 +518,104 @@ fn read_server_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_client() -> DaemonClient {
+        let (outgoing, _outgoing_rx) = unbounded();
+        DaemonClient {
+            inner: Arc::new(ClientInner {
+                outgoing,
+                pending: Mutex::new(HashMap::new()),
+                sessions: Mutex::new(HashMap::new()),
+                pending_events: Mutex::new(HashMap::new()),
+                pending_interactions: Mutex::new(HashMap::new()),
+                task_state_subscribers: Mutex::new(Vec::new()),
+                last_sequences: Mutex::new(HashMap::new()),
+                disconnected: AtomicBool::new(false),
+            }),
+        }
+    }
+
+    #[test]
+    fn stale_runtime_unsubscribe_does_not_remove_replacement_subscription() {
+        let client = test_client();
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        let (old_id, _, _old) = client.subscribe_runtime(session_id, runtime_id);
+        let (_, _, replacement) = client.subscribe_runtime(session_id, runtime_id);
+
+        client.unsubscribe_runtime(session_id, runtime_id, old_id);
+
+        let event = SequencedEvent {
+            session_id,
+            runtime_id,
+            epoch: Uuid::new_v4(),
+            sequence: 1,
+            event: WireDriverEvent::new("textDelta", serde_json::Value::Null),
+        };
+        let sender = client
+            .inner
+            .sessions
+            .lock()
+            .get(&(session_id, runtime_id))
+            .cloned()
+            .expect("the replacement subscription must remain registered");
+        sender.events.send(event).unwrap();
+        assert_eq!(replacement.recv().unwrap().sequence, 1);
+    }
+
+    #[test]
+    fn runtime_subscription_restores_an_unresolved_interaction() {
+        let client = test_client();
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        let interaction = SequencedEvent {
+            session_id,
+            runtime_id,
+            epoch: Uuid::new_v4(),
+            sequence: 7,
+            event: WireDriverEvent::new("userInputRequested", serde_json::Value::Null),
+        };
+        client
+            .inner
+            .pending_interactions
+            .lock()
+            .insert((session_id, runtime_id), interaction.clone());
+
+        let (_, pending, _events) = client.subscribe_runtime(session_id, runtime_id);
+
+        assert_eq!(pending.unwrap().sequence, interaction.sequence);
+
+        let resolved = SequencedEvent {
+            session_id,
+            runtime_id,
+            epoch: interaction.epoch,
+            sequence: 8,
+            event: WireDriverEvent::new(
+                "interactionResolved",
+                serde_json::json!({ "requestId": "question-1" }),
+            ),
+        };
+        // Give the cached interaction the same request identity used by the
+        // resolution event, then verify a response observed from any client
+        // clears it.
+        client.inner.pending_interactions.lock().insert(
+            (session_id, runtime_id),
+            SequencedEvent {
+                event: WireDriverEvent::new(
+                    "userInputRequested",
+                    serde_json::json!({ "requestId": "question-1" }),
+                ),
+                ..interaction
+            },
+        );
+        track_pending_interaction(
+            &client.inner.pending_interactions,
+            (session_id, runtime_id),
+            &resolved,
+        );
+        let (_, pending, _events) = client.subscribe_runtime(session_id, runtime_id);
+        assert!(pending.is_none());
+    }
 
     #[test]
     fn daemon_endpoint_accepts_addresses_and_secure_urls() {

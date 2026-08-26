@@ -33,6 +33,7 @@ export interface RuntimeEventResult {
   userInput?: PendingUserInput | null
   settled: boolean
   removeRuntime: boolean
+  resolvedInteractionId?: string
   error?: string
 }
 
@@ -160,6 +161,11 @@ export function reduceRuntimeEvent(
       if (!questions.length) break
       result.userInput = { requestId: value.requestId, questions }
       session.status = 'waiting'
+      break
+    }
+    case 'interactionResolved': {
+      const value = asRecord(payload)
+      if (typeof value?.requestId === 'string') result.resolvedInteractionId = value.requestId
       break
     }
     case 'usageUpdated': {

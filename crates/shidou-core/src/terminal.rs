@@ -16,6 +16,7 @@ use crate::EventSink;
 #[cfg(unix)]
 mod platform {
     use std::io::{Read as _, Write as _};
+    use std::os::fd::AsRawFd as _;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::JoinHandle;
@@ -42,10 +43,13 @@ mod platform {
     pub struct DaemonTerminal {
         pty: Arc<Mutex<tty::Pty>>,
         stopped: Arc<AtomicBool>,
-        /// Set by the output reader as it leaves its loop, which it does only
-        /// once the master reports the child is gone. Teardown polls this to
-        /// tell "the shell exited" from "the shell is still going".
-        reader_finished: Arc<AtomicBool>,
+        /// Set only after Alacritty's SIGCHLD channel confirms the child
+        /// exited. Reader completion alone is not sufficient: the reader can
+        /// also leave on an I/O error or panic while the shell is still alive.
+        child_exited: Arc<AtomicBool>,
+        /// True only when the master reports that every PTY slave is closed.
+        /// A reader stopped by teardown or lost to an error does not set it.
+        pty_closed: Arc<AtomicBool>,
         reader: Option<JoinHandle<()>>,
     }
 
@@ -86,18 +90,20 @@ mod platform {
             let mut output = pty.file().try_clone().context("clone terminal output")?;
             let pty = Arc::new(Mutex::new(pty));
             let stopped = Arc::new(AtomicBool::new(false));
-            let reader_finished = Arc::new(AtomicBool::new(false));
+            let child_exited = Arc::new(AtomicBool::new(false));
+            let pty_closed = Arc::new(AtomicBool::new(false));
             let reader_pty = pty.clone();
             let reader_stopped = stopped.clone();
-            let reader_done = reader_finished.clone();
+            let reader_child_exited = child_exited.clone();
+            let reader_pty_closed = pty_closed.clone();
             let reader = std::thread::Builder::new()
                 .name("shidou-daemon-terminal-output".into())
                 .spawn(move || {
-                    let _guard = FinishedOnExit(reader_done);
                     let mut buffer = [0_u8; 32 * 1024];
                     while !reader_stopped.load(Ordering::Acquire) {
                         match output.read(&mut buffer) {
                             Ok(0) => {
+                                reader_pty_closed.store(true, Ordering::Release);
                                 let _ = events.send_ephemeral(WireDriverEvent::new(
                                     "terminalExited",
                                     serde_json::Value::Null,
@@ -127,7 +133,11 @@ mod platform {
                                 // freshly spawned child has attached its slave.
                                 // Only treat it as EOF after Alacritty's SIGCHLD
                                 // channel confirms the child actually exited.
-                                if reader_pty.lock().next_child_event().is_some() {
+                                if reader_child_exited.load(Ordering::Acquire)
+                                    || reader_pty.lock().next_child_event().is_some()
+                                {
+                                    reader_child_exited.store(true, Ordering::Release);
+                                    reader_pty_closed.store(true, Ordering::Release);
                                     let _ = events.send_ephemeral(WireDriverEvent::new(
                                         "terminalExited",
                                         serde_json::Value::Null,
@@ -151,7 +161,8 @@ mod platform {
             Ok(Self {
                 pty,
                 stopped,
-                reader_finished,
+                child_exited,
+                pty_closed,
                 reader: Some(reader),
             })
         }
@@ -170,16 +181,52 @@ mod platform {
         pub fn resize(&self, cols: u16, rows: u16) {
             self.pty.lock().on_resize(window_size(cols, rows));
         }
+
+        #[cfg(test)]
+        pub(crate) fn stop_reader_for_test(&mut self) {
+            self.stopped.store(true, Ordering::Release);
+            if let Some(reader) = self.reader.take() {
+                reader.join().unwrap();
+            }
+        }
     }
 
-    /// Marks the reader finished however its thread leaves — normal exit or
-    /// panic — so teardown can never wait out the full grace on a reader that
-    /// is already gone.
-    struct FinishedOnExit(Arc<AtomicBool>);
+    impl DaemonTerminal {
+        fn child_has_exited(&self) -> bool {
+            if self.child_exited.load(Ordering::Acquire) {
+                return true;
+            }
+            if self.pty.lock().next_child_event().is_some() {
+                self.child_exited.store(true, Ordering::Release);
+                return true;
+            }
+            false
+        }
 
-    impl Drop for FinishedOnExit {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::Release);
+        fn teardown_complete(&self) -> bool {
+            self.child_has_exited() && self.pty_closed.load(Ordering::Acquire)
+        }
+
+        fn terminal_process_groups(&self) -> (libc::pid_t, libc::pid_t) {
+            let pty = self.pty.lock();
+            let shell_group = pty.child().id() as libc::pid_t;
+            let foreground_group = unsafe { libc::tcgetpgrp(pty.file().as_raw_fd()) };
+            (shell_group, foreground_group)
+        }
+
+        fn signal_process_groups(groups: (libc::pid_t, libc::pid_t), signal: libc::c_int) {
+            let (shell_group, foreground_group) = groups;
+            // Alacritty starts the shell with `setsid`, but an interactive
+            // shell gives its foreground job a different process group. Signal
+            // both or that job can keep the PTY slave open after the shell is
+            // gone and strand Alacritty's child wait.
+            unsafe {
+                if foreground_group > 0 && foreground_group != shell_group {
+                    libc::kill(-foreground_group, signal);
+                }
+                libc::kill(-shell_group, signal);
+                libc::kill(shell_group, signal);
+            }
         }
     }
 
@@ -192,25 +239,32 @@ mod platform {
             // unbounded `Child::wait`, so stopping the reader first deadlocks
             // this thread forever — for the daemon that means the session's
             // request worker never answers another command.
-            let child_pid = self.pty.lock().child().id() as libc::pid_t;
-            unsafe {
-                libc::kill(child_pid, libc::SIGHUP);
-            }
-            // The reader leaves its loop only once the master reports the
-            // child is gone, so this waits for the shell itself.
+            let initial_groups = self.terminal_process_groups();
+            Self::signal_process_groups(initial_groups, libc::SIGHUP);
+            // Poll the child event directly as well as letting the reader do
+            // so. A reader that exits on an I/O error must not be mistaken for
+            // a shell that has exited.
             let deadline = std::time::Instant::now() + SHELL_EXIT_GRACE;
-            while !self.reader_finished.load(Ordering::Acquire)
-                && std::time::Instant::now() < deadline
-            {
+            while !self.teardown_complete() && std::time::Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(4));
             }
             // A shell that ignores SIGHUP, or is wedged on something other
             // than its own output, must not outlive the grace. The child is
             // still unreaped here — alacritty reaps it below — so its pid
             // cannot yet have been reused by another process.
-            if !self.reader_finished.load(Ordering::Acquire) {
-                unsafe {
-                    libc::kill(child_pid, libc::SIGKILL);
+            if !self.teardown_complete() {
+                // The shell can exit after forwarding SIGHUP, at which point
+                // tcgetpgrp falls back to its old group even though the former
+                // foreground job still owns the slave. Retain and kill the
+                // group observed before hangup as well as the current groups.
+                Self::signal_process_groups(initial_groups, libc::SIGKILL);
+                let current_groups = self.terminal_process_groups();
+                if current_groups != initial_groups {
+                    Self::signal_process_groups(current_groups, libc::SIGKILL);
+                }
+                let kill_deadline = std::time::Instant::now() + SHELL_EXIT_GRACE;
+                while !self.child_has_exited() && std::time::Instant::now() < kill_deadline {
+                    std::thread::sleep(Duration::from_millis(4));
                 }
             }
             self.stopped.store(true, Ordering::Release);
