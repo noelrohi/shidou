@@ -44,10 +44,28 @@ An address whose path is encrypted below the WebSocket: `wss://`, loopback,
 or a Tailscale address (`100.64.0.0/10`, `*.ts.net`). Never warned.
 
 **Suspend**:
-Cleanly pausing the connection the moment the app leaves the foreground,
-harvesting replay cursors for the next reconnect. iOS denies background
-local-network traffic, so nothing lingers.
+Cleanly pausing the connection when the app leaves the foreground — at the
+end of the Grace Window, or immediately if none is granted — harvesting
+replay cursors for the next reconnect. iOS denies background local-network
+traffic, so nothing lingers past it.
 _Avoid_: background mode, keep-alive
+
+**Grace Window**:
+The ~30 seconds of background execution iOS grants after the app is
+backgrounded. The connection stays alive through it so Attention Events can
+still fire local notifications; when it expires, Suspend runs. The only
+locked-phone signal v1 has — after it, silence until the app reopens.
+
+**Attention Event**:
+An agent event worth interrupting the user for: a permission request, a
+question for the user, or a finished turn. Fires a local notification during
+the Grace Window; from a non-visible session in the foreground, the blocking
+two (permission, question) show an in-app banner.
+_Avoid_: alert, push
+
+**Waiting Session**:
+A session blocked on the user — a pending permission or question. Marked in
+the session list; reopening the app restores its pending prompt via replay.
 
 **Replay Cursor**:
 A client's high-water mark per session runtime (epoch + sequence), sent on
