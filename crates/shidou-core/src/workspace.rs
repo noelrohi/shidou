@@ -326,7 +326,14 @@ fn list_tree(root: &Path, expanded_paths: &HashSet<PathBuf>) -> Vec<WorkingTreeE
     }
     let statuses = working_tree_statuses(root);
     let mut output = Vec::new();
-    visit(root, Path::new(""), 0, expanded_paths, &statuses, &mut output);
+    visit(
+        root,
+        Path::new(""),
+        0,
+        expanded_paths,
+        &statuses,
+        &mut output,
+    );
     output
 }
 

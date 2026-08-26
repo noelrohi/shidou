@@ -16,6 +16,10 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+## [0.2.9]
+
+- Preserve complete task transcripts when the same daemon is used from multiple clients
+
 ## [0.2.8]
 
 - Bring the desktop's removal flows to the web client: remove a project from its header menu, and confirm before a task, a project, or a live terminal is torn down
