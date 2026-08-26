@@ -1810,6 +1810,82 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// Regression: a shell with unread output in its PTY blocks writing its
+    /// exit output, so tearing the reader down before the child exited left
+    /// alacritty's unbounded `Child::wait` hanging and the session's request
+    /// worker never answered `CloseTerminal`. Closing after a write must still
+    /// return promptly.
+    #[test]
+    fn closing_a_terminal_with_pending_output_responds_promptly() {
+        let root = std::env::temp_dir().join(format!("shidou-terminal-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let backend = ShidouBackend::new(
+            DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
+            StateStore::daemon(root.join("app.db")),
+        )
+        .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server_shutdown = shutdown.clone();
+        let server = std::thread::spawn(move || {
+            serve(
+                listener,
+                "secret".into(),
+                Arc::new(backend),
+                server_shutdown,
+                ServerOptions {
+                    allow_shutdown: true,
+                    ..ServerOptions::default()
+                },
+            )
+            .unwrap()
+        });
+
+        let client = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
+        let terminal_id = Uuid::new_v4();
+        let _events = client.subscribe(terminal_id, terminal_id);
+        client
+            .request(
+                terminal_id,
+                terminal_id,
+                Command::OpenTerminal {
+                    cwd: root.clone(),
+                    cols: 80,
+                    rows: 24,
+                },
+            )
+            .unwrap();
+        // Leaves output in the PTY that no one is draining, which is what made
+        // the shell unable to finish exiting.
+        client
+            .request(
+                terminal_id,
+                terminal_id,
+                Command::WriteTerminal {
+                    data: b"shidou-terminal-close-regression\r".to_vec(),
+                },
+            )
+            .unwrap();
+
+        let started = std::time::Instant::now();
+        assert!(matches!(
+            client
+                .request(terminal_id, terminal_id, Command::CloseTerminal)
+                .unwrap(),
+            ResponsePayload::Ack
+        ));
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "closing the terminal took {elapsed:?}; the shell teardown is hanging again"
+        );
+
+        client.shutdown();
+        server.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn nil_request_ids_execute_without_responses_or_cache_entries() {
         let (outgoing, responses) = unbounded();

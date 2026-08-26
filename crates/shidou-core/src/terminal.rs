@@ -34,10 +34,18 @@ mod platform {
     const CELL_HEIGHT: u16 = 16;
     const MIN_COLUMNS: u16 = 2;
     const MIN_ROWS: u16 = 1;
+    /// How long a hung-up shell gets to finish exiting before it is killed.
+    /// Generous enough for a login shell's exit hooks, short enough that a
+    /// shell which ignores `SIGHUP` cannot stall a client's close request.
+    const SHELL_EXIT_GRACE: Duration = Duration::from_millis(500);
 
     pub struct DaemonTerminal {
         pty: Arc<Mutex<tty::Pty>>,
         stopped: Arc<AtomicBool>,
+        /// Set by the output reader as it leaves its loop, which it does only
+        /// once the master reports the child is gone. Teardown polls this to
+        /// tell "the shell exited" from "the shell is still going".
+        reader_finished: Arc<AtomicBool>,
         reader: Option<JoinHandle<()>>,
     }
 
@@ -78,11 +86,14 @@ mod platform {
             let mut output = pty.file().try_clone().context("clone terminal output")?;
             let pty = Arc::new(Mutex::new(pty));
             let stopped = Arc::new(AtomicBool::new(false));
+            let reader_finished = Arc::new(AtomicBool::new(false));
             let reader_pty = pty.clone();
             let reader_stopped = stopped.clone();
+            let reader_done = reader_finished.clone();
             let reader = std::thread::Builder::new()
                 .name("shidou-daemon-terminal-output".into())
                 .spawn(move || {
+                    let _guard = FinishedOnExit(reader_done);
                     let mut buffer = [0_u8; 32 * 1024];
                     while !reader_stopped.load(Ordering::Acquire) {
                         match output.read(&mut buffer) {
@@ -140,6 +151,7 @@ mod platform {
             Ok(Self {
                 pty,
                 stopped,
+                reader_finished,
                 reader: Some(reader),
             })
         }
@@ -160,19 +172,48 @@ mod platform {
         }
     }
 
+    /// Marks the reader finished however its thread leaves — normal exit or
+    /// panic — so teardown can never wait out the full grace on a reader that
+    /// is already gone.
+    struct FinishedOnExit(Arc<AtomicBool>);
+
+    impl Drop for FinishedOnExit {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
     impl Drop for DaemonTerminal {
         fn drop(&mut self) {
-            self.stopped.store(true, Ordering::Release);
-            // The output reader may be blocked in `read` while the shell is
-            // idle. Alacritty hangs the child up when its PTY is dropped, but
-            // the reader owns another `Arc` to that PTY, so waiting for the
-            // reader first would keep both the child and its slave fd alive.
-            // Terminate the shell before joining so the master read wakes and
-            // the reader can observe `stopped`.
+            // Hang the shell up, then keep the output reader running while it
+            // exits. Draining the master here is not optional: a shell with
+            // unread bytes still in the PTY blocks writing its own exit
+            // output, and alacritty's `Pty::drop` reaps the child with an
+            // unbounded `Child::wait`, so stopping the reader first deadlocks
+            // this thread forever — for the daemon that means the session's
+            // request worker never answers another command.
             let child_pid = self.pty.lock().child().id() as libc::pid_t;
             unsafe {
                 libc::kill(child_pid, libc::SIGHUP);
             }
+            // The reader leaves its loop only once the master reports the
+            // child is gone, so this waits for the shell itself.
+            let deadline = std::time::Instant::now() + SHELL_EXIT_GRACE;
+            while !self.reader_finished.load(Ordering::Acquire)
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(4));
+            }
+            // A shell that ignores SIGHUP, or is wedged on something other
+            // than its own output, must not outlive the grace. The child is
+            // still unreaped here — alacritty reaps it below — so its pid
+            // cannot yet have been reused by another process.
+            if !self.reader_finished.load(Ordering::Acquire) {
+                unsafe {
+                    libc::kill(child_pid, libc::SIGKILL);
+                }
+            }
+            self.stopped.store(true, Ordering::Release);
             if let Some(reader) = self.reader.take() {
                 let _ = reader.join();
             }
