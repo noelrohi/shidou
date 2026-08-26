@@ -141,8 +141,22 @@ export function RightPanel({
   const tabStrip = useRef<HTMLDivElement>(null)
   const [tabOverflow, setTabOverflow] = useState({ start: false, end: false })
   const viewportWidth = useViewportWidth()
-  const maxPanelWidth = Math.max(280, Math.min(1_000, viewportWidth - sidebarWidth - 360))
-  const fittedPanelWidth = clamp(panelWidth, 280, maxPanelWidth)
+  // Only a docked panel shares the row, so only a docked panel owes the
+  // sidebar and the transcript their minimums. Below `xl` the aside is an
+  // overlay (`xl:relative`) that covers the transcript, and below `lg` the
+  // sidebar is an overlay too — there the panel takes the whole screen rather
+  // than leaving a strip of transcript too narrow to read behind it.
+  const sheet = viewportWidth < 1_024
+  const docked = viewportWidth >= 1_280
+  const maxPanelWidth = sheet
+    ? viewportWidth
+    : docked
+      ? Math.max(280, Math.min(1_000, viewportWidth - sidebarWidth - 360))
+      : Math.max(280, viewportWidth - sidebarWidth)
+  const fittedPanelWidth = sheet ? viewportWidth : clamp(panelWidth, 280, maxPanelWidth)
+  // Two columns need a tree at its 140px minimum beside content wide enough to
+  // read. Under that the surfaces show one column and reach the other on demand.
+  const singleColumn = fittedPanelWidth < 560
   const bufferRoot = session && project ? sessionCwd(session, project) : undefined
 
   useEffect(() => {
@@ -342,16 +356,18 @@ export function RightPanel({
         'absolute inset-y-0 right-0 z-30 flex shrink-0 flex-col border-l bg-background shadow-2xl xl:relative xl:z-auto xl:shadow-none',
         !open && 'hidden',
       )}
-      style={{ width: `min(${fittedPanelWidth}px, 92vw)` }}
+      style={{ width: `${fittedPanelWidth}px` }}
     >
-      <PanelResizeHandle
-        edge="left"
-        label={t('right_panel.resize')}
-        max={maxPanelWidth}
-        min={280}
-        value={fittedPanelWidth}
-        onChange={onPanelWidthChange}
-      />
+      {!sheet && (
+        <PanelResizeHandle
+          edge="left"
+          label={t('right_panel.resize')}
+          max={maxPanelWidth}
+          min={280}
+          value={fittedPanelWidth}
+          onChange={onPanelWidthChange}
+        />
+      )}
       <header className="flex h-12 shrink-0 items-center gap-1.5 px-2.5 pr-3.5">
         <div className="relative min-w-0 flex-1 self-stretch overflow-hidden">
           <div
@@ -436,7 +452,7 @@ export function RightPanel({
         </Button>
       </header>
 
-      {!activeTab && <PanelChooser onSelect={openSurface} />}
+      {!activeTab && <PanelChooser singleColumn={singleColumn} onSelect={openSurface} />}
       {tabs.map((tab) => (
         <div
           aria-labelledby={panelTabId(tab.id)}
@@ -462,6 +478,7 @@ export function RightPanel({
               requestedFile={tab.selectedFile ?? null}
               session={session}
               setBuffers={setFileBuffers}
+              singleColumn={singleColumn}
               tabId={tab.id}
               onDirtyChange={setTabDirty}
               onOpenFile={openFile}
@@ -474,6 +491,7 @@ export function RightPanel({
               panelWidth={fittedPanelWidth}
               project={project}
               session={session}
+              singleColumn={singleColumn}
               onDiffSourceChange={(source) => {
                 setPickedDiff({ sessionId, source })
                 const mode = reviewDiffModeForSource(source, latestReviewTurnSource(session))
@@ -600,18 +618,24 @@ function PanelTabButton({
   )
 }
 
-function PanelChooser({ onSelect }: { onSelect: (surface: PanelSurface) => void }) {
+function PanelChooser({
+  singleColumn,
+  onSelect,
+}: {
+  singleColumn: boolean
+  onSelect: (surface: PanelSurface) => void
+}) {
   const { t } = useI18n()
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-8">
-      <div className="w-full max-w-[420px] text-center">
+    <div className="flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-5 py-8">
+      <div className="my-auto w-full max-w-[420px] text-center">
         <h3 className="text-[13px] font-medium">{t('right_panel.open_surface')}</h3>
         <p className="mt-[5px] text-[11px] text-[var(--text-tertiary)]">{t('right_panel.choose_surface')}</p>
-        <div className="mt-5 grid grid-cols-2 gap-2 text-left">
-          <PanelCard icon={<ShidouIcon className="size-[18px]" name="terminal" />} label={t('right_panel.terminal')} description={t('right_panel.terminal_description')} onClick={() => onSelect('terminal')} />
-          <PanelCard icon={<ShidouIcon className="size-[18px]" name="folder" />} label={t('right_panel.files')} description={t('right_panel.files_description')} onClick={() => onSelect('files')} />
-          <PanelCard icon={<ShidouIcon className="size-[18px]" name="fileDiff" />} label={t('right_panel.diff')} description={t('right_panel.diff_description')} onClick={() => onSelect('changes')} />
-          <PanelCard icon={<ShidouIcon className="size-[18px]" name="sparkle" />} label={t('right_panel.visuals')} description={t('right_panel.visuals_description')} onClick={() => onSelect('visuals')} />
+        <div className={cn('mt-5 grid gap-2 text-left', singleColumn ? 'grid-cols-1' : 'grid-cols-2')}>
+          <PanelCard singleColumn={singleColumn} icon={<ShidouIcon className="size-[18px]" name="terminal" />} label={t('right_panel.terminal')} description={t('right_panel.terminal_description')} onClick={() => onSelect('terminal')} />
+          <PanelCard singleColumn={singleColumn} icon={<ShidouIcon className="size-[18px]" name="folder" />} label={t('right_panel.files')} description={t('right_panel.files_description')} onClick={() => onSelect('files')} />
+          <PanelCard singleColumn={singleColumn} icon={<ShidouIcon className="size-[18px]" name="fileDiff" />} label={t('right_panel.diff')} description={t('right_panel.diff_description')} onClick={() => onSelect('changes')} />
+          <PanelCard singleColumn={singleColumn} icon={<ShidouIcon className="size-[18px]" name="sparkle" />} label={t('right_panel.visuals')} description={t('right_panel.visuals_description')} onClick={() => onSelect('visuals')} />
         </div>
       </div>
     </div>
@@ -622,16 +646,23 @@ function PanelCard({
   icon,
   label,
   description,
+  singleColumn,
   onClick,
 }: {
   icon: ReactNode
   label: string
   description: string
+  singleColumn: boolean
   onClick?: () => void
 }) {
   return (
     <button
-      className="flex h-28 min-w-0 flex-col rounded-lg border border-[var(--input)] bg-card p-3.5 text-left outline-none hover:border-[var(--text-ghost)] hover:bg-[var(--raised)] active:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
+      className={cn(
+        'flex min-w-0 flex-col rounded-lg border border-[var(--input)] bg-card p-3.5 text-left outline-none hover:border-[var(--text-ghost)] hover:bg-[var(--raised)] active:bg-accent focus-visible:ring-1 focus-visible:ring-ring',
+        // Stacked, four fixed-height cards run past the fold on a phone, so a
+        // single column trades the card shape for a row that fits.
+        singleColumn ? 'gap-1' : 'h-28',
+      )}
       type="button"
       onClick={onClick}
     >
@@ -639,8 +670,68 @@ function PanelCard({
         <span className="min-w-0 text-[12.5px] font-medium">{label}</span>
         <span className="text-[var(--text-tertiary)]">{icon}</span>
       </span>
-      <span className="mt-3 line-clamp-3 text-[10.5px] leading-4 text-[var(--text-tertiary)]">{description}</span>
+      <span className={cn(
+        'text-[10.5px] leading-4 text-[var(--text-tertiary)]',
+        singleColumn ? 'line-clamp-2' : 'mt-3 line-clamp-3',
+      )}>
+        {description}
+      </span>
     </button>
+  )
+}
+
+/**
+ * A panel too narrow for two columns keeps its file tree, but as a layer over
+ * the content instead of a column beside it. These two pieces — the reveal
+ * control and the dismissing scrim — are what the Files and Review surfaces
+ * share when they fold to one column.
+ */
+function PanelTreeToggle({
+  label,
+  open,
+  onToggle,
+}: {
+  label: string
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      aria-expanded={open}
+      aria-label={label}
+      className={cn(
+        'flex size-7 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-secondary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring',
+        open && 'bg-accent text-foreground',
+      )}
+      type="button"
+      onClick={onToggle}
+    >
+      <ShidouIcon className="size-[13px]" name="list" />
+    </button>
+  )
+}
+
+function PanelScrim({
+  label,
+  open,
+  onClose,
+}: {
+  label: string
+  open: boolean
+  onClose: () => void
+}) {
+  return (
+    <button
+      aria-hidden={!open}
+      aria-label={label}
+      className={cn(
+        'pointer-events-none absolute inset-0 z-10 bg-black/25 opacity-0 transition-opacity motion-reduce:transition-none',
+        open && 'pointer-events-auto opacity-100',
+      )}
+      tabIndex={open ? 0 : -1}
+      type="button"
+      onClick={onClose}
+    />
   )
 }
 
@@ -660,6 +751,7 @@ function FilesPanel({
   project,
   requestedFile,
   panelWidth,
+  singleColumn,
   setBuffers,
   onDirtyChange,
   onOpenFile,
@@ -672,6 +764,7 @@ function FilesPanel({
   project?: Project
   requestedFile: string | null
   panelWidth: number
+  singleColumn: boolean
   setBuffers: Dispatch<SetStateAction<Record<string, FileBuffer>>>
   onDirtyChange: (tabId: string, dirty: boolean) => void
   onOpenFile: (tabId: string, path: string, treeWidth: number) => void
@@ -689,10 +782,18 @@ function FilesPanel({
   const [treeWidth, setTreeWidth] = useState(() => readStoredWidth('shidou.fileTreeWidth', 184, 140, 360))
   const treeWidthRef = useRef(treeWidth)
   treeWidthRef.current = treeWidth
+  const [treeOpen, setTreeOpen] = useState(false)
   const root = session && project ? sessionCwd(session, project) : undefined
   const maxTreeWidth = Math.max(140, Math.min(360, panelWidth - 140))
   const fittedTreeWidth = clamp(treeWidth, 140, maxTreeWidth)
+  // With no file open the tree already owns the surface. Once one is open there
+  // is no room for both, so the tree becomes a layer the editor reveals.
+  const treeOverlaid = singleColumn && Boolean(selected)
   const previousRoot = useRef(root)
+
+  useEffect(() => {
+    if (!treeOverlaid) setTreeOpen(false)
+  }, [treeOverlaid])
 
   useEffect(() => {
     if (previousRoot.current === root) return
@@ -811,6 +912,7 @@ function FilesPanel({
         ? current.filter((path) => path !== entry.absolutePath)
         : [...current, entry.absolutePath])
     } else {
+      setTreeOpen(false)
       onOpenFile(tabId, entry.relativePath, treeWidthRef.current)
     }
   }, [onOpenFile, tabId])
@@ -890,10 +992,18 @@ function FilesPanel({
 
   const fileTree = (
     <div
-      className={cn('relative flex min-h-0 flex-col', selected ? 'shrink-0 border-l' : 'flex-1')}
-      style={selected ? { width: fittedTreeWidth } : undefined}
+      className={cn(
+        'relative flex min-h-0 flex-col',
+        treeOverlaid
+          ? cn(
+              'absolute inset-y-0 right-0 z-20 w-[min(288px,85%)] border-l bg-background shadow-2xl transition-transform motion-reduce:transition-none',
+              treeOpen ? 'translate-x-0' : 'pointer-events-none invisible translate-x-full',
+            )
+          : selected ? 'shrink-0 border-l' : 'flex-1',
+      )}
+      style={selected && !treeOverlaid ? { width: fittedTreeWidth } : undefined}
     >
-      {selected && (
+      {selected && !treeOverlaid && (
         <PanelResizeHandle
           edge="left"
           label={t('files.resize_tree')}
@@ -952,7 +1062,7 @@ function FilesPanel({
         saving: false,
       })
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex h-[42px] shrink-0 items-center gap-2 border-b px-4 text-[11px] text-[var(--text-secondary)]">
           <FileTypeIcon className="size-[13px]" path={selected} />
@@ -966,6 +1076,13 @@ function FilesPanel({
               <ShidouIcon className="size-[11px] text-[var(--text-tertiary)]" name="sparkle" />
               {t('files.open_in_visuals')}
             </button>
+          )}
+          {treeOverlaid && (
+            <PanelTreeToggle
+              label={t('files.workspace_files')}
+              open={treeOpen}
+              onToggle={() => setTreeOpen((current) => !current)}
+            />
           )}
         </div>
         {!buffer && file.isPending
@@ -987,6 +1104,9 @@ function FilesPanel({
                 </Suspense>
               )}
       </div>
+      {treeOverlaid && (
+        <PanelScrim label={t('common.close')} open={treeOpen} onClose={() => setTreeOpen(false)} />
+      )}
       {fileTree}
     </div>
   )
@@ -1068,12 +1188,14 @@ function ChangesPanel({
   project,
   diffSource,
   panelWidth,
+  singleColumn,
   onDiffSourceChange,
 }: {
   session: AgentSession | null
   project?: Project
   diffSource: ReviewDiffSource
   panelWidth: number
+  singleColumn: boolean
   onDiffSourceChange: (source: ReviewDiffSource) => void
 }) {
   const { t } = useI18n()
@@ -1086,6 +1208,7 @@ function ChangesPanel({
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
   const [treeWidth, setTreeWidth] = useState(() => readStoredWidth('shidou.diffTreeWidth', 184, 140, 360))
+  const [treeOpen, setTreeOpen] = useState(false)
   const root = session && project ? sessionCwd(session, project) : undefined
   const maxTreeWidth = Math.max(140, Math.min(360, panelWidth - 140))
   const fittedTreeWidth = clamp(treeWidth, 140, maxTreeWidth)
@@ -1216,6 +1339,14 @@ function ChangesPanel({
     },
   ]
 
+  // The file tree only exists alongside a rendered diff, so the control that
+  // reveals it in one column has to come and go with the diff itself.
+  const treeAvailable = !diff.isPending && !diff.error && Boolean(diff.data?.patch.trim())
+
+  useEffect(() => {
+    if (!singleColumn || !treeAvailable) setTreeOpen(false)
+  }, [singleColumn, treeAvailable])
+
   let reviewContent: ReactNode
   if (diff.isPending) {
     reviewContent = <PanelMessage title={t('diff.loading')} detail={t('diff.loading_description')} />
@@ -1226,7 +1357,7 @@ function ChangesPanel({
   } else {
     const data = diff.data
     reviewContent = (
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1">
           <Suspense fallback={<PanelMessage title={t('diff.loading')} detail={t('files.preparing_syntax')} />}>
             <CodeDiffSurface
@@ -1238,17 +1369,27 @@ function ChangesPanel({
           </Suspense>
         </div>
         <div
-          className="relative flex min-h-0 shrink-0 flex-col border-l bg-background"
-          style={{ width: fittedTreeWidth }}
+          className={cn(
+            'relative flex min-h-0 flex-col border-l bg-background',
+            singleColumn
+              ? cn(
+                  'absolute inset-y-0 right-0 z-20 w-[min(288px,85%)] shadow-2xl transition-transform motion-reduce:transition-none',
+                  treeOpen ? 'translate-x-0' : 'pointer-events-none invisible translate-x-full',
+                )
+              : 'shrink-0',
+          )}
+          style={singleColumn ? undefined : { width: fittedTreeWidth }}
         >
-          <PanelResizeHandle
-            edge="left"
-            label={t('diff.resize_tree')}
-            max={maxTreeWidth}
-            min={140}
-            value={fittedTreeWidth}
-            onChange={setTreeWidth}
-          />
+          {!singleColumn && (
+            <PanelResizeHandle
+              edge="left"
+              label={t('diff.resize_tree')}
+              max={maxTreeWidth}
+              min={140}
+              value={fittedTreeWidth}
+              onChange={setTreeWidth}
+            />
+          )}
           <label className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
             <ShidouIcon className="size-[13px] shrink-0 text-[var(--text-tertiary)]" name="search" />
             <input
@@ -1302,6 +1443,7 @@ function ChangesPanel({
                 type="button"
                 onClick={() => {
                   setSelectedFile(row.file.id)
+                  setTreeOpen(false)
                   diffView.current?.scrollToFile(row.file.id)
                 }}
                 onFocus={() => setFocusedDiffRow(diffTreeRowKey(row))}
@@ -1316,6 +1458,9 @@ function ChangesPanel({
             role="tree"
           />
         </div>
+        {singleColumn && (
+          <PanelScrim label={t('common.close')} open={treeOpen} onClose={() => setTreeOpen(false)} />
+        )}
       </div>
     )
   }
@@ -1343,6 +1488,13 @@ function ChangesPanel({
         <button aria-label={t('diff.refresh')} className="rounded p-1 hover:bg-accent" type="button" onClick={() => void diff.refetch()}>
           <ShidouIcon className={cn('size-3.5', diff.isFetching && 'motion-safe:animate-spin')} name="rotateCw" />
         </button>
+        {singleColumn && treeAvailable && (
+          <PanelTreeToggle
+            label={t('diff.changed_files')}
+            open={treeOpen}
+            onToggle={() => setTreeOpen((current) => !current)}
+          />
+        )}
       </div>
       {reviewContent}
     </div>
