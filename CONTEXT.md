@@ -67,6 +67,14 @@ _Avoid_: alert, push
 A session blocked on the user — a pending permission or question. Marked in
 the session list; reopening the app restores its pending prompt via replay.
 
+**App Reload**:
+The desktop recovery command (debug builds): rebuilding the app's entire UI
+state in place, inside the same process, window, and daemon connection. The
+daemon, its runtimes, and other clients continue uninterrupted. Distinct from
+a browser reload (the embedded webview only) and a daemon restart (Settings →
+Daemon Apply, which replaces the daemon process).
+_Avoid_: refresh, restart
+
 **Replay Cursor**:
 A client's high-water mark per session runtime (epoch + sequence), sent on
 reconnect so the daemon replays only missed events. Held in memory across

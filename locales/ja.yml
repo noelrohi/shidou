@@ -21,6 +21,7 @@ menu.toggle_right_panel: 右パネルの表示を切り替える
 menu.focus_composer: 入力欄にフォーカスを移動
 menu.toggle_model_picker: モデル選択の表示を切り替える
 menu.toggle_usage_panel: 使用状況パネルの表示を切り替える
+menu.reload_app: アプリを再読み込み
 menu.window: ウインドウ
 menu.toggle_fps_counter: FPS カウンターの表示を切り替える
 menu.close_window: ウインドウを閉じる

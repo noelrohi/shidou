@@ -42,6 +42,8 @@ menu.toggle_model_picker:
   en: Toggle Model Picker
 menu.toggle_usage_panel:
   en: Toggle Usage Panel
+menu.reload_app:
+  en: Reload App
 menu.window:
   en: Window
 menu.toggle_fps_counter:

@@ -72,6 +72,7 @@ actions!(
         ToggleRightPanel,
         ToggleCommandPalette,
         ToggleFpsCounter,
+        ReloadApp,
         NavigateBack,
         NavigateForward,
         SwitchTaskForward,
@@ -312,6 +313,15 @@ pub fn run() {
                 KeyBinding::new("escape", BrowserAddressCancel, Some("BrowserAddress")),
             ]);
 
+            // App Reload is a debug-build recovery command, so it is bound
+            // alongside the other dev toggles on the shift-alt modifier rather
+            // than the conventional reload key: the browser already owns
+            // secondary-r, and secondary-alt-r is find-regex inside the file
+            // editor, whose deeper context would swallow it exactly when a
+            // wedged pane needs it most.
+            #[cfg(debug_assertions)]
+            cx.bind_keys([KeyBinding::new("secondary-alt-shift-r", ReloadApp, None)]);
+
             cx.on_action(|_: &Quit, cx| cx.quit());
 
             // Unlike AppKit, Linux has no Dock activation path that can
@@ -455,15 +465,25 @@ pub(crate) fn set_app_menus(cx: &mut App, updater_available: bool) {
         Menu {
             name: tr!("menu.view").into(),
             disabled: false,
-            items: vec![
-                MenuItem::action(tr!("menu.command_palette"), ToggleCommandPalette),
-                MenuItem::separator(),
-                MenuItem::action(tr!("menu.toggle_sidebar"), ToggleSidebar),
-                MenuItem::action(tr!("menu.toggle_right_panel"), ToggleRightPanel),
-                MenuItem::action(tr!("menu.focus_composer"), FocusComposer),
-                MenuItem::action(tr!("menu.toggle_model_picker"), ToggleModelPicker),
-                MenuItem::action(tr!("menu.toggle_usage_panel"), ToggleUsagePanel),
-            ],
+            items: {
+                let mut items = vec![
+                    MenuItem::action(tr!("menu.command_palette"), ToggleCommandPalette),
+                    MenuItem::separator(),
+                    MenuItem::action(tr!("menu.toggle_sidebar"), ToggleSidebar),
+                    MenuItem::action(tr!("menu.toggle_right_panel"), ToggleRightPanel),
+                    MenuItem::action(tr!("menu.focus_composer"), FocusComposer),
+                    MenuItem::action(tr!("menu.toggle_model_picker"), ToggleModelPicker),
+                    MenuItem::action(tr!("menu.toggle_usage_panel"), ToggleUsagePanel),
+                ];
+                // Debug builds only: App Reload is a development recovery
+                // command, not something a shipped build offers.
+                #[cfg(debug_assertions)]
+                items.extend([
+                    MenuItem::separator(),
+                    MenuItem::action(tr!("menu.reload_app"), ReloadApp),
+                ]);
+                items
+            },
         },
         Menu {
             name: tr!("menu.window").into(),

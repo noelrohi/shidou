@@ -906,11 +906,21 @@ impl Shidou {
         let clients = self.daemon.subscribe_clients();
         let results = self.task_state_sync_tx.clone();
         let event_wake = self.event_wake_tx.clone();
+        // Disconnects when the owning tree is torn down. Every blocking point
+        // below selects on it, because a parked worker is otherwise only
+        // reachable by a daemon revision that may never come.
+        let cancelled = self.task_state_sync_cancelled.clone();
         std::thread::Builder::new()
             .name("shidou-task-state-sync".into())
             .spawn(move || {
-                let Ok(mut client) = clients.recv() else {
-                    return;
+                let mut client = crossbeam_channel::select! {
+                    recv(clients) -> client => {
+                        let Ok(client) = client else {
+                            return;
+                        };
+                        client
+                    }
+                    recv(cancelled) -> _ => return,
                 };
                 loop {
                     while let Ok(newer) = clients.try_recv() {
@@ -924,6 +934,7 @@ impl Shidou {
                     signal_event_pump(&event_wake);
                     client = loop {
                         crossbeam_channel::select! {
+                            recv(cancelled) -> _ => return,
                             recv(clients) -> replacement => {
                                 let Ok(mut replacement) = replacement else {
                                     return;
@@ -939,8 +950,14 @@ impl Shidou {
                                     // client after the old socket closes. Wait
                                     // for that publication instead of exiting
                                     // the task-state sync worker permanently.
-                                    let Ok(replacement) = clients.recv() else {
-                                        return;
+                                    let replacement = crossbeam_channel::select! {
+                                        recv(clients) -> replacement => {
+                                            let Ok(replacement) = replacement else {
+                                                return;
+                                            };
+                                            replacement
+                                        }
+                                        recv(cancelled) -> _ => return,
                                     };
                                     break replacement;
                                 }

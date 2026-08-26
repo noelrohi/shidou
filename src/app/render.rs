@@ -291,6 +291,7 @@ impl Render for Shidou {
             .on_action(cx.listener(Self::toggle_right_panel_action))
             .on_action(cx.listener(Self::toggle_command_palette_action))
             .on_action(cx.listener(Self::toggle_fps_counter_action))
+            .on_action(cx.listener(Self::reload_app_action))
             .on_action(cx.listener(Self::navigate_back_action))
             .on_action(cx.listener(Self::navigate_forward_action))
             .on_action(cx.listener(Self::switch_task_forward_action))

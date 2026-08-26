@@ -631,6 +631,20 @@ impl Shidou {
         cx.notify();
     }
 
+    /// Deferred so this handler's borrow of the old tree is released before the
+    /// window's root is swapped; the replacement is built while this one is
+    /// still alive, which is what keeps the shared `DaemonSupervisor` from
+    /// reaching a zero refcount and taking the daemon down with it.
+    pub(super) fn reload_app_action(
+        &mut self,
+        _: &crate::ReloadApp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let daemon = self.daemon.clone();
+        window.defer(cx, move |window, cx| Shidou::reload(window, cx, daemon));
+    }
+
     pub(super) fn set_sidebar_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         if self.sidebar_visible == visible {
             return;

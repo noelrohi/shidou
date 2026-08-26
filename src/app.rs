@@ -1155,6 +1155,10 @@ pub struct Shidou {
     /// Cached once at construction for the Daemon settings connection URL;
     /// rendering must not query account or network configuration.
     daemon_hostname: String,
+    /// Sessions that were live when this tree was built, handed from `build`
+    /// to `finish_launch`, which can only re-attach once the entity exists.
+    /// Taken there, so it is empty for the rest of the app's life.
+    startup_live_session_ids: Vec<Uuid>,
     /// Session details currently being fetched from the daemon. Sidebar rows
     /// stay usable while the selected transcript hydrates asynchronously.
     session_hydrations: HashSet<Uuid>,
@@ -1380,6 +1384,14 @@ pub struct Shidou {
     event_wake_tx: smol::channel::Sender<()>,
     task_state_sync_tx: Sender<Result<RemoteTaskStateSnapshot, String>>,
     task_state_sync_events: Receiver<Result<RemoteTaskStateSnapshot, String>>,
+    /// Liveness token for the task-state sync worker: never sent on, only
+    /// dropped with this tree. The worker parks in a `select!` that no other
+    /// channel wakes while the daemon is idle, so without this an App Reload
+    /// would strand the previous worker there, still holding a daemon
+    /// task-state subscription.
+    #[allow(dead_code)]
+    task_state_sync_cancel: Sender<()>,
+    task_state_sync_cancelled: Receiver<()>,
     runtimes: HashMap<Uuid, SessionRuntime>,
     runtime_attach_pending: HashSet<Uuid>,
     runtime_attach_misses: HashMap<Uuid, u8>,
@@ -2043,6 +2055,78 @@ impl Shidou {
         cx: &mut App,
         daemon: shidou_client::DaemonSupervisor,
     ) -> Entity<Self> {
+        let entity = cx.new(|cx| Self::build(window, cx, daemon));
+        Self::finish_launch(&entity, cx);
+        entity
+    }
+
+    /// App Reload: rebuild the entire UI in place — same process, same window,
+    /// same daemon connection. The daemon keeps running because nothing here
+    /// touches `DaemonSupervisor`; its `Arc` is simply cloned into the new tree
+    /// before the old one drops, so provider runtimes and other connected
+    /// clients never notice. Live sessions re-attach through the ordinary
+    /// startup path and replay from their cursors, which stay valid while the
+    /// daemon's epoch is unchanged.
+    ///
+    /// Only surfaced in debug builds: the menu item and keybinding are gated,
+    /// not this path.
+    pub fn reload(window: &mut Window, cx: &mut App, daemon: shidou_client::DaemonSupervisor) {
+        let entity = window.replace_root(cx, |window, cx| Self::build(window, cx, daemon));
+        Self::finish_launch(&entity, cx);
+        let composer_focus = entity.read(cx).composer_focus(cx);
+        window.focus(&composer_focus, cx);
+    }
+
+    /// Wiring that needs the constructed entity in hand, so it cannot run
+    /// inside `cx.new`: back-references from the panes and the navigation rail,
+    /// the first row measurement, and the background work launch depends on.
+    fn finish_launch(entity: &Entity<Self>, cx: &mut App) {
+        let (navigation_rail, sidebar_pane, transcript_pane, right_panel_pane) = {
+            let this = entity.read(cx);
+            (
+                this.navigation_rail.clone(),
+                this.sidebar_pane.clone(),
+                this.transcript_pane.clone(),
+                this.right_panel_pane.clone(),
+            )
+        };
+        navigation_rail.update(cx, |rail, _| rail.set_shidou(entity.downgrade()));
+        for pane in [&sidebar_pane, &transcript_pane, &right_panel_pane] {
+            pane.update(cx, |pane, cx| pane.bind(entity, cx));
+        }
+        let initial_row_count = entity.read(cx).transcript_row_count();
+        entity.read(cx).reset_transcript_rows(initial_row_count);
+        // Everything launch needs from `git` or the filesystem, started now
+        // that there is an entity to notify and deliberately not before the
+        // first frame.
+        entity.update(cx, |this, cx| {
+            this.restart_task_state_sync();
+            for session_id in std::mem::take(&mut this.startup_live_session_ids) {
+                this.start_runtime_attachment(session_id, cx);
+            }
+            this.start_pending_checkpoint_captures(cx);
+            // The autocomplete indexes prefetch alongside, so typing `/` or
+            // `@` into the very first prompt already has data to draw.
+            this.refresh_composer_sources(cx);
+            // Re-detect providers after resolving the user's login-shell
+            // environment off-thread. Detection then starts model and version
+            // discovery for every CLI it finds, including nvm/fnm-managed
+            // installs.
+            this.refresh_provider_detection(None);
+            // The skill library too: the Skills settings page must open onto
+            // data, not a scan.
+            this.ensure_skills_catalog(false, cx);
+            // And the header's "open project in app" targets, so its menu
+            // lists installed apps and icons without ever probing on a frame.
+            this.detect_open_in_apps(cx);
+        });
+    }
+
+    fn build(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        daemon: shidou_client::DaemonSupervisor,
+    ) -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let store = StateStore::remote(daemon.clone());
         let daemon_hostname = crate::daemon::local_hostname().unwrap_or_else(|| "this-mac".into());
@@ -2296,6 +2380,7 @@ impl Shidou {
         let (plan_usage_tx, plan_usage_events) = unbounded();
         let (event_wake_tx, event_wake_events) = smol::channel::bounded(1);
         let (task_state_sync_tx, task_state_sync_events) = unbounded();
+        let (task_state_sync_cancel, task_state_sync_cancelled) = unbounded();
         #[cfg(target_os = "macos")]
         {
             let computer_permission_tx = computer_permission_tx.clone();
@@ -2392,7 +2477,9 @@ impl Shidou {
             .and_then(|state| state.0.as_ref())
             .map(|updater| (updater.status(), Some(updater.events())))
             .unwrap_or_default();
-        let entity = cx.new(|cx| {
+        // Scoped so the focus handles and per-widget locals below stay out of
+        // the rest of the constructor.
+        {
             let settings_focus = cx.focus_handle();
             let onboarding_add_project_focus = cx.focus_handle();
             let onboarding_projectless_focus = cx.focus_handle();
@@ -2826,6 +2913,7 @@ impl Shidou {
             Self {
                 daemon,
                 daemon_hostname,
+                startup_live_session_ids,
                 session_hydrations: HashSet::new(),
                 pending_session_activation: None,
                 analytics,
@@ -2947,6 +3035,8 @@ impl Shidou {
                 event_wake_tx,
                 task_state_sync_tx,
                 task_state_sync_events,
+                task_state_sync_cancel,
+                task_state_sync_cancelled,
                 runtimes: HashMap::new(),
                 runtime_attach_pending: HashSet::new(),
                 runtime_attach_misses: HashMap::new(),
@@ -3121,38 +3211,7 @@ impl Shidou {
                 fps_frame_count: 0,
                 fps_value: 0,
             }
-        });
-        navigation_rail.update(cx, |rail, _| rail.set_shidou(entity.downgrade()));
-        for pane in [&sidebar_pane, &transcript_pane, &right_panel_pane] {
-            pane.update(cx, |pane, cx| pane.bind(&entity, cx));
         }
-        let initial_row_count = entity.read(cx).transcript_row_count();
-        entity.read(cx).reset_transcript_rows(initial_row_count);
-        // Everything launch needs from `git` or the filesystem, started now
-        // that there is an entity to notify and deliberately not before the
-        // first frame.
-        entity.update(cx, |this, cx| {
-            this.restart_task_state_sync();
-            for session_id in startup_live_session_ids {
-                this.start_runtime_attachment(session_id, cx);
-            }
-            this.start_pending_checkpoint_captures(cx);
-            // The autocomplete indexes prefetch alongside, so typing `/` or
-            // `@` into the very first prompt already has data to draw.
-            this.refresh_composer_sources(cx);
-            // Re-detect providers after resolving the user's login-shell
-            // environment off-thread. Detection then starts model and version
-            // discovery for every CLI it finds, including nvm/fnm-managed
-            // installs.
-            this.refresh_provider_detection(None);
-            // The skill library too: the Skills settings page must open onto
-            // data, not a scan.
-            this.ensure_skills_catalog(false, cx);
-            // And the header's "open project in app" targets, so its menu
-            // lists installed apps and icons without ever probing on a frame.
-            this.detect_open_in_apps(cx);
-        });
-        entity
     }
 }
 
