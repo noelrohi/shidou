@@ -16,6 +16,11 @@ settings:
 packages:
   ShidouKit:
     path: Packages/ShidouKit
+  # PROTOTYPE dependency for the streaming transcript spike (wayfinder #9);
+  # stays when the real transcript lands (decision #6 chose swift-markdown).
+  swift-markdown:
+    url: https://github.com/swiftlang/swift-markdown
+    from: 0.4.0
 targets:
   Shidou:
     type: application
@@ -29,6 +34,9 @@ targets:
           - ShidouProtocol
           - ShidouClient
           - ShidouSession
+      - package: swift-markdown
+        products:
+          - Markdown
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.shidou.ios
