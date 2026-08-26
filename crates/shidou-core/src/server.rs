@@ -974,7 +974,7 @@ mod tests {
     use crate::daemon::ShidouBackend;
     #[cfg(unix)]
     use crate::model::Project;
-    use crate::model::{AgentSession, ProviderKind};
+    use crate::model::{ActivityItem, ActivityKind, AgentSession, ProviderKind, TranscriptBlock};
     #[cfg(unix)]
     use crate::persistence::StateStore;
     #[cfg(unix)]
@@ -985,6 +985,66 @@ mod tests {
     use serde_json::json;
     use shidou_client::DaemonClient;
     use std::path::PathBuf;
+
+    #[cfg(unix)]
+    struct ShidouTestDaemon {
+        root: PathBuf,
+        address: std::net::SocketAddr,
+        shutdown_client: DaemonClient,
+        server: Option<std::thread::JoinHandle<()>>,
+    }
+
+    #[cfg(unix)]
+    impl ShidouTestDaemon {
+        fn new(label: &str, configure: impl FnOnce(&ShidouBackend)) -> Self {
+            let root = std::env::temp_dir().join(format!("shidou-{label}-{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&root).unwrap();
+            let backend = ShidouBackend::new(
+                DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
+                StateStore::daemon(root.join("app.db")),
+            )
+            .unwrap();
+            configure(&backend);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let server_shutdown = shutdown.clone();
+            let server = std::thread::spawn(move || {
+                serve(
+                    listener,
+                    "secret".into(),
+                    Arc::new(backend),
+                    server_shutdown,
+                    ServerOptions {
+                        allow_shutdown: true,
+                        ..ServerOptions::default()
+                    },
+                )
+                .unwrap()
+            });
+            let shutdown_client =
+                DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
+            Self {
+                root,
+                address,
+                shutdown_client,
+                server: Some(server),
+            }
+        }
+
+        fn connect(&self) -> DaemonClient {
+            DaemonClient::connect(&self.address.to_string(), "secret".into()).unwrap()
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ShidouTestDaemon {
+        fn drop(&mut self) {
+            self.shutdown_client.shutdown();
+            self.server.take().unwrap().join().unwrap();
+            std::fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
 
     #[derive(Default)]
     struct TestBackend {
@@ -1182,34 +1242,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn stale_projection_cannot_resurrect_a_removed_session() {
-        let root = std::env::temp_dir().join(format!("shidou-remove-race-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let backend = ShidouBackend::new(
-            DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
-            StateStore::daemon(root.join("app.db")),
-        )
-        .unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let server_shutdown = shutdown.clone();
-        let server = std::thread::spawn(move || {
-            serve(
-                listener,
-                "secret".into(),
-                Arc::new(backend),
-                server_shutdown,
-                ServerOptions {
-                    allow_shutdown: true,
-                    ..ServerOptions::default()
-                },
-            )
-            .unwrap()
-        });
-
-        let stale_client = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
-        let remover = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
-        let project = Project::from_path(root.join("repo"));
+        let daemon = ShidouTestDaemon::new("remove-race", |_| {});
+        let stale_client = daemon.connect();
+        let remover = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
         let mut session = AgentSession::new(project.id, ProviderKind::Codex);
         session.begin_turn("persist me");
         stale_client
@@ -1248,10 +1284,227 @@ mod tests {
             panic!("expected task state");
         };
         assert!(sessions.is_empty());
+    }
 
-        stale_client.shutdown();
-        server.join().unwrap();
-        std::fs::remove_dir_all(root).unwrap();
+    #[cfg(unix)]
+    #[test]
+    fn generic_save_cannot_remove_canonical_transcript_blocks() {
+        let daemon = ShidouTestDaemon::new("transcript-block-race", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let mut canonical = AgentSession::new(project.id, ProviderKind::Claude);
+        let turn_id = canonical.begin_turn("inspect it");
+        canonical.transcript_blocks.push(TranscriptBlock {
+            after_message: 1,
+            turn_id: Some(turn_id),
+            activities: vec![ActivityItem::new(
+                Some("tool-1".into()),
+                ActivityKind::FileRead,
+                "Read file",
+                None,
+                true,
+            )],
+        });
+        canonical.finish_active_turn(crate::model::TurnStatus::Completed);
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![canonical.id],
+                    sessions: vec![canonical.clone()],
+                },
+            )
+            .unwrap();
+
+        let mut stale = canonical.clone();
+        stale.transcript_blocks.clear();
+        stale.updated_at = canonical.updated_at.saturating_add(1);
+        let ResponsePayload::TaskStateSaved { sessions } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![stale.id],
+                    sessions: vec![stale],
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected task-state save response");
+        };
+
+        assert_eq!(sessions[0].transcript_blocks.len(), 1);
+        assert_eq!(
+            sessions[0].transcript_blocks[0].activities[0].title,
+            "Read file"
+        );
+
+        let mut stale = sessions[0].clone();
+        stale.transcript_blocks[0].activities.clear();
+        stale.updated_at = stale.updated_at.saturating_add(1);
+        let ResponsePayload::TaskStateSaved { sessions } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![stale.id],
+                    sessions: vec![stale],
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected task-state save response");
+        };
+        assert_eq!(sessions[0].transcript_blocks[0].activities.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_save_can_append_a_client_turn_when_old_message_state_differs() {
+        let runtime_id = Uuid::new_v4();
+        let epoch = Uuid::new_v4();
+        let mut canonical = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        canonical.status = crate::model::SessionStatus::Working;
+        let daemon = ShidouTestDaemon::new("client-turn-race", |backend| {
+            backend.set_active_runtime_for_test(canonical.id, runtime_id);
+        });
+        let client = daemon.connect();
+        canonical.begin_turn("first");
+        canonical.push_message(crate::model::MessageRole::Assistant, "first response");
+        canonical.finish_active_turn(crate::model::TurnStatus::Completed);
+        canonical.runtime_event_cursor = Some(crate::model::RuntimeEventCursor {
+            runtime_id,
+            epoch,
+            sequence: 168,
+        });
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![canonical.id],
+                    sessions: vec![canonical.clone()],
+                },
+            )
+            .unwrap();
+
+        let ResponsePayload::Session {
+            session: Some(hydrated),
+        } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::HydrateSession {
+                    session_id: canonical.id,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected hydrated session");
+        };
+        assert_eq!(hydrated.messages[0].id, canonical.messages[0].id);
+        assert_eq!(hydrated.turns[0].id, canonical.turns[0].id);
+
+        let mut incoming = hydrated;
+        incoming.messages[1].streaming = true;
+        incoming.begin_turn("come again");
+        incoming.push_message(crate::model::MessageRole::Assistant, "session limit");
+        incoming.finish_active_turn(crate::model::TurnStatus::Failed);
+        incoming.status = crate::model::SessionStatus::Failed;
+        incoming.runtime_event_cursor = Some(crate::model::RuntimeEventCursor {
+            runtime_id,
+            epoch,
+            sequence: 167,
+        });
+        let ResponsePayload::TaskStateSaved { sessions } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![incoming.id],
+                    sessions: vec![incoming],
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected task-state save response");
+        };
+
+        assert!(
+            sessions[0]
+                .messages
+                .iter()
+                .any(|message| message.content == "come again")
+        );
+        assert_eq!(sessions[0].turns.len(), 2);
+        assert_eq!(sessions[0].status, crate::model::SessionStatus::Failed);
+
+        canonical.messages[1].content.clear();
+        let ResponsePayload::TaskStateSaved { sessions } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![canonical.id],
+                    sessions: vec![canonical],
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected task-state save response");
+        };
+        assert_eq!(
+            sessions[0].turns.len(),
+            2,
+            "an equal-cursor save shrank history"
+        );
+        assert!(
+            sessions[0]
+                .messages
+                .iter()
+                .any(|message| message.content == "first response"),
+            "an equal-cursor save erased canonical message content"
+        );
+
+        let mut replaced_runtime = sessions[0].clone();
+        replaced_runtime.begin_turn("one more time");
+        replaced_runtime.status = crate::model::SessionStatus::Connecting;
+        replaced_runtime.updated_at = replaced_runtime.updated_at.saturating_add(1);
+        replaced_runtime.runtime_event_cursor = Some(crate::model::RuntimeEventCursor {
+            runtime_id: Uuid::new_v4(),
+            epoch: Uuid::new_v4(),
+            sequence: 1,
+        });
+        let ResponsePayload::TaskStateSaved { sessions } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![replaced_runtime.id],
+                    sessions: vec![replaced_runtime],
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected task-state save response");
+        };
+        assert_eq!(sessions[0].turns.len(), 3);
+        assert_eq!(
+            sessions[0].runtime_event_cursor,
+            Some(crate::model::RuntimeEventCursor {
+                runtime_id,
+                epoch,
+                sequence: 168,
+            })
+        );
     }
 
     #[test]

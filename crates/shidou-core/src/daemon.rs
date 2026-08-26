@@ -34,6 +34,8 @@ pub struct ShidouBackend {
     task_state: Mutex<PersistedState>,
     removed_session_ids: Mutex<HashSet<Uuid>>,
     removed_project_ids: Mutex<HashSet<Uuid>>,
+    #[cfg(test)]
+    active_runtime_overrides: Mutex<HashMap<Uuid, Uuid>>,
     composer_drafts: ComposerDraftStore,
     attachments: AttachmentStore,
     usage_scan_cache: Mutex<crate::usage_history::ScanCache>,
@@ -69,6 +71,8 @@ impl ShidouBackend {
             task_state: Mutex::new(task_state),
             removed_session_ids: Mutex::new(HashSet::new()),
             removed_project_ids: Mutex::new(HashSet::new()),
+            #[cfg(test)]
+            active_runtime_overrides: Mutex::new(HashMap::new()),
             composer_drafts,
             attachments,
             usage_scan_cache: Mutex::new(HashMap::new()),
@@ -76,6 +80,13 @@ impl ShidouBackend {
             usage_rates_dir,
             default_cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_active_runtime_for_test(&self, session_id: Uuid, runtime_id: Uuid) {
+        self.active_runtime_overrides
+            .lock()
+            .insert(session_id, runtime_id);
     }
 
     /// Capture and persist one ending checkpoint exactly once per daemon.
@@ -316,6 +327,17 @@ impl Backend for ShidouBackend {
                     .iter()
                     .map(|(session_id, (runtime_id, _))| (*session_id, *runtime_id))
                     .collect::<HashMap<_, _>>();
+                #[cfg(test)]
+                let active_runtimes = {
+                    let mut active_runtimes = active_runtimes;
+                    active_runtimes.extend(
+                        self.active_runtime_overrides
+                            .lock()
+                            .iter()
+                            .map(|(session_id, runtime_id)| (*session_id, *runtime_id)),
+                    );
+                    active_runtimes
+                };
                 let mut state = self.task_state.lock();
                 let removed_session_ids = self.removed_session_ids.lock();
                 let removed_project_ids = self.removed_project_ids.lock();
@@ -330,22 +352,14 @@ impl Backend for ShidouBackend {
                     .iter()
                     .map(|session| session.id)
                     .collect::<Vec<_>>();
-                for mut session in sessions {
+                for session in sessions {
                     if let Some(existing) = state
                         .sessions
                         .iter_mut()
                         .find(|existing| existing.id == session.id)
                     {
-                        if session_projection_precedes(
-                            existing,
-                            &session,
-                            active_runtimes.get(&session.id).copied(),
-                        ) {
-                            merge_stale_session_metadata(existing, session);
-                        } else {
-                            preserve_daemon_checkpoints(existing, &mut session);
-                            *existing = session;
-                        }
+                        let active_runtime_id = active_runtimes.get(&session.id).copied();
+                        merge_saved_session(existing, session, active_runtime_id);
                     } else {
                         state.sessions.push(session);
                     }
@@ -678,11 +692,74 @@ impl Backend for ShidouBackend {
     }
 }
 
-fn session_projection_precedes(
+fn merge_saved_session(
+    existing: &mut AgentSession,
+    mut incoming: AgentSession,
+    active_runtime_id: Option<Uuid>,
+) {
+    let advances = session_projection_order(existing, &incoming, active_runtime_id)
+        == SessionProjectionOrder::Advances;
+    if !advances || !preserves_transcript_lineage(existing, &incoming) {
+        merge_stale_session_metadata(existing, incoming);
+    } else {
+        preserve_daemon_checkpoints(existing, &mut incoming);
+        *existing = incoming;
+    }
+}
+
+/// Clients hydrate the canonical projection before attaching to a runtime, so
+/// IDs already in the transcript identify its shared prefix. Runtime reducers
+/// preserve those IDs and generate IDs only for new suffix items. If that
+/// contract changes, whole-session reconciliation must be replaced by a
+/// daemon-owned projection rather than weakened to counts or content guesses.
+fn has_turn_message_prefix(existing: &AgentSession, incoming: &AgentSession) -> bool {
+    existing.turns.len() <= incoming.turns.len()
+        && existing.messages.len() <= incoming.messages.len()
+        && existing
+            .turns
+            .iter()
+            .zip(&incoming.turns)
+            .all(|(left, right)| left.id == right.id && left.turn_count == right.turn_count)
+        && existing
+            .messages
+            .iter()
+            .zip(&incoming.messages)
+            .all(|(left, right)| left.id == right.id)
+}
+
+fn preserves_transcript_lineage(existing: &AgentSession, incoming: &AgentSession) -> bool {
+    has_turn_message_prefix(existing, incoming)
+        && existing.transcript_blocks.len() <= incoming.transcript_blocks.len()
+        && existing
+            .transcript_blocks
+            .iter()
+            .zip(&incoming.transcript_blocks)
+            .all(|(left, right)| {
+                left.after_message == right.after_message
+                    && left.turn_id == right.turn_id
+                    && left.activities.len() <= right.activities.len()
+                    && left
+                        .activities
+                        .iter()
+                        .zip(&right.activities)
+                        .all(|(left, right)| left.id == right.id)
+            })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionProjectionOrder {
+    Precedes,
+    Same,
+    Advances,
+}
+
+fn session_projection_order(
     existing: &AgentSession,
     incoming: &AgentSession,
     active_runtime_id: Option<Uuid>,
-) -> bool {
+) -> SessionProjectionOrder {
+    use std::cmp::Ordering;
+
     let existing_cursor = existing.runtime_event_cursor;
     let incoming_cursor = incoming.runtime_event_cursor;
     if let Some(active_runtime_id) = active_runtime_id {
@@ -691,21 +768,33 @@ fn session_projection_precedes(
         let incoming_is_active =
             incoming_cursor.is_some_and(|cursor| cursor.runtime_id == active_runtime_id);
         if existing_is_active != incoming_is_active {
-            return existing_is_active;
+            return if existing_is_active {
+                SessionProjectionOrder::Precedes
+            } else {
+                SessionProjectionOrder::Advances
+            };
         }
     }
-    match (existing_cursor, incoming_cursor) {
+    let ordering = match (existing_cursor, incoming_cursor) {
         (Some(existing), Some(incoming))
             if existing.runtime_id == incoming.runtime_id && existing.epoch == incoming.epoch =>
         {
-            incoming.sequence < existing.sequence
+            incoming.sequence.cmp(&existing.sequence)
         }
-        (Some(_), None) if existing.status.is_busy() => true,
-        _ => incoming.updated_at < existing.updated_at,
+        (Some(_), None) if existing.status.is_busy() => Ordering::Less,
+        _ => incoming.updated_at.cmp(&existing.updated_at),
+    };
+    match ordering {
+        Ordering::Less => SessionProjectionOrder::Precedes,
+        Ordering::Equal => SessionProjectionOrder::Same,
+        Ordering::Greater => SessionProjectionOrder::Advances,
     }
 }
 
 fn merge_stale_session_metadata(existing: &mut AgentSession, incoming: AgentSession) {
+    if merge_appended_client_turns(existing, &incoming) {
+        existing.status = incoming.status;
+    }
     if incoming.updated_at >= existing.updated_at {
         existing.title = incoming.title;
         existing.project_id = incoming.project_id;
@@ -730,6 +819,65 @@ fn merge_stale_session_metadata(existing: &mut AgentSession, incoming: AgentSess
             existing.queued_messages.push(queued);
         }
     }
+}
+
+/// A runtime cursor orders daemon events, not prompts authored by clients. A
+/// client can therefore append a turn while carrying a cursor older than the
+/// daemon's. Recover only an identity-preserving turn suffix: message counts
+/// alone are not evidence of ancestry and would admit duplicated projections.
+fn merge_appended_client_turns(existing: &mut AgentSession, incoming: &AgentSession) -> bool {
+    if incoming.turns.len() <= existing.turns.len()
+        || incoming.messages.len() <= existing.messages.len()
+        || !has_turn_message_prefix(existing, incoming)
+    {
+        return false;
+    }
+
+    let appended_turns = &incoming.turns[existing.turns.len()..];
+    if appended_turns
+        .iter()
+        .enumerate()
+        .any(|(offset, turn)| turn.turn_count != existing.turns.len() + offset + 1)
+    {
+        return false;
+    }
+    let appended_turn_ids = appended_turns
+        .iter()
+        .map(|turn| turn.id)
+        .collect::<HashSet<_>>();
+    if appended_turn_ids.len() != appended_turns.len() {
+        return false;
+    }
+
+    let appended_messages = &incoming.messages[existing.messages.len()..];
+    let every_message_belongs_to_appended_turn = appended_messages.iter().all(|message| {
+        message
+            .turn_id
+            .is_some_and(|turn_id| appended_turn_ids.contains(&turn_id))
+    });
+    let every_turn_has_user_prompt = appended_turns.iter().all(|turn| {
+        appended_messages.iter().any(|message| {
+            message.turn_id == Some(turn.id) && message.role == crate::model::MessageRole::User
+        })
+    });
+    if !every_message_belongs_to_appended_turn || !every_turn_has_user_prompt {
+        return false;
+    }
+
+    existing.messages.extend_from_slice(appended_messages);
+    existing.turns.extend_from_slice(appended_turns);
+    existing.transcript_blocks.extend(
+        incoming
+            .transcript_blocks
+            .iter()
+            .filter(|block| {
+                block
+                    .turn_id
+                    .is_some_and(|turn_id| appended_turn_ids.contains(&turn_id))
+            })
+            .cloned(),
+    );
+    true
 }
 
 /// Ending checkpoints are produced and stored by the daemon. A second client
@@ -1955,11 +2103,10 @@ mod tests {
             sequence: 7,
         });
 
-        assert!(session_projection_precedes(
-            &existing,
-            &stale,
-            Some(runtime_id)
-        ));
+        assert_eq!(
+            session_projection_order(&existing, &stale, Some(runtime_id)),
+            SessionProjectionOrder::Precedes
+        );
         merge_stale_session_metadata(&mut existing, stale);
         assert_eq!(existing.title, "Renamed elsewhere");
         assert_eq!(existing.messages.len(), 1);
