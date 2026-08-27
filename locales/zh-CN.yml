@@ -1024,6 +1024,7 @@ usage.filter_projects: 筛选项目…
 usage.chart_description: Claude Code 与 Codex 的每日%{metric}分布。
 usage.refresh_failed: "用量刷新失败：%{error}"
 usage.context_used: 上下文窗口已使用 %{percent}%（%{shortcut}）
+usage.context_left: 剩余 %{percent}%
 usage.shortcut: 用量（%{shortcut}）
 usage.context_window: 上下文窗口
 usage.plan_limits: 套餐用量限额

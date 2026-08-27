@@ -1827,6 +1827,9 @@ function UsageMeter({
   const contextPercent = context?.window
     ? context.tokens * 100 / context.window
     : null
+  const contextRemaining = contextPercent == null
+    ? null
+    : Math.min(100, Math.max(0, 100 - contextPercent))
   const supportsPlanUsage = PLAN_USAGE_PROVIDERS.includes(session.provider)
   const plan = useQuery({
     queryKey: daemonKeys.planUsage(config?.address ?? 'disconnected', session.provider),
@@ -1853,12 +1856,15 @@ function UsageMeter({
       <Popover.Trigger
         aria-label={tooltip}
         className={cn(
-          'grid h-5 w-[23px] place-items-center rounded-[5px] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring',
+          'flex h-5 items-center gap-[5px] rounded-[5px] px-[5px] text-[12px] text-[var(--text-tertiary)] outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring',
           open && 'bg-accent',
         )}
         title={tooltip}
       >
         <ContextGauge percent={contextPercent} />
+        {contextRemaining != null && (
+          <span>{t('usage.context_left', { percent: contextRemaining.toFixed(0) })}</span>
+        )}
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner
