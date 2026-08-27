@@ -4,7 +4,7 @@ import Foundation
 /// `crates/shidou-protocol/src/protocol.rs`. The daemon enforces exact
 /// protocol-version equality during the handshake.
 public enum ShidouWire {
-    public static let protocolVersion: UInt32 = 4
+    public static let protocolVersion: UInt32 = 5
     public static let maxWireMessageBytes = 48 * 1024 * 1024
     public static let endpointPath = "/v1"
 }
@@ -28,6 +28,24 @@ public struct ReplayCursor: Codable, Hashable, Sendable {
         self.runtimeId = runtimeId
         self.epoch = epoch
         self.sequence = sequence
+    }
+}
+
+/// The daemon reporting that replay cannot make us whole for one session
+/// runtime: everything below `firstAvailable` that we had not already seen was
+/// evicted from its in-memory journal while we were away.
+public struct ReplayGap: Hashable, Sendable {
+    public var sessionId: UUID
+    public var runtimeId: UUID
+    public var epoch: UUID
+    /// The oldest sequence the daemon still holds.
+    public var firstAvailable: UInt64
+
+    public init(sessionId: UUID, runtimeId: UUID, epoch: UUID, firstAvailable: UInt64) {
+        self.sessionId = sessionId
+        self.runtimeId = runtimeId
+        self.epoch = epoch
+        self.firstAvailable = firstAvailable
     }
 }
 
@@ -175,6 +193,11 @@ public enum ServerMessage: Sendable {
     case rejected(message: String)
     case response(requestId: UUID, outcome: ResponseOutcome)
     case event(SequencedEvent)
+    /// Our replay cursor fell off the back of the daemon's journal. The events
+    /// between it and `firstAvailable` are gone, so the tail that follows
+    /// cannot be applied to the projection we are holding — the session has to
+    /// be refetched instead.
+    case replayGap(ReplayGap)
     /// The daemon-owned project/task catalog changed through another client.
     case taskStateChanged(revision: UInt64)
     case shuttingDown
@@ -186,7 +209,7 @@ public enum ServerMessage: Sendable {
 extension ServerMessage: Decodable {
     enum CodingKeys: String, CodingKey {
         case type, protocolVersion, daemonVersion, message, requestId, outcome
-        case sessionId, runtimeId, epoch, sequence, event, revision
+        case sessionId, runtimeId, epoch, sequence, event, revision, firstAvailable
     }
 
     public init(from decoder: Decoder) throws {
@@ -212,6 +235,13 @@ extension ServerMessage: Decodable {
                 epoch: try container.decode(UUID.self, forKey: .epoch),
                 sequence: try container.decode(UInt64.self, forKey: .sequence),
                 event: try container.decode(WireDriverEvent.self, forKey: .event)
+            ))
+        case "replayGap":
+            self = .replayGap(ReplayGap(
+                sessionId: try container.decode(UUID.self, forKey: .sessionId),
+                runtimeId: try container.decode(UUID.self, forKey: .runtimeId),
+                epoch: try container.decode(UUID.self, forKey: .epoch),
+                firstAvailable: try container.decode(UInt64.self, forKey: .firstAvailable)
             ))
         case "taskStateChanged":
             self = .taskStateChanged(revision: try container.decode(UInt64.self, forKey: .revision))

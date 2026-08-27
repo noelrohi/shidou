@@ -9,6 +9,9 @@ public struct DaemonHello: Sendable, Equatable {
 public enum ConnectionEvent: Sendable {
     case event(SequencedEvent)
     case taskStateChanged(revision: UInt64)
+    /// Replay could not cover everything this connection missed for one
+    /// session runtime; the consumer must refetch rather than apply the tail.
+    case replayGap(ReplayGap)
     case disconnected
 }
 
@@ -277,6 +280,13 @@ public actor ShidouDaemonClient {
             lastSeen[key] = (event.epoch, event.sequence)
             for subscriber in subscribers.values {
                 subscriber.yield(.event(event))
+            }
+        case .replayGap(let gap):
+            // The daemon sends this before the surviving tail, so a consumer
+            // that reacts synchronously drops the projection first and cannot
+            // apply half a replay on top of it.
+            for subscriber in subscribers.values {
+                subscriber.yield(.replayGap(gap))
             }
         case .taskStateChanged(let revision):
             for subscriber in subscribers.values {

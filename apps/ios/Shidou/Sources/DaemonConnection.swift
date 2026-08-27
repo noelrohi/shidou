@@ -2,6 +2,7 @@ import Foundation
 import Network
 import ShidouClient
 import ShidouProtocol
+import ShidouSession
 import SwiftUI
 import UIKit
 
@@ -50,6 +51,13 @@ final class DaemonConnection {
     /// Set once per daemon, when pairing lands on a cleartext address that is
     /// neither loopback nor tailnet.
     private(set) var pendingInsecureWarning: SavedDaemon?
+    /// The client-side model of whatever daemon is currently connected.
+    ///
+    /// It lives beside the supervisor rather than in a view because it is the
+    /// supervisor's peer: one is the connection, the other is everything the
+    /// connection is for. A store outlives any screen, and a screen that
+    /// disappears must not take a session's projection with it.
+    private(set) var sessions: SessionStore?
 
     private let store: SavedDaemonStore
     private let tokens: TokenStore
@@ -303,6 +311,9 @@ final class DaemonConnection {
         }
         let supervisor = ConnectionSupervisor(candidates: endpoints, clientId: clientId)
         self.supervisor = supervisor
+        let sessions = SessionStore(supervisor: supervisor)
+        self.sessions = sessions
+        sessions.start()
         pump = Task { [weak self] in
             let stream = await supervisor.events()
             await supervisor.start()
@@ -338,8 +349,10 @@ final class DaemonConnection {
                 daemon.lastGoodAddress = endpoint.candidate
             }
             saved = store.current()
-        case .reconnected, .event, .taskStateChanged:
-            // Session re-attachment lands with the transcript slice.
+        case .reconnected, .event, .taskStateChanged, .replayGap:
+            // The session store subscribes to the same supervisor and owns
+            // these: re-attachment, catalog invalidation, and refetching a
+            // session whose replay came up short.
             break
         }
     }
@@ -353,6 +366,8 @@ final class DaemonConnection {
         pump?.cancel()
         pump = nil
         supervisor = nil
+        sessions?.stop()
+        sessions = nil
         stopPathMonitor()
         cancelGraceWindow()
         guard let outgoing else { return }

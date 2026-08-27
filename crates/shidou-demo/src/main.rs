@@ -56,6 +56,7 @@ fn main() -> anyhow::Result<()> {
             // No client may stop the public demo. A daemon that a reviewer can
             // shut down is a 2.1 rejection waiting to happen.
             allow_shutdown: false,
+            max_replay_events_per_session: arguments.replay_journal_limit,
         },
     )
 }
@@ -76,6 +77,10 @@ struct Arguments {
     bind: String,
     allowed_origins: Vec<String>,
     allow_non_loopback: bool,
+    /// Shrinks the replay journal so a test can overflow it in a handful of
+    /// events instead of the thousands the real ring holds. The published
+    /// demo never passes it.
+    replay_journal_limit: Option<usize>,
 }
 
 impl Arguments {
@@ -83,6 +88,7 @@ impl Arguments {
         let mut bind = DEFAULT_BIND.to_owned();
         let mut allowed_origins = Vec::new();
         let mut allow_non_loopback = false;
+        let mut replay_journal_limit = None;
         let mut arguments = arguments.into_iter();
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
@@ -100,9 +106,19 @@ impl Arguments {
                     );
                 }
                 "--allow-non-loopback" => allow_non_loopback = true,
+                "--replay-journal-limit" => {
+                    replay_journal_limit = Some(
+                        arguments
+                            .next()
+                            .ok_or_else(|| anyhow!("--replay-journal-limit requires a count"))?
+                            .parse()
+                            .context("--replay-journal-limit expects a positive integer")?,
+                    );
+                }
                 "--help" | "-h" => {
                     println!(
-                        "usage: {} [--bind ADDRESS] [--allow-non-loopback] [--allow-origin ORIGIN]...\n\n\
+                        "usage: {} [--bind ADDRESS] [--allow-non-loopback] [--allow-origin ORIGIN]...\n\
+                         \x20      [--replay-journal-limit COUNT]\n\n\
                          Serves Shidou's scripted Demo Session. Nothing in it executes.\n\
                          The bearer token comes from {DAEMON_TOKEN_ENV}, or defaults to the\n\
                          published demo token.",
@@ -117,6 +133,7 @@ impl Arguments {
             bind,
             allowed_origins,
             allow_non_loopback,
+            replay_journal_limit,
         })
     }
 }

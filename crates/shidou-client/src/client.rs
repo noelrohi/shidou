@@ -376,7 +376,14 @@ fn run_client(
                             .retain(|subscriber| subscriber.send(revision).is_ok());
                     }
                     ServerMessage::ShuttingDown => break,
-                    ServerMessage::Hello { .. } | ServerMessage::Rejected { .. } => {}
+                    // The desktop shares a lifetime with the daemon it talks
+                    // to and always connects without replay cursors, so it
+                    // has no projection older than the socket for a gap to
+                    // invalidate. Remote clients, which outlive their daemon
+                    // connection, are the ones this message exists for.
+                    ServerMessage::ReplayGap { .. }
+                    | ServerMessage::Hello { .. }
+                    | ServerMessage::Rejected { .. } => {}
                 }
             }
             Ok(Message::Close(_)) => break,

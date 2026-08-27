@@ -13,6 +13,10 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.10"
     SWIFT_STRICT_CONCURRENCY: complete
+    # Every user-facing string goes through Localizable.xcstrings from here
+    # on; emitting them at build time is what keeps the catalog honest.
+    SWIFT_EMIT_LOC_STRINGS: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
 packages:
   ShidouKit:
     path: Packages/ShidouKit
@@ -29,6 +33,7 @@ targets:
           - ShidouProtocol
           - ShidouClient
           - ShidouSession
+          - ShidouMarkdown
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.shidou.ios

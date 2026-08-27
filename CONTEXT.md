@@ -94,3 +94,19 @@ _Avoid_: refresh, restart
 A client's high-water mark per session runtime (epoch + sequence), sent on
 reconnect so the daemon replays only missed events. Held in memory across
 reconnects; never persisted across launches.
+
+**Replay Gap**:
+The daemon telling a client that replay cannot make it whole: its Replay
+Cursor fell behind the oldest event still in the per-runtime journal, so the
+events between them are gone. The client refetches the session instead of
+applying the surviving tail onto a projection with a hole in it. A phone
+backgrounded through a long run is the ordinary way to get here.
+_Avoid_: desync, missed events
+
+**Session Store**:
+The phone's whole client-side model of a daemon: projects, the session list,
+the projection of every open session, drafts, and the workspace snapshots the
+transcript header reads. It owns command dispatch, catalog invalidation, and
+Replay Gap recovery, and lives in `ShidouKit` so it can be driven headlessly
+against the Demo Daemon.
+_Avoid_: view model, cache

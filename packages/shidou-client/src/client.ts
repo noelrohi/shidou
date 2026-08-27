@@ -69,6 +69,7 @@ export class ShidouClient {
   private subscriptions = new Map<string, Set<EventListener>>();
   private pendingEvents = new Map<string, SequencedEvent[]>();
   private taskStateListeners = new Set<(revision: number) => void>();
+  private replayGapListeners = new Set<(sessionId: string) => void>();
   private sequences = new Map<string, LastSequence>();
   private connectionGeneration = 0;
   private rejectConnect?: (error: Error) => void;
@@ -267,6 +268,18 @@ export class ShidouClient {
     return () => this.taskStateListeners.delete(listener);
   }
 
+  /**
+   * A reconnect's replay could not cover everything this client missed for a
+   * session: the daemon's journal is a bounded ring and the events between our
+   * cursor and its oldest surviving entry are gone. The tail still arrives, but
+   * applying it to the projection we hold would leave a hole, so the listener
+   * must refetch that session instead.
+   */
+  subscribeReplayGap(listener: (sessionId: string) => void): () => void {
+    this.replayGapListeners.add(listener);
+    return () => this.replayGapListeners.delete(listener);
+  }
+
   replayCursors(): ReplayCursor[] {
     return [...this.sequences].map(([key, cursor]) => {
       const [sessionId, runtimeId] = key.split(":", 2) as [string, string];
@@ -332,6 +345,13 @@ export class ShidouClient {
         }
         this.pendingEvents.set(key, buffered);
       }
+      return;
+    }
+    if (message.type === "replayGap") {
+      // Ahead of the surviving tail, and ahead of the sequence bookkeeping the
+      // event branch does, so a listener that drops its projection here cannot
+      // have half a replay applied on top of it first.
+      for (const listener of this.replayGapListeners) listener(message.sessionId);
       return;
     }
     if (message.type === "taskStateChanged") {

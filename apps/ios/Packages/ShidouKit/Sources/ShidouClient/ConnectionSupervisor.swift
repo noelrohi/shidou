@@ -40,6 +40,9 @@ public enum SupervisedEvent: Sendable {
     case phase(ConnectionPhase)
     case event(SequencedEvent)
     case taskStateChanged(revision: UInt64)
+    /// The daemon's journal moved past our cursor for one session runtime
+    /// while we were away. Arrives ahead of the tail it could still replay.
+    case replayGap(ReplayGap)
     /// A fresh connection completed its handshake. Consumers should re-attach
     /// sessions and refetch task state; replayed events follow on the stream.
     case reconnected(DaemonHello)
@@ -349,6 +352,8 @@ public actor ConnectionSupervisor {
                 broadcast(.event(event))
             case .taskStateChanged(let revision):
                 broadcast(.taskStateChanged(revision: revision))
+            case .replayGap(let gap):
+                broadcast(.replayGap(gap))
             case .disconnected:
                 return
             }

@@ -28,7 +28,10 @@ const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MAX_HANDSHAKE_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_CONNECTIONS: usize = 64;
-const MAX_REPLAY_EVENTS_PER_SESSION: usize = 4096;
+/// Replayable events retained per session runtime. A client whose cursor
+/// falls behind the oldest retained event gets a
+/// [`ServerMessage::ReplayGap`] instead of a transcript with a hole in it.
+pub const MAX_REPLAY_EVENTS_PER_SESSION: usize = 4096;
 const MAX_CACHED_RESPONSES: usize = 2048;
 
 #[derive(Clone, Debug, Default)]
@@ -40,6 +43,13 @@ pub struct ServerOptions {
     /// shutdown control message. Service-managed daemons keep running when an
     /// authenticated client disconnects.
     pub allow_shutdown: bool,
+    /// How many replayable events one session runtime retains, overriding
+    /// [`MAX_REPLAY_EVENTS_PER_SESSION`].
+    ///
+    /// Only a test harness has any business setting this: overflowing the
+    /// real ring takes thousands of events, and a client's recovery from that
+    /// overflow is exactly the path worth testing.
+    pub max_replay_events_per_session: Option<usize>,
 }
 
 struct ConnectionPermit(Arc<AtomicUsize>);
@@ -139,15 +149,13 @@ impl From<&AgentSession> for SessionCatalogEntry {
 
 struct Hub {
     epoch: Uuid,
+    replay_limit: usize,
     state: Mutex<HubState>,
 }
 
 impl Default for Hub {
     fn default() -> Self {
-        Self {
-            epoch: Uuid::new_v4(),
-            state: Mutex::new(HubState::default()),
-        }
+        Self::new(MAX_REPLAY_EVENTS_PER_SESSION)
     }
 }
 
@@ -173,6 +181,14 @@ struct RequestDispatcher {
 }
 
 impl Hub {
+    fn new(replay_limit: usize) -> Self {
+        Self {
+            epoch: Uuid::new_v4(),
+            replay_limit: replay_limit.max(1),
+            state: Mutex::new(HubState::default()),
+        }
+    }
+
     fn event_sink(self: &Arc<Self>, session_id: Uuid, runtime_id: Uuid) -> EventSink {
         EventSink {
             session_id,
@@ -228,7 +244,7 @@ impl Hub {
         if replayable {
             let journal = state.journal.entry((session_id, runtime_id)).or_default();
             journal.push_back(event.clone());
-            while journal.len() > MAX_REPLAY_EVENTS_PER_SESSION {
+            while journal.len() > self.replay_limit {
                 journal.pop_front();
             }
         }
@@ -250,6 +266,20 @@ impl Hub {
                 })
                 .map(|cursor| cursor.sequence)
                 .unwrap_or_default();
+            // The journal is contiguous, so its front is the oldest sequence
+            // still recoverable. A cursor more than one behind it is asking
+            // for events that were evicted, and no amount of tail replay
+            // makes that client whole again.
+            if let Some(first_available) = events.front().map(|event| event.sequence)
+                && first_available > sequence + 1
+            {
+                let _ = sender.send(ServerMessage::ReplayGap {
+                    session_id,
+                    runtime_id,
+                    epoch: self.epoch,
+                    first_available,
+                });
+            }
             for event in events.iter().filter(|event| event.sequence > sequence) {
                 let _ = sender.send(ServerMessage::Event(event.clone()));
             }
@@ -468,7 +498,11 @@ pub fn serve(
     listener
         .set_nonblocking(true)
         .context("could not configure Shidou daemon listener")?;
-    let hub = Arc::new(Hub::default());
+    let hub = Arc::new(Hub::new(
+        options
+            .max_replay_events_per_session
+            .unwrap_or(MAX_REPLAY_EVENTS_PER_SESSION),
+    ));
     let dispatcher = Arc::new(RequestDispatcher::new(backend.clone(), hub.clone()));
     let options = Arc::new(options);
     let active_connections = Arc::new(AtomicUsize::new(0));
@@ -2156,6 +2190,112 @@ mod tests {
         };
         assert_eq!(event.epoch, hub.epoch);
         assert_eq!(event.sequence, 1);
+    }
+
+    #[test]
+    fn a_cursor_behind_the_journal_is_told_the_replay_has_a_hole() {
+        let hub = Arc::new(Hub::new(4));
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        hub.begin_runtime(session_id, runtime_id);
+        let sink = hub.event_sink(session_id, runtime_id);
+        for index in 0..10 {
+            sink.send(WireDriverEvent::new(
+                "textDelta",
+                serde_json::Value::String(index.to_string()),
+            ))
+            .unwrap();
+        }
+
+        let (outgoing, events) = unbounded();
+        hub.subscribe(
+            &[ReplayCursor {
+                session_id,
+                runtime_id,
+                epoch: hub.epoch,
+                sequence: 2,
+            }],
+            outgoing,
+        );
+
+        // Sequences 3..=6 were evicted; the client hears that before it hears
+        // anything that would otherwise look like the next event it missed.
+        let ServerMessage::ReplayGap {
+            first_available,
+            epoch,
+            ..
+        } = events.recv().unwrap()
+        else {
+            panic!("a stale cursor must be told the journal moved past it");
+        };
+        assert_eq!(first_available, 7);
+        assert_eq!(epoch, hub.epoch);
+
+        let ServerMessage::Event(event) = events.recv().unwrap() else {
+            panic!("the surviving tail still replays");
+        };
+        assert_eq!(event.sequence, 7);
+    }
+
+    #[test]
+    fn a_cursor_the_journal_still_reaches_replays_without_a_gap() {
+        let hub = Arc::new(Hub::new(4));
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        hub.begin_runtime(session_id, runtime_id);
+        let sink = hub.event_sink(session_id, runtime_id);
+        for index in 0..4 {
+            sink.send(WireDriverEvent::new(
+                "textDelta",
+                serde_json::Value::String(index.to_string()),
+            ))
+            .unwrap();
+        }
+
+        let (outgoing, events) = unbounded();
+        hub.subscribe(
+            &[ReplayCursor {
+                session_id,
+                runtime_id,
+                epoch: hub.epoch,
+                sequence: 2,
+            }],
+            outgoing,
+        );
+
+        let ServerMessage::Event(event) = events.recv().unwrap() else {
+            panic!("a contiguous replay sends events and nothing else");
+        };
+        assert_eq!(event.sequence, 3);
+    }
+
+    /// A client that has never seen this runtime still gets the whole journal,
+    /// and still has to be told when that journal is not the whole story.
+    #[test]
+    fn a_client_with_no_cursor_hears_about_an_overflowed_journal() {
+        let hub = Arc::new(Hub::new(2));
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        hub.begin_runtime(session_id, runtime_id);
+        let sink = hub.event_sink(session_id, runtime_id);
+        for index in 0..5 {
+            sink.send(WireDriverEvent::new(
+                "textDelta",
+                serde_json::Value::String(index.to_string()),
+            ))
+            .unwrap();
+        }
+
+        let (outgoing, events) = unbounded();
+        hub.subscribe(&[], outgoing);
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            ServerMessage::ReplayGap {
+                first_available: 4,
+                ..
+            }
+        ));
     }
 
     struct BlockingProbeBackend {

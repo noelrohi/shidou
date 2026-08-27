@@ -106,6 +106,15 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
         queryKey: ['daemon', config.address, 'task-state'],
       })
     })
+    // A reconnect whose replay came up short: the cached transcript is missing
+    // events nothing can replay, so it has to be refetched rather than topped
+    // up with the tail that did survive.
+    const unsubscribeReplayGap = client.subscribeReplayGap((sessionId) => {
+      if (!config) return
+      void queryClient.invalidateQueries({
+        queryKey: ['daemon', config.address, 'session', sessionId],
+      })
+    })
     const timer = window.setInterval(() => {
       if (!client.connected) {
         setError(translate(locale, 'web.daemon_connection_closed'))
@@ -114,6 +123,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     }, 1_000)
     return () => {
       unsubscribeTaskState()
+      unsubscribeReplayGap()
       window.clearInterval(timer)
     }
   }, [client, config, locale, phase, queryClient])

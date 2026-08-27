@@ -16,7 +16,7 @@ use crate::usage::PlanUsage;
 use crate::usage_history::{UsageHistory, UsageWindow};
 use crate::workspace::{WorkspaceOperation, WorkspaceResult};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const MAX_WIRE_MESSAGE_BYTES: usize = 48 * 1024 * 1024;
 
 // Shared presentation values used by both native and web gallery clients.
@@ -343,6 +343,24 @@ pub enum ServerMessage {
         outcome: ResponseOutcome,
     },
     Event(SequencedEvent),
+    /// The client's replay cursor fell off the back of the daemon's in-memory
+    /// journal: the events between it and `first_available` were evicted and
+    /// are gone for good.
+    ///
+    /// Replay cannot make such a client whole — applying the surviving tail on
+    /// top of its projection would leave a hole in the transcript rather than
+    /// an obvious error. So the daemon says so instead of pretending, and the
+    /// client refetches the session. A phone backgrounded through a long run
+    /// is the ordinary way to get here, not the exotic one: the journal is a
+    /// few thousand events deep and a streaming turn spends them in minutes.
+    ReplayGap {
+        session_id: Uuid,
+        runtime_id: Uuid,
+        epoch: Uuid,
+        /// The oldest sequence the journal still holds. Everything the client
+        /// had not already seen below this is unrecoverable.
+        first_available: u64,
+    },
     /// The daemon-owned project/task catalog changed through another client.
     /// Clients should invalidate their lightweight task-state snapshot; live
     /// runtime events continue through [`Self::Event`].
@@ -523,7 +541,7 @@ mod tests {
 
         assert_eq!(json["type"], "forkSessionFromResponse");
         assert_eq!(json["turnCount"], 7);
-        assert_eq!(PROTOCOL_VERSION, 4);
+        assert_eq!(PROTOCOL_VERSION, 5);
     }
 
     #[test]
@@ -532,7 +550,7 @@ mod tests {
 
         assert_eq!(json["type"], "rewindSessionToMessage");
         assert_eq!(json["turnCount"], 4);
-        assert_eq!(PROTOCOL_VERSION, 4);
+        assert_eq!(PROTOCOL_VERSION, 5);
     }
 
     #[test]

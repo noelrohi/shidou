@@ -1,24 +1,106 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "": {},
+    "%@ %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%lld.": {},
+    "+%llu −%llu": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "+%1$llu −%2$llu"
+          }
+        }
+      }
+    },
+    "A host and port, or a full ws:// URL. A pasted pairing link works too.": {},
     "A public server running a scripted session. Nothing in it runs on your computer, and nothing you send it is executed.": {
       "comment": "Footer under the demo daemon's details in Settings."
     },
+    "About": {},
+    "Address": {},
+    "Addresses": {},
+    "Arguments": {},
+    "At least one address is a plain ws:// connection outside your Mac and your tailnet. Anyone on that network can read the token.": {},
+    "Available in a later version": {},
+    "Camera viewfinder. Point it at the pairing code on your Mac.": {},
+    "Cancel": {},
+    "Catching up…": {},
+    "Changed ^[%lld file](inflect: true)": {},
+    "Command": {},
+    "Command failed": {},
+    "Command failed: %@": {},
+    "Connect": {},
+    "Connect to your Mac": {},
     "Connects to Shidou's public demo server with a scripted session. Nothing in it runs on your computer.": {
       "comment": "Footnote under the “Try the demo” button on the pairing screen."
     },
+    "Continue": {},
+    "Copied": {},
+    "Copy": {},
+    "Copy code": {},
+    "Copy response": {},
+    "Copy transcript": {},
+    "Could not load your tasks": {},
+    "Could not open this task": {},
+    "Could not pair": {},
+    "Daemon": {},
+    "Daemon token": {},
+    "Delete": {},
+    "Delete this task?": {},
     "Demo daemon": {
       "comment": "Settings section header when the phone is on the Demo Daemon, in place of “Paired Mac”."
     },
     "Demo session": {
       "comment": "Title of the persistent banner above the session UI while the demo is connected."
     },
+    "Done": {},
+    "Edited %@": {},
+    "Edited files": {},
+    "Editing %@": {},
+    "Editing files": {},
+    "Encrypted transport": {},
+    "Enter address": {},
+    "Enter address manually": {},
     "Exit": {
       "comment": "Button in the demo banner that leaves the demo. Kept short to fit beside the banner text."
     },
     "Exit the demo": {
       "comment": "VoiceOver label for the demo banner's Exit button."
     },
+    "Failed": {},
+    "Failed to edit %@": {},
+    "Failed to edit files": {},
+    "Failed to list files": {},
+    "Failed to list files in %@": {},
+    "Failed to read %@": {},
+    "Failed to read file": {},
+    "Failed to search files": {},
+    "Failed to search files for %@": {},
+    "Failed to search the web": {},
+    "Failed to search the web for %@": {},
+    "Failed to update plan": {},
+    "Failed: %@": {},
+    "Files and changes": {},
+    "Find in transcript": {},
+    "Forget": {},
+    "Forget this Mac": {},
+    "Forget this Mac?": {},
+    "Hides the details": {},
+    "Hides this turn's work": {},
+    "Image output": {},
+    "Its transcript is removed from the daemon. This cannot be undone.": {},
+    "Last used": {},
     "Leave": {
       "comment": "Confirming button in the “Leave the demo?” dialog."
     },
@@ -28,18 +110,131 @@
     "Leave the demo?": {
       "comment": "Title of the confirmation dialog for leaving the demo."
     },
+    "Listed files": {},
+    "Listed files in %@": {},
+    "Listing files": {},
+    "Listing files in %@": {},
+    "Local Network access may be off": {},
+    "More": {},
+    "Name": {},
+    "New task": {},
+    "Next match": {},
+    "No Mac paired yet.": {},
+    "No matches": {},
+    "No task selected": {},
+    "No tasks yet": {},
+    "Not done": {},
     "Nothing is deleted — the demo holds nothing of yours. You can start it again from the pairing screen.": {
       "comment": "Message in the “Leave the demo?” confirmation dialog."
     },
+    "OK": {},
+    "Older": {},
+    "Open Settings": {},
+    "Open Shidou on your Mac, then Settings → Daemon to show its pairing code.": {},
+    "Opening…": {},
+    "Opens shidou.dev in Safari": {},
+    "Or paste the new token": {},
+    "Output": {},
+    "Pair again": {},
+    "Pair again…": {},
+    "Paired Mac": {},
+    "Pick a task on the left, or start one with ＋.": {},
+    "Point the camera at the code in Settings → Daemon on your Mac.": {},
+    "Previous match": {},
+    "Privacy Policy": {},
+    "Protocol": {},
+    "Ran %@": {},
+    "Ran command": {},
+    "Read %@": {},
+    "Read file": {},
+    "Reading %@": {},
+    "Reading file": {},
+    "Reconnecting to %@…": {},
+    "Reconnecting…": {},
+    "Rename": {},
+    "Rename task": {},
+    "Response copied": {},
     "Returns to pairing with your own Mac": {
       "comment": "VoiceOver hint for the demo banner's Exit button."
     },
+    "Running": {},
+    "Running %@": {},
+    "Running command": {},
+    "Save": {},
+    "Scan code": {},
+    "Scan pairing code": {},
+    "Scan the new code": {},
     "Scripted, on Shidou's demo server. Nothing here runs on your computer.": {
       "comment": "Subtitle of the persistent demo banner."
     },
+    "Searched files": {},
+    "Searched files for %@": {},
+    "Searched the web": {},
+    "Searched the web for %@": {},
+    "Searching files": {},
+    "Searching files for %@": {},
+    "Searching the web": {},
+    "Searching the web for %@": {},
+    "Sessions": {},
+    "Settings": {},
+    "Shidou %@ · protocol v%u": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Shidou %1$@ · protocol v%2$u"
+          }
+        }
+      }
+    },
+    "Shidou needs it to reach a Mac on the same Wi-Fi. Check Settings → Privacy & Security → Local Network, or connect over Tailscale instead.": {},
+    "Shidou runs on your own computer. Pair this phone with its daemon to see your sessions.": {},
+    "Shows the details": {},
+    "Shows this turn's work": {},
+    "Something went wrong": {},
+    "Start one with ＋, or from Shidou on your Mac.": {},
+    "Status": {},
+    "Stopped": {},
+    "Table": {},
+    "Task": {},
+    "The composer arrives in the next update. Start a task from Shidou on your Mac in the meantime.": {},
+    "The daemon token travels in the clear on your local network. On an untrusted network, connect over Tailscale instead.": {},
+    "The token is deleted from this phone. Your sessions stay on the Mac.": {},
+    "Thinking": {},
+    "This Mac needs pairing again": {},
+    "This Month": {},
+    "This Week": {},
+    "This Year": {},
+    "This connection is not encrypted": {},
+    "Thought for %@": {},
+    "Title": {},
+    "Today": {},
+    "Token": {},
+    "Token sent in the clear": {},
+    "Tool failed": {},
+    "Tried in this order. The one that last worked leads.": {},
+    "Try again": {},
     "Try the demo": {
       "comment": "Button on the pairing screen that connects to the public Demo Daemon."
-    }
+    },
+    "Updated plan": {},
+    "Updating plan": {},
+    "Used a tool": {},
+    "Waiting for you": {},
+    "Worked for %@": {},
+    "Working": {},
+    "Working for %@": {},
+    "Yesterday": {},
+    "You said: %@": {},
+    "You stopped after %@": {},
+    "^[%lld hour](inflect: true)": {},
+    "^[%lld minute](inflect: true)": {},
+    "^[%lld second](inflect: true)": {},
+    "just now": {},
+    "mac.local:34123": {},
+    "on branch %@": {},
+    "·": {},
+    "•": {}
   },
   "version": "1.0"
 }

@@ -60,6 +60,8 @@ fn main() -> anyhow::Result<()> {
         shidou_core::ServerOptions {
             allowed_origins: arguments.allowed_origins.into_iter().collect(),
             allow_shutdown: arguments.parent_pid.is_some(),
+            // The real ring depth; only a test harness ever narrows it.
+            max_replay_events_per_session: None,
         },
     )
 }

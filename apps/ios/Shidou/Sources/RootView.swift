@@ -1,41 +1,37 @@
 import ShidouClient
 import ShidouProtocol
+import ShidouSession
 import SwiftUI
 
-/// The navigation spine from the IA decision: Sessions is the root of a stock
-/// `NavigationStack` on iPhone, Settings is a modal stack behind the leading
-/// gear. The session list and transcript land with their own slices; what is
-/// here is the connection lifecycle wrapped around them.
+/// The navigation spine from the IA decision: Sessions is the root, the
+/// transcript is pushed on top of it, and back-swipe is how you switch tasks.
+/// iPad gets the same two surfaces as a split view. No tab bar, no drawer, no
+/// palette, no session-switcher sheet.
 struct RootView: View {
     @Environment(DaemonConnection.self) private var connection
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var showingSettings = false
+    /// Bumped on every presentation so Settings gets a fresh `NavigationStack`
+    /// and therefore opens at its root every time, rather than resuming
+    /// wherever it was left.
+    @State private var settingsPresentation = 0
+    @State private var selection: UUID?
+    @State private var showingDraft = false
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Sessions")
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showingSettings = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                        }
-                        .accessibilityLabel("Settings")
-                    }
-                }
+        Group {
+            switch connection.presentation {
+            case .connectionScreen(let failure):
+                NavigationStack { PairingView(failure: failure) }
+            case .repairScreen(let message):
+                NavigationStack { RepairView(message: message) }
+            case .inlineIndicator, .silent:
+                sessionsSpine
+            }
         }
         .sheet(isPresented: $showingSettings) {
-            NavigationStack {
-                DaemonSettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingSettings = false }
-                        }
-                    }
-            }
-            .environment(connection)
+            SettingsStack(presentation: settingsPresentation) { showingSettings = false }
         }
         .alert(
             "This connection is not encrypted",
@@ -50,19 +46,137 @@ struct RootView: View {
         }
     }
 
+    // MARK: - Spine
+
     @ViewBuilder
-    private var content: some View {
-        switch connection.presentation {
-        case .connectionScreen(let failure):
-            PairingView(failure: failure)
-        case .repairScreen(let message):
-            RepairView(message: message)
-        case .inlineIndicator, .silent:
-            VStack(spacing: 0) {
-                if connection.isDemo { DemoBanner() }
-                SessionsPlaceholder()
+    private var sessionsSpine: some View {
+        if sizeClass == .regular {
+            // iPad: two columns. The inspector and multitasking behaviour are
+            // slice ③; the spine itself is here so the transcript never has to
+            // be re-parented later.
+            NavigationSplitView {
+                sessionsColumn(selectsInPlace: true)
+            } detail: {
+                NavigationStack {
+                    detailColumn
+                }
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            NavigationStack {
+                sessionsColumn(selectsInPlace: false)
+                    .navigationDestination(for: UUID.self) { TranscriptView(sessionId: $0) }
+                    .navigationDestination(isPresented: $showingDraft) { DraftTranscriptView() }
             }
         }
+    }
+
+    private func sessionsColumn(selectsInPlace: Bool) -> some View {
+        VStack(spacing: 0) {
+            if connection.isDemo { DemoBanner() }
+            if case .inlineIndicator = connection.presentation { ReconnectingBar() }
+            SessionListView(selection: $selection, selectsInPlace: selectsInPlace)
+        }
+        // Picking a task is how you leave a draft you did not start.
+        .onChange(of: selection) { _, newValue in
+            if newValue != nil { showingDraft = false }
+        }
+        .navigationTitle("Sessions")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    settingsPresentation += 1
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    selection = nil
+                    showingDraft = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("New task")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var detailColumn: some View {
+        if showingDraft, selection == nil {
+            DraftTranscriptView()
+        } else if let selection {
+            TranscriptView(sessionId: selection)
+                .id(selection)
+        } else {
+            ContentUnavailableView(
+                "No task selected",
+                systemImage: "text.bubble",
+                description: Text("Pick a task on the left, or start one with ＋.")
+            )
+        }
+    }
+}
+
+/// Settings is a modal stack, reset to root each time it opens. Recreating the
+/// `NavigationStack` per presentation is what makes that true without any
+/// path bookkeeping.
+private struct SettingsStack: View {
+    let presentation: Int
+    let done: () -> Void
+
+    @Environment(DaemonConnection.self) private var connection
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    NavigationLink {
+                        DaemonSettingsView()
+                    } label: {
+                        Label("Daemon", systemImage: "desktopcomputer")
+                    }
+                }
+                Section {
+                    Link(destination: URL(string: "https://shidou.dev/privacy")!) {
+                        Label("Privacy Policy", systemImage: "hand.raised")
+                    }
+                } header: {
+                    Text("About")
+                } footer: {
+                    Text("Shidou \(appVersion) · protocol v\(ShidouWire.protocolVersion)")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", action: done)
+                }
+            }
+        }
+        .id(presentation)
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+}
+
+/// New Task, reachable but not yet usable: the composer is slice ②. Saying so
+/// beats a screen that looks broken.
+struct DraftTranscriptView: View {
+    var body: some View {
+        ContentUnavailableView {
+            Label("New task", systemImage: "square.and.pencil")
+        } description: {
+            Text("The composer arrives in the next update. Start a task from Shidou on your Mac in the meantime.")
+        }
+        .navigationTitle("New task")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -74,19 +188,29 @@ struct RootView: View {
 /// appearing once, because the sentence is true the whole time.
 private struct DemoBanner: View {
     @Environment(DaemonConnection.self) private var connection
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "play.rectangle")
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Demo session").font(.footnote.bold())
-                Text("Scripted, on Shidou's demo server. Nothing here runs on your computer.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        // At accessibility sizes the row cannot hold the sentence beside the
+        // button, and a truncated sentence is the one outcome this banner
+        // cannot have: it exists to say the whole thing.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+        layout {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "play.rectangle")
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Demo session").font(.footnote.bold())
+                    Text("Scripted, on Shidou's demo server. Nothing here runs on your computer.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            Spacer(minLength: 8)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
             Button("Exit") { connection.forget() }
                 .font(.footnote)
                 .buttonStyle(.bordered)
@@ -98,43 +222,6 @@ private struct DemoBanner: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.thinMaterial)
         .overlay(alignment: .bottom) { Divider() }
-    }
-}
-
-/// Stands in for the session list until its slice lands, and proves the
-/// connection end to end: a daemon version on screen means the handshake
-/// completed against a real daemon.
-private struct SessionsPlaceholder: View {
-    @Environment(DaemonConnection.self) private var connection
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if case .inlineIndicator = connection.presentation {
-                ReconnectingBar()
-            }
-            Spacer()
-            VStack(spacing: 10) {
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.green)
-                    .accessibilityHidden(true)
-                Text("Connected")
-                    .font(.title3.bold())
-                if let name = connection.saved?.name {
-                    Text(name).foregroundStyle(.secondary)
-                }
-                if let version = connection.daemonVersion {
-                    Text("Daemon \(version) · protocol v\(ShidouWire.protocolVersion)")
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.tertiary)
-                }
-                Text("The session list arrives with the next slice.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
-            }
-            Spacer()
-        }
     }
 }
 
@@ -160,8 +247,8 @@ private struct ReconnectingBar: View {
 
     private var label: String {
         if let host = connection.connectingAddress {
-            return "Reconnecting to \(host)…"
+            return String(localized: "Reconnecting to \(host)…")
         }
-        return "Reconnecting…"
+        return String(localized: "Reconnecting…")
     }
 }

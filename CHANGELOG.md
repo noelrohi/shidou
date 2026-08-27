@@ -16,6 +16,10 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+- Tell a client when replay cannot make it whole: a reconnect whose events have
+  already been evicted from the daemon's journal now reports the gap, so the
+  transcript is refetched instead of quietly missing a stretch of a long run
+
 ## [0.2.9]
 
 - Preserve complete task transcripts when the same daemon is used from multiple clients

@@ -75,6 +75,8 @@ func run(watchSession: UUID?) async -> Int32 {
                 print("#\(event.sequence) \(event.event.kind): \(summary(of: driver))")
             case .taskStateChanged(let revision):
                 print("taskStateChanged revision \(revision)")
+            case .replayGap(let gap):
+                print("replayGap: journal starts at #\(gap.firstAvailable)")
             case .disconnected:
                 print("disconnected")
                 return 0

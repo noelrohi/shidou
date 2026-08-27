@@ -223,6 +223,23 @@ describe("ShidouClient", () => {
     expect(revisions).toEqual([7]);
   });
 
+  test("reports a replay gap so the affected session can be refetched", async () => {
+    const { client, sockets } = fixture();
+    const socket = await connect(client, sockets);
+    const stale: string[] = [];
+    client.subscribeReplayGap((sessionId) => stale.push(sessionId));
+
+    socket.receive({
+      type: "replayGap",
+      sessionId: "session",
+      runtimeId: "runtime",
+      epoch: "epoch",
+      firstAvailable: 4097,
+    });
+
+    expect(stale).toEqual(["session"]);
+  });
+
   test("disconnected requests reject instead of throwing synchronously", async () => {
     const { client } = fixture();
     const request = client.request({ type: "getSettings" });

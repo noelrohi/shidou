@@ -549,6 +549,17 @@ has passed, then sets `tokens` back to `BURST`. That makes the sustained rate \
 promises, and it discards partial refill for any client calling faster than \
 once a second.
 
+```rust
+fn refill(&mut self, now: Instant) {
+    let elapsed = now.duration_since(self.refilled_at);
+    if elapsed < Duration::from_secs(1) {
+        return; // partial refill is discarded
+    }
+    self.tokens = BURST;
+    self.refilled_at = now;
+}
+```
+
 Continuous refill fixes both: add `elapsed * REFILL_PER_SECOND` tokens and clamp \
 at `BURST`. That needs one edit to `src/limiter.rs`.";
 
@@ -566,6 +577,12 @@ Tests pass. The change is two things:
 and clamps at `BURST`, so the sustained rate is the one the constant names.
 2. **Idle eviction.** `evict_idle` drops untouched buckets, called from the \
 maintenance tick already in `main.rs`.
+
+| Case | Before | After |
+|:-----|-------:|------:|
+| Sustained rate | 200 req | 50 req |
+| Burst | 20 req | 20 req |
+| Idle buckets | retained | evicted |
 
 `demo/rate-limiter` is 11 additions and 6 deletions ahead of `main`, in one \
 file. Nothing is committed yet.";

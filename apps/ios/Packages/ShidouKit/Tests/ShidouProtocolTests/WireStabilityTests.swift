@@ -5,7 +5,7 @@ import XCTest
 
 /// Mirrors the wire-stability tests in
 /// `crates/shidou-protocol/src/protocol.rs` so Swift and Rust cannot drift
-/// silently within protocol version 4.
+/// silently within protocol version 5.
 final class WireStabilityTests: XCTestCase {
     private func json<T: Encodable>(_ value: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(value)
@@ -79,15 +79,52 @@ final class WireStabilityTests: XCTestCase {
         XCTAssertEqual(refOperation["git_ref"] as? String, "refs/shidou/x")
     }
 
+    /// The commands this slice sends. The wire tests are hand-mirrored rather
+    /// than generated, so a command with a consumer and no assertion is a
+    /// command whose field names nothing is holding still.
+    func testTheCommandsTheSessionStoreSendsHaveStableShapes() throws {
+        let sessionId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-00000000002a"))
+
+        XCTAssertEqual(try json(Command.loadTaskState)["type"] as? String, "loadTaskState")
+        XCTAssertEqual(try json(Command.attachSession)["type"] as? String, "attachSession")
+        XCTAssertEqual(try json(Command.removeSession)["type"] as? String, "removeSession")
+
+        var object = try json(Command.hydrateSession(sessionId: sessionId))
+        XCTAssertEqual(object["type"] as? String, "hydrateSession")
+        XCTAssertEqual(object["sessionId"] as? String, "00000000-0000-0000-0000-00000000002a")
+
+        let session = AgentSession(
+            id: sessionId, projectId: .zero, provider: .claude, createdAt: 1, updatedAt: 2
+        )
+        object = try json(Command.saveTaskState(
+            projects: [], liveSessionIds: [sessionId], sessions: [session]
+        ))
+        XCTAssertEqual(object["type"] as? String, "saveTaskState")
+        XCTAssertEqual(
+            object["liveSessionIds"] as? [String], ["00000000-0000-0000-0000-00000000002a"]
+        )
+        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
+        // The session model has no `rename_all`, so its fields stay snake_case
+        // even though the command wrapping them is camelCase.
+        XCTAssertEqual(sessions[0]["project_id"] as? String, "00000000-0000-0000-0000-000000000000")
+        XCTAssertEqual(sessions[0]["created_at"] as? UInt64, 1)
+        XCTAssertNil(sessions[0]["projectId"])
+
+        object = try json(Command.workspace(.inspectCommit(cwd: "/src/shidou")))
+        let operation = try XCTUnwrap(object["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "inspectCommit")
+        XCTAssertEqual(operation["cwd"] as? String, "/src/shidou")
+    }
+
     func testServerMessagesDecode() throws {
         let hello = try JSONDecoder().decode(
             ServerMessage.self,
-            from: Data(#"{"type":"hello","protocolVersion":4,"daemonVersion":"1.2.3"}"#.utf8)
+            from: Data(#"{"type":"hello","protocolVersion":5,"daemonVersion":"1.2.3"}"#.utf8)
         )
         guard case .hello(let version, let daemon) = hello else {
             return XCTFail("expected hello")
         }
-        XCTAssertEqual(version, 4)
+        XCTAssertEqual(version, 5)
         XCTAssertEqual(daemon, "1.2.3")
 
         let rejected = try JSONDecoder().decode(
@@ -107,6 +144,26 @@ final class WireStabilityTests: XCTestCase {
             return XCTFail("expected unknown fallback")
         }
         XCTAssertEqual(type, "somethingNew")
+    }
+
+    /// Mirrors `ServerMessage::ReplayGap`. This one is worth pinning field by
+    /// field: it only ever arrives when a client has already lost events, so a
+    /// silent decode failure would be invisible until a transcript came back
+    /// with a hole in it.
+    func testReplayGapDecodes() throws {
+        let data = Data("""
+            {"type":"replayGap","sessionId":"00000000-0000-0000-0000-000000000001",
+             "runtimeId":"00000000-0000-0000-0000-000000000002",
+             "epoch":"00000000-0000-0000-0000-000000000003","firstAvailable":4097}
+            """.utf8)
+        let message = try JSONDecoder().decode(ServerMessage.self, from: data)
+        guard case .replayGap(let gap) = message else {
+            return XCTFail("expected a replay gap")
+        }
+        XCTAssertEqual(gap.sessionId.wireString, "00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(gap.runtimeId.wireString, "00000000-0000-0000-0000-000000000002")
+        XCTAssertEqual(gap.epoch.wireString, "00000000-0000-0000-0000-000000000003")
+        XCTAssertEqual(gap.firstAvailable, 4097)
     }
 
     func testEventEnvelopeDecodes() throws {
