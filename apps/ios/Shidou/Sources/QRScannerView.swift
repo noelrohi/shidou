@@ -27,11 +27,23 @@ struct QRScannerView: UIViewControllerRepresentable {
     }
 }
 
-final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+final class QRScannerViewController: UIViewController {
     var onScan: ((String) -> Void)?
     var onFailure: ((QRScannerView.Failure) -> Void)?
 
-    private let session = AVCaptureSession()
+    /// `AVCaptureSession` is not `Sendable`, but Apple documents it as safe
+    /// to drive from one serial queue. `sessionQueue` is that queue, and this
+    /// box is what tells the compiler so — narrower than making the whole
+    /// file `@preconcurrency` and losing every other AVFoundation warning.
+    private struct SessionBox: @unchecked Sendable {
+        let session: AVCaptureSession
+    }
+
+    private let box = SessionBox(session: AVCaptureSession())
+    private var session: AVCaptureSession { box.session }
+    /// Starting and stopping the session both block, so neither happens on
+    /// the thread drawing the sheet's presentation animation.
+    private let sessionQueue = DispatchQueue(label: "dev.shidou.ios.camera")
     private var preview: AVCaptureVideoPreviewLayer?
     private var hasReported = false
 
@@ -85,6 +97,8 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
             return
         }
         session.addOutput(output)
+        // The main queue, which is what lets the delegate callback below
+        // assume main-actor isolation.
         output.setMetadataObjectsDelegate(self, queue: .main)
         output.metadataObjectTypes = [.qr]
 
@@ -101,30 +115,21 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
     }
 
     private func start() {
-        guard !session.isRunning else { return }
-        // Starting the session blocks; keeping it off the main thread is what
-        // stops the sheet's presentation animation from stuttering.
-        Task.detached(priority: .userInitiated) { [session] in
-            session.startRunning()
+        sessionQueue.async { [box] in
+            guard !box.session.isRunning else { return }
+            box.session.startRunning()
         }
     }
 
     private func stop() {
-        guard session.isRunning else { return }
-        Task.detached(priority: .userInitiated) { [session] in
-            session.stopRunning()
+        sessionQueue.async { [box] in
+            guard box.session.isRunning else { return }
+            box.session.stopRunning()
         }
     }
 
-    func metadataOutput(
-        _ output: AVCaptureMetadataOutput,
-        didOutput objects: [AVMetadataObject],
-        from connection: AVCaptureConnection
-    ) {
+    fileprivate func report(_ value: String) {
         guard !hasReported else { return }
-        guard let code = objects.compactMap({ $0 as? AVMetadataMachineReadableCodeObject }).first,
-              let value = code.stringValue
-        else { return }
         hasReported = true
         // The only evidence this delegate ever fired; a camera that reads
         // nothing is indistinguishable on screen from a user aiming badly.
@@ -132,5 +137,23 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         stop()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         onScan?(value)
+    }
+}
+
+extension QRScannerViewController: AVCaptureMetadataOutputObjectsDelegate {
+    nonisolated func metadataOutput(
+        _ output: AVCaptureMetadataOutput,
+        didOutput objects: [AVMetadataObject],
+        from connection: AVCaptureConnection
+    ) {
+        // Only the decoded string crosses; the metadata objects themselves
+        // are not `Sendable` and have nothing else this view needs.
+        let value = objects
+            .compactMap { ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue }
+            .first
+        guard let value else { return }
+        // `configure` set `.main` as the delegate queue, so this already runs
+        // on the main actor — the protocol just cannot say so.
+        MainActor.assumeIsolated { self.report(value) }
     }
 }

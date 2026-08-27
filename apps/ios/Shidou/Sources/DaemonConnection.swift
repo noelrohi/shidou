@@ -56,6 +56,9 @@ final class DaemonConnection {
     private let clientId = UUID()
 
     private var supervisor: ConnectionSupervisor?
+    /// Stops a supervisor whose token read was still in flight from landing
+    /// on top of a newer one — or on a `disconnect()` that meant to end it.
+    private var connectGeneration = 0
     private var pump: Task<Void, Never>?
     private var pathMonitor: NWPathMonitor?
     private var graceTimer: Task<Void, Never>?
@@ -190,9 +193,21 @@ final class DaemonConnection {
         guard supervisor != nil else { return }
         stopPathMonitor()
         cancelGraceWindow()
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "shidou.grace-window") {
-            // iOS is out of patience before our own timer fired.
-            Task { @MainActor in await self.suspendNow() }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "shidou.grace-window"
+        ) { [weak self] in
+            // iOS is out of patience before our own timer fired. It calls
+            // this on the main thread and expects the identifier back before
+            // it returns — deferring that to another turn is what gets an app
+            // killed by the watchdog. Dropping the socket is best-effort
+            // afterwards; the connection dies with the process regardless.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.graceTimer?.cancel()
+                self.graceTimer = nil
+                self.endBackgroundTask()
+                Task { await self.supervisor?.suspend() }
+            }
         }
         graceTimer = Task { [graceWindow = Self.graceWindow] in
             try? await Task.sleep(for: graceWindow)
@@ -225,7 +240,24 @@ final class DaemonConnection {
     private func connectIfPossible() {
         disconnect()
         guard let daemon = saved, !daemon.tokenIsInvalid else { return }
-        guard let token = tokens.token(for: daemon.id) else {
+        connectGeneration &+= 1
+        let generation = connectGeneration
+        let tokens = self.tokens
+        let daemonId = daemon.id
+        Task { [weak self] in
+            // `SecItemCopyMatching` is blocking IPC to securityd, and this
+            // path runs at launch and on every foreground — not a tap the
+            // user is waiting on. The UI thread does not wait for it.
+            let token = await Task.detached(priority: .userInitiated) {
+                tokens.token(for: daemonId)
+            }.value
+            guard let self, self.connectGeneration == generation else { return }
+            self.startSupervisor(for: daemon, token: token)
+        }
+    }
+
+    private func startSupervisor(for daemon: SavedDaemon, token: String?) {
+        guard let token else {
             // The daemon is saved but its token is gone (restored backup, or
             // a Keychain the app can no longer read): the re-pair screen is
             // exactly the right recovery.
@@ -245,7 +277,7 @@ final class DaemonConnection {
             await supervisor.start()
             for await item in stream {
                 guard let self else { return }
-                await self.handle(item)
+                self.handle(item)
             }
         }
         startPathMonitor()
@@ -286,6 +318,7 @@ final class DaemonConnection {
     /// top of it.
     private func disconnect() {
         let outgoing = supervisor
+        connectGeneration &+= 1
         pump?.cancel()
         pump = nil
         supervisor = nil
