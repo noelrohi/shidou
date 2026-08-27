@@ -65,6 +65,21 @@ struct DaemonSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            // Guideline 5.1.1 wants the privacy policy reachable from inside
+            // the app, and this is the only settings surface until the settings
+            // slice lands — move it to the About page when that arrives.
+            // See issue #16.
+            Section("About") {
+                Link(destination: URL(string: "https://shidou.dev/privacy")!) {
+                    LabeledContent("Privacy Policy") {
+                        Image(systemName: "arrow.up.right")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityHint("Opens shidou.dev in Safari")
+            }
         }
         .navigationTitle("Daemon")
         .navigationBarTitleDisplayMode(.inline)

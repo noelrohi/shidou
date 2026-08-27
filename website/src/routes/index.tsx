@@ -389,6 +389,7 @@ function Home() {
               />
               © 2026 Shidou
             </span>
+            <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="/privacy">Privacy</a>
             <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="/LICENSE.txt">GPL license</a>
             <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="/THIRD_PARTY_LICENSES.txt">Third-party licenses</a>
             <a className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60" href="https://github.com/noelrohi/shidou">Source code</a>
