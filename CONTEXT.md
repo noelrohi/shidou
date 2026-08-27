@@ -35,6 +35,21 @@ Recovering from a rejected token: the Saved Daemon's addresses are kept, the
 token is replaced by rescanning or editing. Distinct from forgetting the
 daemon.
 
+**Demo Daemon**:
+The public fixture daemon at `demo.shidou.dev`, a separate `shidou-demo`
+binary serving a scripted Demo Session. It is what an App Review reviewer
+and a prospective user reach with "Try the demo"; its token is baked into
+the app and is therefore public, which is safe only because the backend has
+no side effects. Persisted as a Saved Daemon flagged `isDemo`, and evicted
+when a real daemon is paired.
+_Avoid_: demo mode, sandbox, staging
+
+**Demo Session**:
+The scripted session the Demo Daemon serves: streaming assistant text, a
+tool call, a permission request, a diff, and a canned reply to anything the
+composer sends. Nothing in it executes.
+_Avoid_: sample, fixture data
+
 **Insecure Remote**:
 A cleartext `ws://` endpoint that is neither loopback nor trusted transport;
 the token travels unencrypted. Warned once at pairing and badged in settings.
