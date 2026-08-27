@@ -58,8 +58,46 @@ struct RootView: View {
         case .repairScreen(let message):
             RepairView(message: message)
         case .inlineIndicator, .silent:
-            SessionsPlaceholder()
+            VStack(spacing: 0) {
+                if connection.isDemo { DemoBanner() }
+                SessionsPlaceholder()
+            }
         }
+    }
+}
+
+/// Says what the user is looking at for as long as they are looking at it.
+///
+/// The Demo Session is convincing on purpose — it streams, it asks for
+/// permission, it shows a diff — and a demo that is convincing without
+/// saying so is a demo that misleads. It stays on screen rather than
+/// appearing once, because the sentence is true the whole time.
+private struct DemoBanner: View {
+    @Environment(DaemonConnection.self) private var connection
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "play.rectangle")
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Demo session").font(.footnote.bold())
+                Text("Scripted, on Shidou's demo server. Nothing here runs on your computer.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Exit") { connection.forget() }
+                .font(.footnote)
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Exit the demo")
+                .accessibilityHint("Returns to pairing with your own Mac")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 

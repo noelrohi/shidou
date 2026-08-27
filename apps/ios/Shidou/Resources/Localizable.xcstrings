@@ -1,0 +1,45 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "A public server running a scripted session. Nothing in it runs on your computer, and nothing you send it is executed.": {
+      "comment": "Footer under the demo daemon's details in Settings."
+    },
+    "Connects to Shidou's public demo server with a scripted session. Nothing in it runs on your computer.": {
+      "comment": "Footnote under the “Try the demo” button on the pairing screen."
+    },
+    "Demo daemon": {
+      "comment": "Settings section header when the phone is on the Demo Daemon, in place of “Paired Mac”."
+    },
+    "Demo session": {
+      "comment": "Title of the persistent banner above the session UI while the demo is connected."
+    },
+    "Exit": {
+      "comment": "Button in the demo banner that leaves the demo. Kept short to fit beside the banner text."
+    },
+    "Exit the demo": {
+      "comment": "VoiceOver label for the demo banner's Exit button."
+    },
+    "Leave": {
+      "comment": "Confirming button in the “Leave the demo?” dialog."
+    },
+    "Leave the demo": {
+      "comment": "Settings button that disconnects from the Demo Daemon."
+    },
+    "Leave the demo?": {
+      "comment": "Title of the confirmation dialog for leaving the demo."
+    },
+    "Nothing is deleted — the demo holds nothing of yours. You can start it again from the pairing screen.": {
+      "comment": "Message in the “Leave the demo?” confirmation dialog."
+    },
+    "Returns to pairing with your own Mac": {
+      "comment": "VoiceOver hint for the demo banner's Exit button."
+    },
+    "Scripted, on Shidou's demo server. Nothing here runs on your computer.": {
+      "comment": "Subtitle of the persistent demo banner."
+    },
+    "Try the demo": {
+      "comment": "Button on the pairing screen that connects to the public Demo Daemon."
+    }
+  },
+  "version": "1.0"
+}

@@ -28,6 +28,8 @@ struct PairingView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+
+                    demo
                 }
                 .padding(24)
                 .frame(maxWidth: 480)
@@ -94,6 +96,23 @@ struct PairingView: View {
             Button("Enter address manually") { isEnteringManually = true }
                 .buttonStyle(.bordered)
                 .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The try-before-you-install path, and the one an App Review reviewer
+    /// takes. It is a real connection to a real server rather than an in-app
+    /// demo mode, which is what keeps it out of the "needs prior Apple
+    /// approval" branch of guideline 2.1.
+    private var demo: some View {
+        VStack(spacing: 6) {
+            Divider().padding(.vertical, 4)
+            Button("Try the demo") { connection.startDemo() }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+            Text("Connects to Shidou's public demo server with a scripted session. Nothing in it runs on your computer.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 

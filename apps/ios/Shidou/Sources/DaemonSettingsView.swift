@@ -17,13 +17,19 @@ struct DaemonSettingsView: View {
     var body: some View {
         Form {
             if let saved = connection.saved {
-                Section("Paired Mac") {
+                Section {
                     LabeledContent("Name", value: saved.name ?? "Unnamed")
                     LabeledContent("Status") { StatusLabel(phase: connection.phase) }
                     if let version = connection.daemonVersion {
                         LabeledContent("Daemon", value: version)
                     }
                     LabeledContent("Protocol", value: "v\(ShidouWire.protocolVersion)")
+                } header: {
+                    Text(saved.isDemo ? "Demo daemon" : "Paired Mac")
+                } footer: {
+                    if saved.isDemo {
+                        Text("A public server running a scripted session. Nothing in it runs on your computer, and nothing you send it is executed.")
+                    }
                 }
 
                 Section {
@@ -56,8 +62,16 @@ struct DaemonSettingsView: View {
                 }
 
                 Section {
-                    Button("Pair again…") { isRepairing = true }
-                    Button("Forget this Mac", role: .destructive) { confirmingForget = true }
+                    if saved.isDemo {
+                        // No "pair again" for the demo: its token is baked
+                        // into the build, so there is nothing to re-scan.
+                        // Leaving returns to the pairing screen, which is
+                        // where a real Mac gets connected.
+                        Button("Leave the demo", role: .destructive) { confirmingForget = true }
+                    } else {
+                        Button("Pair again…") { isRepairing = true }
+                        Button("Forget this Mac", role: .destructive) { confirmingForget = true }
+                    }
                 }
             } else {
                 Section {
@@ -100,17 +114,21 @@ struct DaemonSettingsView: View {
             .environment(connection)
         }
         .confirmationDialog(
-            "Forget this Mac?",
+            connection.isDemo ? "Leave the demo?" : "Forget this Mac?",
             isPresented: $confirmingForget,
             titleVisibility: .visible
         ) {
-            Button("Forget", role: .destructive) {
+            Button(connection.isDemo ? "Leave" : "Forget", role: .destructive) {
                 connection.forget()
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The token is deleted from this phone. Your sessions stay on the Mac.")
+            if connection.isDemo {
+                Text("Nothing is deleted — the demo holds nothing of yours. You can start it again from the pairing screen.")
+            } else {
+                Text("The token is deleted from this phone. Your sessions stay on the Mac.")
+            }
         }
     }
 }

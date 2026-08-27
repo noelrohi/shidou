@@ -64,7 +64,12 @@ final class DaemonConnection {
     private var graceTimer: Task<Void, Never>?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
-    init(store: SavedDaemonStore = SavedDaemonStore(), tokens: TokenStore = KeychainTokenStore()) {
+    /// The Keychain sits behind `DemoTokenStore` so the Demo Daemon's public
+    /// token is answered from the constant it lives in and never written.
+    init(
+        store: SavedDaemonStore = SavedDaemonStore(),
+        tokens: TokenStore = DemoTokenStore(wrapping: KeychainTokenStore())
+    ) {
         self.store = store
         self.tokens = tokens
     }
@@ -73,7 +78,7 @@ final class DaemonConnection {
 
     var presentation: ConnectionPresentation {
         guard let saved else { return .connectionScreen(nil) }
-        if saved.tokenIsInvalid {
+        if saved.tokenIsInvalid, saved.allowsTokenRepair {
             if case .failed(.tokenRejected(let message)) = phase { return .repairScreen(message) }
             return .repairScreen("The daemon rejected this token.")
         }
@@ -88,7 +93,11 @@ final class DaemonConnection {
     }
 
     /// The one-time cleartext warning, shown at pairing and never again.
-    var showsInsecureBadge: Bool { saved?.hasInsecureCandidate ?? false }
+    var showsInsecureBadge: Bool { saved?.warnsAboutInsecureTransport ?? false }
+
+    /// The phone is on the Demo Daemon, which the transcript says out loud
+    /// for as long as it lasts — nothing on screen is running on a Mac.
+    var isDemo: Bool { saved?.isDemo ?? false }
 
     /// iOS denies local-network traffic silently when the permission is off,
     /// so a LAN daemon that never answers looks exactly like a daemon that is
@@ -134,13 +143,35 @@ final class DaemonConnection {
                 try? tokens.removeToken(for: existing.id)
             }
         }
+        adopt(daemon)
+        if daemon.warnsAboutInsecureTransport && !daemon.acknowledgedInsecureWarning {
+            pendingInsecureWarning = daemon
+        }
+    }
+
+    /// "Try the demo": the Demo Daemon persists exactly like a paired Mac,
+    /// so everything from here — the candidate walk, last-good persistence,
+    /// backoff, the Grace Window — is the path a real daemon takes. Pairing a
+    /// Mac later replaces this saved daemon and the demo is gone.
+    func startDemo() {
+        adopt(DemoDaemon.saved())
+        pendingInsecureWarning = nil
+    }
+
+    /// Installs the phone's one Saved Daemon and starts connecting to it.
+    ///
+    /// The list-of-one is the eviction: whatever was saved before is gone,
+    /// which is how pairing a Mac ends the demo and how the demo ends a
+    /// stale pairing. A token left behind by a daemon that no longer has a
+    /// slot has no owner, so it goes with it.
+    private func adopt(_ daemon: SavedDaemon) {
+        if let existing = store.current(), existing.id != daemon.id {
+            try? tokens.removeToken(for: existing.id)
+        }
         store.replace(with: daemon)
         saved = daemon
         hasEverConnected = false
         exhaustedRounds = 0
-        if daemon.hasInsecureCandidate && !daemon.acknowledgedInsecureWarning {
-            pendingInsecureWarning = daemon
-        }
         connectIfPossible()
     }
 

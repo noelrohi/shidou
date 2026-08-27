@@ -19,6 +19,11 @@ public struct SavedDaemon: Codable, Sendable, Equatable, Identifiable {
     /// Set when the daemon rejects the token — the addresses stay, the app
     /// shows the re-pair screen instead of retrying.
     public var tokenIsInvalid: Bool
+    /// This is the Demo Daemon, reached by "Try the demo" rather than by
+    /// pairing with a Mac. Connecting is identical; see `allowsTokenRepair`,
+    /// `warnsAboutInsecureTransport`, and the transcript's demo banner for
+    /// everything that is not.
+    public var isDemo: Bool
     /// The one-time cleartext warning has been shown for this daemon. The
     /// settings badge is derived from the addresses and never suppressed.
     public var acknowledgedInsecureWarning: Bool
@@ -30,6 +35,7 @@ public struct SavedDaemon: Codable, Sendable, Equatable, Identifiable {
         addresses: [CandidateAddress],
         lastGoodAddress: CandidateAddress? = nil,
         tokenIsInvalid: Bool = false,
+        isDemo: Bool = false,
         acknowledgedInsecureWarning: Bool = false,
         pairedAt: Date = Date()
     ) {
@@ -38,6 +44,7 @@ public struct SavedDaemon: Codable, Sendable, Equatable, Identifiable {
         self.addresses = addresses
         self.lastGoodAddress = lastGoodAddress
         self.tokenIsInvalid = tokenIsInvalid
+        self.isDemo = isDemo
         self.acknowledgedInsecureWarning = acknowledgedInsecureWarning
         self.pairedAt = pairedAt
     }
@@ -58,6 +65,9 @@ public struct SavedDaemon: Codable, Sendable, Equatable, Identifiable {
         lastGoodAddress = try container.decodeIfPresent(String.self, forKey: .lastGoodAddress)
             .flatMap { try? CandidateAddress($0) }
         tokenIsInvalid = try container.decodeIfPresent(Bool.self, forKey: .tokenIsInvalid) ?? false
+        // Absent means a Saved Daemon written before the demo existed, which
+        // can only be a real Mac.
+        isDemo = try container.decodeIfPresent(Bool.self, forKey: .isDemo) ?? false
         acknowledgedInsecureWarning =
             try container.decodeIfPresent(Bool.self, forKey: .acknowledgedInsecureWarning) ?? false
         pairedAt = try container.decodeIfPresent(Date.self, forKey: .pairedAt) ?? Date()
@@ -79,6 +89,22 @@ public struct SavedDaemon: Codable, Sendable, Equatable, Identifiable {
     public var hasInsecureCandidate: Bool {
         addresses.contains(where: \.isInsecureRemote)
     }
+
+    /// Whether a rejected token routes to the re-pair screen.
+    ///
+    /// For a Mac it does: the user rotated the token and can scan the new
+    /// one. The demo's token ships inside the build, so there is nothing to
+    /// scan and nothing to type — the connection screen, with its failure
+    /// note and its way back to pairing, is the honest dead end.
+    public var allowsTokenRepair: Bool { !isDemo }
+
+    /// Whether a cleartext candidate is worth warning about.
+    ///
+    /// The warning exists because the user's own token could be read off
+    /// their network. The demo's token is published on purpose, so raising
+    /// the same alarm over it would teach the wrong lesson at the first
+    /// screen a new user sees.
+    public var warnsAboutInsecureTransport: Bool { !isDemo && hasInsecureCandidate }
 
     /// True when at least one candidate is on the same physical network,
     /// which is what makes iOS ask for Local Network permission. A tailnet or
