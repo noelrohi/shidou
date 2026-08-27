@@ -54,7 +54,29 @@ targets:
         # docs/ios-appstore-constraints.md (research branch) and issue #5.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          # `NSAllowsLocalNetworking` exempts loopback, link-local, `.local`,
+          # and the RFC 1918 blocks — but not `100.64.0.0/10`, where Tailscale
+          # assigns from. A cleartext `ws://` to a tailnet IP therefore fails
+          # ATS with -1022, and no arbitrary-loads key can rescue it: iOS
+          # ignores `NSAllowsArbitraryLoads` once any of the narrower keys is
+          # declared. MagicDNS names are the way through, so the daemon
+          # advertises `*.ts.net` rather than the tailnet IP. Tailnet traffic
+          # is WireGuard-encrypted below the socket. See issue #13.
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         NSLocalNetworkUsageDescription: >-
           Shidou connects to the Shidou daemon running on your own computer
           over your local network.
+        NSCameraUsageDescription: >-
+          Shidou uses the camera to scan the pairing code shown by the Shidou
+          app on your computer.
+        # Pairing is a `shidou://pair` URL: the QR the desktop renders, and a
+        # tapped link. See issue #4.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.shidou.ios.pairing
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - shidou
         ITSAppUsesNonExemptEncryption: false

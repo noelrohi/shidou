@@ -1,7 +1,7 @@
 import Foundation
 import ShidouProtocol
 
-public struct DaemonHello: Sendable {
+public struct DaemonHello: Sendable, Equatable {
     public let protocolVersion: UInt32
     public let daemonVersion: String
 }

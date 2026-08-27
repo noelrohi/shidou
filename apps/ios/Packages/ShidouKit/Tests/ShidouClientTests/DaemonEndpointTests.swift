@@ -2,35 +2,27 @@ import XCTest
 
 @testable import ShidouClient
 
+/// Address parsing and classification live in `CandidateAddressTests`; what
+/// is left here is the pairing of an address with the token to present there.
 final class DaemonEndpointTests: XCTestCase {
-    func testNormalization() throws {
-        XCTAssertEqual(
-            try DaemonEndpoint.normalize(address: "mac.local:34123").absoluteString,
-            "ws://mac.local:34123/v1"
-        )
-        XCTAssertEqual(
-            try DaemonEndpoint.normalize(address: "ws://10.0.0.5:34123/other?x=1#y").absoluteString,
-            "ws://10.0.0.5:34123/v1"
-        )
-        XCTAssertEqual(
-            try DaemonEndpoint.normalize(address: "https://tunnel.example.com").absoluteString,
-            "wss://tunnel.example.com/v1"
-        )
-        XCTAssertEqual(
-            try DaemonEndpoint.normalize(address: "http://127.0.0.1:9000").absoluteString,
-            "ws://127.0.0.1:9000/v1"
-        )
+    func testCarriesTheNormalizedURLOfItsCandidate() throws {
+        let endpoint = try DaemonEndpoint(address: "mac.local:34123", token: "t")
+        XCTAssertEqual(endpoint.url.absoluteString, "ws://mac.local:34123/v1")
+        XCTAssertEqual(endpoint.candidate.raw, "mac.local:34123")
+        XCTAssertEqual(endpoint.token, "t")
     }
 
-    func testRejectsInvalidAddresses() {
-        XCTAssertThrowsError(try DaemonEndpoint.normalize(address: ""))
-        XCTAssertThrowsError(try DaemonEndpoint.normalize(address: "ftp://host"))
-        XCTAssertThrowsError(try DaemonEndpoint.normalize(address: "ws://user:pass@host:1"))
+    func testRejectsAnAddressItCannotNormalize() {
+        XCTAssertThrowsError(try DaemonEndpoint(address: "ftp://host", token: "t"))
     }
 
-    func testSecurityFlags() throws {
-        XCTAssertFalse(try DaemonEndpoint(address: "127.0.0.1:34123", token: "t").isInsecureRemote)
-        XCTAssertTrue(try DaemonEndpoint(address: "192.168.1.20:34123", token: "t").isInsecureRemote)
-        XCTAssertFalse(try DaemonEndpoint(address: "wss://tunnel.example.com", token: "t").isInsecureRemote)
+    /// The same address with two tokens is two endpoints: the supervisor
+    /// promotes and compares them, and a rotated token must not read as the
+    /// candidate that already worked.
+    func testTokenParticipatesInIdentity() throws {
+        let first = try DaemonEndpoint(address: "mac.local:34123", token: "a")
+        let second = try DaemonEndpoint(address: "mac.local:34123", token: "b")
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(first.candidate, second.candidate)
     }
 }
