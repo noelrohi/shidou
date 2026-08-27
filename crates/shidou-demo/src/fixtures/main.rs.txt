@@ -1,0 +1,25 @@
+//! Process entry point for the demo API.
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+mod limiter;
+mod routes;
+
+use limiter::Limiter;
+
+/// Buckets untouched for this long are dropped by the maintenance tick.
+const IDLE_BUCKET_TTL: Duration = Duration::from_secs(600);
+
+fn main() -> std::io::Result<()> {
+    let limiter = Arc::new(Limiter::default());
+    let maintenance = Arc::clone(&limiter);
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+            maintenance.evict_idle(IDLE_BUCKET_TTL, Instant::now());
+        }
+    });
+
+    routes::serve("0.0.0.0:8080", limiter)
+}

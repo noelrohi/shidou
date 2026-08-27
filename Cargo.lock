@@ -6961,6 +6961,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "shidou-demo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "crossbeam-channel",
+ "parking_lot",
+ "serde_json",
+ "shidou-client",
+ "shidou-core",
+ "shidou-protocol",
+ "uuid",
+]
+
+[[package]]
 name = "shidou-protocol"
 version = "0.1.0"
 dependencies = [

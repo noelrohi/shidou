@@ -1,0 +1,9 @@
+[package]
+name = "demo-api"
+version = "0.4.1"
+edition = "2024"
+description = "The service the Shidou Demo Session works on"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

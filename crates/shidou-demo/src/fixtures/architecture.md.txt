@@ -1,0 +1,24 @@
+# Architecture
+
+`demo-api` is one process with three layers.
+
+## Request path
+
+1. `main.rs` binds the listener and builds the shared `Limiter`.
+2. `routes.rs` matches the method and path, then calls the handler.
+3. Every handler runs behind `Limiter::admit`, keyed by API token.
+
+## Rate limiting
+
+Each client gets a token bucket holding at most `BURST` tokens. A request
+spends one token; the bucket refills continuously at `REFILL_PER_SECOND`.
+
+The bucket map grows with the number of distinct clients seen since start, so
+`evict_idle` drops buckets nothing has touched recently. It is called from the
+same maintenance tick that rotates logs.
+
+## Non-goals
+
+No persistence, no clustering. A second replica keeps its own buckets, which
+means the effective limit scales with replica count — acceptable while the
+service runs single-replica.

@@ -1,0 +1,34 @@
+//! Request routing for the public API.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use crate::limiter::Limiter;
+
+pub fn serve(bind: &str, limiter: Arc<Limiter>) -> std::io::Result<()> {
+    let listener = std::net::TcpListener::bind(bind)?;
+    for stream in listener.incoming() {
+        let stream = stream?;
+        let limiter = Arc::clone(&limiter);
+        std::thread::spawn(move || handle(stream, &limiter));
+    }
+    Ok(())
+}
+
+fn handle(stream: std::net::TcpStream, limiter: &Limiter) {
+    let Some(client) = api_token(&stream) else {
+        return respond(stream, 401, "missing api token");
+    };
+    if !limiter.admit(&client, Instant::now()) {
+        return respond(stream, 429, "rate limit exceeded");
+    }
+    respond(stream, 200, "ok")
+}
+
+fn api_token(_stream: &std::net::TcpStream) -> Option<String> {
+    todo!("read the Authorization header")
+}
+
+fn respond(_stream: std::net::TcpStream, _status: u16, _body: &str) {
+    todo!("write the response")
+}

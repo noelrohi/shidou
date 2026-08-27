@@ -113,7 +113,7 @@ Run the focused checks relevant to your change, then run the full baseline
 before opening a pull request:
 
 ```sh
-cargo fmt --package shidou --package shidou-protocol --package shidou-client --package shidou-core --package shidou-daemon -- --check
+cargo fmt --package shidou --package shidou-protocol --package shidou-client --package shidou-core --package shidou-daemon --package shidou-demo -- --check
 cargo check
 cargo test
 bun run protocol:check

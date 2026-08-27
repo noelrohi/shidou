@@ -1,0 +1,53 @@
+//! Token-bucket rate limiting for the public API.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// How many requests a client may burst before the refill rate governs.
+const BURST: f64 = 20.0;
+/// Sustained requests per second once the burst is spent.
+const REFILL_PER_SECOND: f64 = 5.0;
+
+#[derive(Clone, Copy)]
+struct Bucket {
+    tokens: f64,
+    refilled_at: Instant,
+}
+
+#[derive(Default)]
+pub struct Limiter {
+    buckets: Mutex<HashMap<String, Bucket>>,
+}
+
+impl Limiter {
+    /// Whether `client` may make one more request right now.
+    pub fn admit(&self, client: &str, now: Instant) -> bool {
+        let mut buckets = self.buckets.lock().expect("limiter mutex is not poisoned");
+        let bucket = buckets.entry(client.to_owned()).or_insert(Bucket {
+            tokens: BURST,
+            refilled_at: now,
+        });
+        bucket.refill(now);
+        if bucket.tokens < 1.0 {
+            return false;
+        }
+        bucket.tokens -= 1.0;
+        true
+    }
+
+    /// Drops buckets no request has touched for `idle`, so a long-lived
+    /// process does not keep one entry per client that ever called.
+    pub fn evict_idle(&self, idle: Duration, now: Instant) {
+        let mut buckets = self.buckets.lock().expect("limiter mutex is not poisoned");
+        buckets.retain(|_, bucket| now.duration_since(bucket.refilled_at) < idle);
+    }
+}
+
+impl Bucket {
+    fn refill(&mut self, now: Instant) {
+        let elapsed = now.duration_since(self.refilled_at).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * REFILL_PER_SECOND).min(BURST);
+        self.refilled_at = now;
+    }
+}
