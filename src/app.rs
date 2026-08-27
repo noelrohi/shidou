@@ -1155,6 +1155,19 @@ pub struct Shidou {
     /// Cached once at construction for the Daemon settings connection URL;
     /// rendering must not query account or network configuration.
     daemon_hostname: String,
+    /// The phone pairing QR and the addresses it carries, for the Daemon
+    /// settings page. Built on the background executor — enumerating network
+    /// interfaces and encoding a QR are both far past a frame's budget — and
+    /// refreshed whenever that page opens, since which addresses this Mac
+    /// answers on changes as it moves between networks.
+    pairing_code: Option<Arc<crate::pairing::PairingCode>>,
+    /// Stops a slow build from replacing the result of a newer one.
+    pairing_code_generation: u64,
+    /// The QR encodes the token in scannable form, so it is covered by
+    /// default and revealed for the current visit only — the same contract
+    /// the token field keeps, and for the same reason: this pane gets
+    /// screen-shared.
+    pairing_code_revealed: bool,
     /// Sessions that were live when this tree was built, handed from `build`
     /// to `finish_launch`, which can only re-attach once the entity exists.
     /// Taken there, so it is empty for the rest of the app's life.
@@ -2913,6 +2926,9 @@ impl Shidou {
             Self {
                 daemon,
                 daemon_hostname,
+                pairing_code: None,
+                pairing_code_generation: 0,
+                pairing_code_revealed: false,
                 startup_live_session_ids,
                 session_hydrations: HashSet::new(),
                 pending_session_activation: None,

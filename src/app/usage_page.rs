@@ -40,8 +40,10 @@ impl Shidou {
     /// is where the user is heading.
     pub(super) fn open_settings_page(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
         // Secrets are revealed only for the current visit to the page. This
-        // also masks the token again when the Daemon row is reselected.
+        // also masks the token and the pairing code again when the Daemon row
+        // is reselected.
         self.daemon_token_revealed = false;
+        self.pairing_code_revealed = false;
         self.settings_page = Some(page);
         // Each page starts at its own top; a scroll position carried over
         // from the previous page would land mid-content.
@@ -51,6 +53,9 @@ impl Shidou {
         }
         if page == SettingsPage::Skills {
             self.ensure_skills_catalog(false, cx);
+        }
+        if page == SettingsPage::Daemon {
+            self.refresh_pairing_code(cx);
         }
         cx.notify();
     }

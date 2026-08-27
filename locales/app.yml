@@ -245,6 +245,22 @@ daemon.hide_token:
   en: Hide token
 daemon.regenerate_token:
   en: Regenerate
+daemon.pair_phone_title:
+  en: Pair your phone
+daemon.pair_phone_description:
+  en: Scan this code with Shidou for iOS. It carries this Mac's addresses and token, so the phone keeps reconnecting as you move between networks.
+daemon.pair_phone_addresses:
+  en: Addresses in this code
+daemon.pair_phone_unavailable:
+  en: This Mac has no reachable network address right now.
+daemon.pair_phone_copy_link:
+  en: Copy link
+daemon.pair_phone_hidden:
+  en: Code hidden
+daemon.show_pair_code:
+  en: Show code
+daemon.hide_pair_code:
+  en: Hide code
 daemon.security_warning:
   en: The token grants full access to tasks, files, Git, attachments, and coding agents on this machine. Use WSS through a trusted TLS proxy outside a private network.
 daemon.external_title:

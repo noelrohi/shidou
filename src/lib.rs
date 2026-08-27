@@ -38,6 +38,7 @@ pub mod daemon;
 mod driver;
 mod input;
 mod md;
+mod pairing;
 mod platform;
 mod query;
 mod review_diff;

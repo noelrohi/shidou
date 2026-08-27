@@ -1148,6 +1148,227 @@ impl Shidou {
                         ),
                 )
             })
+            .when(enabled, |column| {
+                column.child(self.render_phone_pairing(cx))
+            })
+            .into_any_element()
+    }
+
+    /// The phone pairing block: the QR a phone scans, and the addresses that
+    /// code carries.
+    ///
+    /// Both come from `pairing_code`, built on the background executor when
+    /// the Daemon page opens — enumerating network interfaces and encoding a
+    /// QR are not things a frame may do.
+    fn render_phone_pairing(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = Theme::current(cx);
+        let revealed = self.pairing_code_revealed;
+        div()
+            .px(px(20.0))
+            .py(px(15.0))
+            .rounded(px(13.0))
+            .bg(theme.raised)
+            .child(
+                div()
+                    .text_size(sp(13.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.text)
+                    .child(tr!("daemon.pair_phone_title")),
+            )
+            .child(
+                div()
+                    .mt(px(4.0))
+                    .min_w_0()
+                    .whitespace_normal()
+                    .text_size(sp(12.5))
+                    .line_height(sp(16.0))
+                    .text_color(theme.text_secondary)
+                    .child(tr!("daemon.pair_phone_description")),
+            )
+            .map(|block| match self.pairing_code.clone() {
+                Some(code) => block.child(
+                    div()
+                        .mt(px(13.0))
+                        .flex()
+                        .items_start()
+                        .gap(px(16.0))
+                        .child(if revealed {
+                            div()
+                                .flex_none()
+                                .p(px(6.0))
+                                .rounded(px(8.0))
+                                .bg(gpui::white())
+                                .child(img(code.image.clone()).size(px(168.0)))
+                                .into_any_element()
+                        } else {
+                            div()
+                                .flex_none()
+                                .size(px(180.0))
+                                .rounded(px(8.0))
+                                .bg(theme.inset)
+                                .border_1()
+                                .border_color(theme.border)
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .justify_center()
+                                .gap(px(6.0))
+                                .child(icon("icons/eye-off.svg", 16.0, theme.text_tertiary))
+                                .child(
+                                    div()
+                                        .text_size(sp(12.0))
+                                        .text_color(theme.text_tertiary)
+                                        .child(tr!("daemon.pair_phone_hidden")),
+                                )
+                                .into_any_element()
+                        })
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_size(sp(12.0))
+                                        .text_color(theme.text_tertiary)
+                                        .child(tr!("daemon.pair_phone_addresses")),
+                                )
+                                .children(code.addresses.iter().map(|address| {
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .font_family(".SystemUIFontMonospaced")
+                                        .text_size(sp(12.0))
+                                        .text_color(theme.text)
+                                        .child(SharedString::from(address.clone()))
+                                }))
+                                .child(
+                                    div()
+                                        .mt(px(9.0))
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .child(self.render_pairing_reveal_button(&theme, cx))
+                                        .child(self.render_copy_pairing_link(&code.url, cx)),
+                                ),
+                        ),
+                ),
+                None => block.child(
+                    div()
+                        .mt(px(13.0))
+                        .text_size(sp(12.5))
+                        .text_color(theme.text_tertiary)
+                        .child(tr!("daemon.pair_phone_unavailable")),
+                ),
+            })
+            .into_any_element()
+    }
+
+    /// Uncovers the pairing code for this visit to the page.
+    fn render_pairing_reveal_button(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let revealed = self.pairing_code_revealed;
+        div()
+            .id("reveal-pairing-code")
+            .tab_index(0)
+            .h(px(27.0))
+            .px(px(9.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme.border_strong)
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .cursor_default()
+            .text_size(sp(12.5))
+            .text_color(theme.text_secondary)
+            .focus_visible(|style| style.border_color(theme.accent))
+            .hover(|element| element.bg(theme.overlay))
+            .child(icon(
+                if revealed {
+                    "icons/eye-off.svg"
+                } else {
+                    "icons/eye.svg"
+                },
+                12.0,
+                theme.text_tertiary,
+            ))
+            .child(if revealed {
+                tr!("daemon.hide_pair_code")
+            } else {
+                tr!("daemon.show_pair_code")
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.pairing_code_revealed = !this.pairing_code_revealed;
+                cx.notify();
+            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if !event.keystroke.modifiers.modified()
+                    && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                {
+                    this.pairing_code_revealed = !this.pairing_code_revealed;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            .into_any_element()
+    }
+
+    /// The keyboard path to the same payload the QR carries.
+    ///
+    /// A camera is the fast way to pair, but it is the only way only if this
+    /// button does not exist: nothing else on the Mac side hands over the
+    /// `shidou://pair` URL, and the phone's manual-entry screen needs it.
+    fn render_copy_pairing_link(&self, url: &str, cx: &mut Context<Self>) -> AnyElement {
+        let theme = Theme::current(cx);
+        let feedback_id = "daemon-pairing-link";
+        let copied = self.control_was_copied(feedback_id);
+        let click_url = url.to_owned();
+        let key_url = url.to_owned();
+        div()
+            .id("copy-pairing-link")
+            .tab_index(0)
+            .h(px(27.0))
+            .px(px(9.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(theme.border_strong)
+            .flex()
+            .items_center()
+            .gap(px(5.0))
+            .cursor_default()
+            .text_size(sp(12.5))
+            .text_color(theme.text_secondary)
+            .focus_visible(|style| style.border_color(theme.accent))
+            .hover(|element| element.bg(theme.overlay))
+            .child(icon(
+                if copied {
+                    "icons/check.svg"
+                } else {
+                    "icons/copy.svg"
+                },
+                11.0,
+                theme.text_tertiary,
+            ))
+            .child(if copied {
+                tr!("common.copied")
+            } else {
+                tr!("daemon.pair_phone_copy_link")
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(click_url.clone()));
+                this.show_control_copied(feedback_id, cx);
+            }))
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                if !event.keystroke.modifiers.modified()
+                    && matches!(event.keystroke.key.as_str(), "enter" | "space")
+                {
+                    cx.write_to_clipboard(ClipboardItem::new_string(key_url.clone()));
+                    this.show_control_copied(feedback_id, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .into_any_element()
     }
 
@@ -1217,6 +1438,40 @@ impl Shidou {
         self.apply_daemon_exposure(settings, cx);
     }
 
+    /// Rebuilds the phone pairing code off the main thread.
+    ///
+    /// Called when the Daemon page opens and after the daemon is
+    /// reconfigured, so the QR always encodes the token and port in force —
+    /// a stale code would pair a phone that then gets rejected.
+    pub(super) fn refresh_pairing_code(&mut self, cx: &mut Context<Self>) {
+        let exposure = self.state.daemon_exposure.clone();
+        let hostname = self.daemon_hostname.clone();
+        let generation = self.pairing_code_generation.wrapping_add(1);
+        self.pairing_code_generation = generation;
+        cx.spawn(async move |shidou, cx| {
+            let built = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::pairing::build(
+                        &exposure.daemon_id,
+                        &hostname,
+                        exposure.port,
+                        &exposure.token,
+                    )
+                    .map(std::sync::Arc::new)
+                })
+                .await;
+            let _ = shidou.update(cx, |shidou, cx| {
+                if shidou.pairing_code_generation != generation {
+                    return;
+                }
+                shidou.pairing_code = built;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn regenerate_daemon_token(&mut self, cx: &mut Context<Self>) {
         let mut settings = match self.daemon_exposure_from_fields(cx) {
             Ok(settings) => settings,
@@ -1256,6 +1511,7 @@ impl Shidou {
         if !needs_restart {
             self.state.daemon_exposure = settings;
             self.save();
+            self.refresh_pairing_code(cx);
             cx.notify();
             return;
         }
@@ -1281,6 +1537,7 @@ impl Shidou {
                             input.set_content(applied.allowed_origins_text(), cx)
                         });
                         this.save();
+                        this.refresh_pairing_code(cx);
                         this.show_success_toast(tr!("daemon.settings_applied"));
                     }
                     Err(error) => {

@@ -116,6 +116,14 @@ daemon.token: 令牌
 daemon.reveal_token: 显示令牌
 daemon.hide_token: 隐藏令牌
 daemon.regenerate_token: 重新生成
+daemon.pair_phone_title: 配对你的手机
+daemon.pair_phone_description: 用 iOS 版 Shidou 扫描此二维码。它包含本机的地址和令牌，因此在切换网络时手机仍能重新连接。
+daemon.pair_phone_addresses: 此二维码中的地址
+daemon.pair_phone_unavailable: 本机当前没有可访问的网络地址。
+daemon.pair_phone_copy_link: 复制链接
+daemon.pair_phone_hidden: 二维码已隐藏
+daemon.show_pair_code: 显示二维码
+daemon.hide_pair_code: 隐藏二维码
 daemon.security_warning: 此令牌可完全访问本机上的任务、文件、Git、附件和编程智能体。在私有网络之外请通过受信任的 TLS 代理使用 WSS。
 daemon.external_title: 外部守护进程
 daemon.external_description: 此桌面应用连接到由 Shidou 之外管理的守护进程。请在对应主机上配置监听地址、浏览器来源和令牌。

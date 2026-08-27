@@ -121,6 +121,14 @@ daemon.token: トークン
 daemon.reveal_token: トークンを表示
 daemon.hide_token: トークンを隠す
 daemon.regenerate_token: 再生成
+daemon.pair_phone_title: iPhone とペアリング
+daemon.pair_phone_description: iOS 版 Shidou でこのコードを読み取ってください。この Mac のアドレスとトークンが含まれているため、ネットワークを移動しても再接続できます。
+daemon.pair_phone_addresses: このコードに含まれるアドレス
+daemon.pair_phone_unavailable: この Mac には現在、到達可能なネットワークアドレスがありません。
+daemon.pair_phone_copy_link: リンクをコピー
+daemon.pair_phone_hidden: コードは非表示
+daemon.show_pair_code: コードを表示
+daemon.hide_pair_code: コードを隠す
 daemon.security_warning: このトークンは、このマシン上のタスク、ファイル、Git、添付ファイル、コーディングエージェントへの完全なアクセス権を持ちます。プライベートネットワーク外では信頼できる TLS プロキシ経由で WSS を使用してください。
 daemon.external_title: 外部デーモン
 daemon.external_description: このデスクトップは Shidou の外部で管理されているデーモンに接続しています。リスナー、ブラウザオリジン、トークンは接続先ホストで設定してください。

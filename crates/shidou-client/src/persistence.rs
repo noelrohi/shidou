@@ -811,7 +811,8 @@ pub fn load_or_create_app_settings() -> io::Result<AppSettings> {
         .transpose()?
         .unwrap_or_default();
     let generated_token = settings.daemon_exposure.ensure_token();
-    if !loaded_from_primary || !token_was_persisted || generated_token {
+    let generated_daemon_id = settings.daemon_exposure.ensure_daemon_id();
+    if !loaded_from_primary || !token_was_persisted || generated_token || generated_daemon_id {
         write_json_atomically(&path, &settings)?;
     }
     Ok(settings)

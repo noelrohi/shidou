@@ -37,6 +37,11 @@ pub struct DaemonExposureSettings {
     pub port: u16,
     pub allowed_origins: Vec<String>,
     pub token: String,
+    /// Stable identity for this Mac's daemon, minted once and carried in the
+    /// phone's pairing payload. Not a secret, and deliberately independent of
+    /// the token: rotating the token must not read as a different daemon, or
+    /// the phone would orphan its Keychain entry instead of re-pairing.
+    pub daemon_id: String,
 }
 
 impl Default for DaemonExposureSettings {
@@ -46,6 +51,7 @@ impl Default for DaemonExposureSettings {
             port: DEFAULT_EXPOSED_DAEMON_PORT,
             allowed_origins: vec!["http://localhost:3001".into()],
             token: Self::new_token(),
+            daemon_id: Self::new_daemon_id(),
         }
     }
 }
@@ -55,11 +61,25 @@ impl DaemonExposureSettings {
         Uuid::new_v4().simple().to_string()
     }
 
+    pub fn new_daemon_id() -> String {
+        Uuid::new_v4().simple().to_string()
+    }
+
     pub fn ensure_token(&mut self) -> bool {
         if !self.token.trim().is_empty() {
             return false;
         }
         self.token = Self::new_token();
+        true
+    }
+
+    /// Settings written before phone pairing existed carry no id; minting one
+    /// on load keeps it stable from then on.
+    pub fn ensure_daemon_id(&mut self) -> bool {
+        if !self.daemon_id.trim().is_empty() {
+            return false;
+        }
+        self.daemon_id = Self::new_daemon_id();
         true
     }
 

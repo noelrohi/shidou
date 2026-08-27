@@ -48,6 +48,14 @@ uuid = { version = "1.18", features = ["v4", "serde"] }
 shidou-client = { path = "crates/shidou-client" }
 shidou-protocol = { path = "crates/shidou-protocol" }
 pulldown-cmark = "0.13"
+# Matches the version GPUI itself renders with, so RenderImage frames are the
+# same `image` types. Not macOS-only: the pairing QR builds one on any target.
+# No codecs — every buffer here is built in memory, never decoded.
+image = { version = "0.25", default-features = false }
+# Pure-Rust QR encoder for the phone pairing code. Default features off — the
+# image/ASCII renderers it ships are unused; `src/pairing.rs` packs the module
+# matrix straight into a RenderImage buffer.
+qrcode = { version = "0.14", default-features = false }
 regex = "1"
 rust-i18n = "4"
 rust-umami = "0.1.1"
@@ -74,9 +82,6 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 wry = { version = "0.56", features = ["devtools"] }
 block2 = "0.6"
-# Matches the version GPUI itself renders with, so RenderImage frames are the
-# same `image` types.
-image = "0.25"
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
     "std",
     "CGImage",
