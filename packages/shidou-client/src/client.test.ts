@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { ShidouClient, ShidouRpcError, WIRE_PROTOCOL_VERSION, daemonUrl, type WebSocketLike } from "./client";
-
+import {
+  ShidouClient,
+  ShidouRpcError,
+  WIRE_PROTOCOL_VERSION,
+  daemonUrl,
+  type WebSocketLike,
+} from "./client";
+import { PROTOCOL_VERSION } from "./generated";
 
 class FakeSocket implements WebSocketLike {
   readyState = 0;
@@ -66,6 +72,23 @@ async function connect(client: ShidouClient, sockets: FakeSocket[]): Promise<Fak
 }
 
 describe("ShidouClient", () => {
+  test("allows local Web to select the checkout protocol", async () => {
+    const socket = new FakeSocket();
+    const client = new ShidouClient({
+      address: "127.0.0.1:4312",
+      token: "secret",
+      clientId: "00000000-0000-4000-8000-000000000001",
+      protocolVersion: PROTOCOL_VERSION,
+      webSocketFactory: () => socket,
+    });
+
+    const connected = client.connect();
+    socket.open();
+    expect(JSON.parse(socket.sent[0]!).protocolVersion).toBe(PROTOCOL_VERSION);
+    socket.receive({ type: "hello", protocolVersion: PROTOCOL_VERSION, daemonVersion: "test" });
+    await connected;
+  });
+
   test("authenticates and correlates typed responses", async () => {
     const { client, sockets } = fixture();
     const connected = client.connect();
