@@ -235,7 +235,6 @@ impl Shidou {
         });
 
         let percent = context.and_then(context_percent);
-        let remaining = percent.map(|percent| (100.0 - percent).clamp(0.0, 100.0));
         let fill = match percent {
             Some(percent) if percent >= 95.0 => theme.danger,
             Some(percent) if percent >= 80.0 => theme.warning,
@@ -261,17 +260,12 @@ impl Shidou {
             .rounded(px(5.0))
             .flex()
             .items_center()
-            .gap(px(5.0))
             .flex_none()
             .cursor_default()
-            .text_color(theme.text_tertiary)
             .hover(|element| element.bg(theme.overlay))
             .when(handle.is_open(), |element| element.bg(theme.overlay_strong))
             .tooltip(Tooltip::text(tooltip))
-            .child(context_gauge(percent, theme.border_strong, fill))
-            .children(remaining.map(|percent| {
-                div().child(tr!("usage.context_left", percent = format!("{percent:.0}")))
-            }));
+            .child(context_gauge(percent, theme.border_strong, fill));
 
         Some(popover(
             trigger,

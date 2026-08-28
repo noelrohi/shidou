@@ -2106,8 +2106,6 @@ usage.refresh_failed:
   en: "Usage refresh failed: %{error}"
 usage.context_used:
   en: Context window %{percent}% used (%{shortcut})
-usage.context_left:
-  en: "%{percent}% left"
 usage.shortcut:
   en: Usage (%{shortcut})
 usage.context_window:
