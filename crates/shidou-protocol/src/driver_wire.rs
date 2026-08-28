@@ -34,6 +34,10 @@ pub fn event_to_wire(event: DriverEvent) -> anyhow::Result<WireDriverEvent> {
         DriverEvent::AvailableCommands(commands) => {
             ("availableCommands", serde_json::to_value(commands)?)
         }
+        DriverEvent::TurnAccepted { turn, messages } => (
+            "turnAccepted",
+            json!({ "turn": turn, "messages": messages }),
+        ),
         DriverEvent::TurnStarted => ("turnStarted", Value::Null),
         DriverEvent::TextDelta(text) => ("textDelta", Value::String(text)),
         DriverEvent::ReasoningDelta(text) => ("reasoningDelta", Value::String(text)),
@@ -126,6 +130,13 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
         "agentPresetSelected" => DriverEvent::AgentPresetSelected(serde_json::from_value(payload)?),
         "autoTitleUpdated" => DriverEvent::AutoTitleUpdated(serde_json::from_value(payload)?),
         "availableCommands" => DriverEvent::AvailableCommands(serde_json::from_value(payload)?),
+        "turnAccepted" => {
+            let accepted: TurnAcceptedWire = serde_json::from_value(payload)?;
+            DriverEvent::TurnAccepted {
+                turn: accepted.turn,
+                messages: accepted.messages,
+            }
+        }
         "turnStarted" => DriverEvent::TurnStarted,
         "textDelta" => DriverEvent::TextDelta(serde_json::from_value(payload)?),
         "reasoningDelta" => DriverEvent::ReasoningDelta(serde_json::from_value(payload)?),
@@ -207,6 +218,12 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
 }
 
 #[derive(Deserialize)]
+struct TurnAcceptedWire {
+    turn: crate::model::AgentTurn,
+    messages: Vec<crate::model::Message>,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ActivityWire {
     id: Option<String>,
@@ -274,7 +291,8 @@ struct TurnFinishedWire {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{UserInputOption, UserInputQuestion};
+    use crate::model::{AgentSession, ProviderKind, UserInputOption, UserInputQuestion};
+    use uuid::Uuid;
 
     #[test]
     fn interaction_resolution_round_trips_through_the_daemon_wire() {
@@ -288,6 +306,23 @@ mod tests {
             event_from_wire(wire).unwrap(),
             DriverEvent::InteractionResolved { request_id } if request_id == "request-1"
         ));
+    }
+
+    #[test]
+    fn accepted_turn_round_trips_with_canonical_ids() {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+        let turn_id = session.begin_turn("this works fine");
+        let turn = session.turns.pop().unwrap();
+        let messages = std::mem::take(&mut session.messages);
+
+        let wire = event_to_wire(DriverEvent::TurnAccepted { turn, messages }).unwrap();
+        assert_eq!(wire.kind, "turnAccepted");
+        let DriverEvent::TurnAccepted { turn, messages } = event_from_wire(wire).unwrap() else {
+            panic!("the event changed variants during its wire round trip");
+        };
+        assert_eq!(turn.id, turn_id);
+        assert_eq!(messages[0].turn_id, Some(turn_id));
+        assert_eq!(messages[0].content, "this works fine");
     }
 
     #[test]

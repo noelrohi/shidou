@@ -1636,6 +1636,13 @@ pub enum DriverEvent {
     /// Authoritative over filesystem discovery, which cannot see plugin or
     /// dynamically registered commands.
     AvailableCommands(Vec<ReportedCommand>),
+    /// A client persisted and dispatched a new turn against the shared
+    /// runtime. This precedes provider output so every other client can append
+    /// the exact user message and turn IDs before reducing that output.
+    TurnAccepted {
+        turn: AgentTurn,
+        messages: Vec<Message>,
+    },
     TurnStarted,
     TextDelta(String),
     ReasoningDelta(String),

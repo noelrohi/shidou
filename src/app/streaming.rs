@@ -270,6 +270,11 @@ impl Shidou {
                     self.composer_sources_stale = true;
                 }
             }
+            DriverEvent::TurnAccepted { turn, messages } => {
+                if let Some(session) = self.state.session_mut(session_id) {
+                    accept_remote_turn(session, turn, messages);
+                }
+            }
             DriverEvent::TurnStarted => {
                 runtime.last_driver_error = None;
                 if let Some(session) = self.state.session_mut(session_id)
@@ -720,6 +725,35 @@ impl Shidou {
         }
         runtime.computer_use_previews.push(preview);
     }
+}
+
+/// Incorporate the turn another client persisted before it prompted the
+/// shared runtime. IDs come from the daemon's canonical projection, so source
+/// clients no-op while observers gain the exact turn needed to reduce the
+/// provider events that follow.
+pub(super) fn accept_remote_turn(
+    session: &mut AgentSession,
+    turn: AgentTurn,
+    messages: Vec<Message>,
+) {
+    let known_turn = session.turns.iter().any(|existing| existing.id == turn.id);
+    for message in messages {
+        if !session
+            .messages
+            .iter()
+            .any(|existing| existing.id == message.id)
+        {
+            session.messages.push(message);
+        }
+    }
+    if known_turn {
+        return;
+    }
+    session.updated_at = session.updated_at.max(turn.started_at);
+    if turn.status == TurnStatus::Running {
+        session.status = SessionStatus::Connecting;
+    }
+    session.turns.push(turn);
 }
 
 /// Foreground output is stronger evidence of a started provider turn than a

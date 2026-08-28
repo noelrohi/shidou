@@ -679,6 +679,11 @@ impl Backend for ShidouBackend {
                     }
                     driver.clone()
                 };
+                if matches!(&command, Command::Prompt { .. })
+                    && let Some(accepted) = accepted_turn_event(&self.task_state, session_id)
+                {
+                    events.send(event_to_wire(accepted)?)?;
+                }
                 handle_driver_command(&driver, command)
             }
         }
@@ -690,6 +695,30 @@ impl Backend for ShidouBackend {
         let terminals = std::mem::take(&mut *self.terminals.lock());
         drop(terminals);
     }
+}
+
+fn accepted_turn_event(
+    task_state: &Mutex<PersistedState>,
+    session_id: Uuid,
+) -> Option<DriverEvent> {
+    let state = task_state.lock();
+    let session = state
+        .sessions
+        .iter()
+        .find(|session| session.id == session_id)?;
+    let turn_id = session.active_turn_id()?;
+    let turn = session
+        .turns
+        .iter()
+        .find(|turn| turn.id == turn_id)?
+        .clone();
+    let messages = session
+        .messages
+        .iter()
+        .filter(|message| message.turn_id == Some(turn_id))
+        .cloned()
+        .collect();
+    Some(DriverEvent::TurnAccepted { turn, messages })
 }
 
 fn merge_saved_session(
@@ -1799,6 +1828,10 @@ fn event_to_wire(event: DriverEvent) -> anyhow::Result<WireDriverEvent> {
         DriverEvent::AvailableCommands(commands) => {
             ("availableCommands", serde_json::to_value(commands)?)
         }
+        DriverEvent::TurnAccepted { turn, messages } => (
+            "turnAccepted",
+            json!({ "turn": turn, "messages": messages }),
+        ),
         DriverEvent::TurnStarted => ("turnStarted", Value::Null),
         DriverEvent::TextDelta(text) => ("textDelta", Value::String(text)),
         DriverEvent::ReasoningDelta(text) => ("reasoningDelta", Value::String(text)),
@@ -1891,6 +1924,13 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
         "agentPresetSelected" => DriverEvent::AgentPresetSelected(serde_json::from_value(payload)?),
         "autoTitleUpdated" => DriverEvent::AutoTitleUpdated(serde_json::from_value(payload)?),
         "availableCommands" => DriverEvent::AvailableCommands(serde_json::from_value(payload)?),
+        "turnAccepted" => {
+            let accepted: TurnAcceptedWire = serde_json::from_value(payload)?;
+            DriverEvent::TurnAccepted {
+                turn: accepted.turn,
+                messages: accepted.messages,
+            }
+        }
         "turnStarted" => DriverEvent::TurnStarted,
         "textDelta" => DriverEvent::TextDelta(serde_json::from_value(payload)?),
         "reasoningDelta" => DriverEvent::ReasoningDelta(serde_json::from_value(payload)?),
@@ -1969,6 +2009,12 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
         "processExited" => DriverEvent::ProcessExited,
         kind => bail!("daemon sent an unsupported driver event {kind:?}"),
     })
+}
+
+#[derive(Deserialize)]
+struct TurnAcceptedWire {
+    turn: crate::model::AgentTurn,
+    messages: Vec<crate::model::Message>,
 }
 
 #[derive(Deserialize)]
@@ -2196,6 +2242,27 @@ mod tests {
         let mut missing_message = session;
         missing_message.messages.clear();
         assert!(validate_message_rewind(&missing_message, 1).is_err());
+    }
+
+    #[test]
+    fn accepted_turn_event_carries_the_canonical_user_message_and_ids() {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+        let session_id = session.id;
+        let turn_id = session.begin_turn("this works fine");
+        let message_id = session.messages[0].id;
+        let mut state = PersistedState::empty();
+        state.sessions.push(session);
+
+        let accepted = accepted_turn_event(&Mutex::new(state), session_id).unwrap();
+        let wire = event_to_wire(accepted).unwrap();
+        assert_eq!(wire.kind, "turnAccepted");
+        let DriverEvent::TurnAccepted { turn, messages } = event_from_wire(wire).unwrap() else {
+            panic!("expected an accepted turn");
+        };
+        assert_eq!(turn.id, turn_id);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, message_id);
+        assert_eq!(messages[0].content, "this works fine");
     }
 
     #[test]

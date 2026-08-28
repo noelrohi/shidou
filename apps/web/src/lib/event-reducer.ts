@@ -2,6 +2,8 @@ import type {
   ActivityItem,
   ActivityKind,
   AgentSession,
+  AgentTurn,
+  Message,
   ProviderResumeCursor,
   ReportedCommand,
   SequencedEvent,
@@ -90,6 +92,29 @@ export function reduceRuntimeEvent(
     case 'availableCommands':
       if (Array.isArray(payload)) session.available_commands = payload as ReportedCommand[]
       break
+    case 'turnAccepted': {
+      const value = asRecord(payload)
+      const turn = asRecord(value?.turn)
+      if (!turn || typeof turn.id !== 'string') break
+      const knownTurn = session.turns.some((existing) => existing.id === turn.id)
+      const messages = Array.isArray(value?.messages) ? value.messages : []
+      for (const candidate of messages) {
+        const message = asRecord(candidate)
+        if (
+          !message
+          || typeof message.id !== 'string'
+          || session.messages.some((existing) => existing.id === message.id)
+        ) continue
+        session.messages.push(clone(candidate as Message))
+      }
+      if (!knownTurn) {
+        const accepted = clone(value!.turn as AgentTurn)
+        session.turns.push(accepted)
+        if (accepted.status === 'running') session.status = 'connecting'
+        session.updated_at = Math.max(session.updated_at, accepted.started_at)
+      }
+      break
+    }
     case 'turnStarted': {
       const turn = activeTurn(session)
       if (turn) {
