@@ -7,12 +7,14 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { derivedBuildNumber, findPackageVersion, parseVersion } from "./version";
+import { AscApi } from "./asc";
 
 const projectRoot = resolve(import.meta.dir, "..");
 const manifestPath = join(projectRoot, "Cargo.toml");
 const iosDir = join(projectRoot, "apps/ios");
 const defaultOutputDir = join(projectRoot, "dist/ios");
 const teamId = "2Z79866758";
+const appBundleId = "dev.shidou.ios";
 
 const help = `Archive, export, and upload the iOS app for TestFlight.
 
@@ -28,10 +30,14 @@ Steps, in order:
      local-networking ATS exemption survived into the built Info.plist, and
      the compiled app carries its asset catalogue. App Store Connect rejects
      an upload over any of these, and it says so only after the upload.
-  3. --export: export a signed IPA (app-store-connect method). Needs an
+  3. --create-app-record (also run by --upload): find or create the App
+     Store Connect app record via the API — bundle id registered if needed,
+     name and primary locale set. The only dashboard work left after this
+     is the API key itself and the internal tester group.
+  4. --export: export a signed IPA (app-store-connect method). Needs an
      Apple Distribution certificate, or an App Store Connect API key so
      Xcode can create one.
-  4. --upload: upload the IPA with altool (implies --export). Needs an
+  5. --upload: upload the IPA with altool (implies --export). Needs an
      App Store Connect API key.
 
 Build numbers: ASC refuses a build number it has already seen for the same
@@ -43,6 +49,11 @@ docs/releasing-ios.md for the dashboard steps this script cannot do.
 Options:
   --export               Export a signed IPA after archiving
   --upload               Upload the IPA to App Store Connect (implies --export)
+  --create-app-record    Create the App Store Connect app record if missing;
+                         also runs automatically before --upload
+  --app-name <name>      App Store name (default: Shidou) — must be unique
+                         across the App Store
+  --primary-locale <l>   Primary locale (default: en-US)
   --build-number <n>     CURRENT_PROJECT_VERSION override (or
                          SHIDOU_BUILD_NUMBER); default derives from Cargo.toml
   --output <dir>         Output directory (default: dist/ios)
@@ -107,10 +118,13 @@ async function main(): Promise<void> {
       "api-issuer": { type: "string" },
       "api-key-id": { type: "string" },
       "api-key-path": { type: "string" },
+      "app-name": { type: "string" },
       "build-number": { type: "string" },
+      "create-app-record": { type: "boolean" },
       export: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       output: { type: "string" },
+      "primary-locale": { type: "string" },
       upload: { type: "boolean" },
     },
     strict: true,
@@ -123,6 +137,9 @@ async function main(): Promise<void> {
 
   const uploading = values.upload ?? false;
   const exporting = values.export ?? false;
+  const ensureAppRecord = uploading || (values["create-app-record"] ?? false);
+  const appName = values["app-name"] ?? "Shidou";
+  const primaryLocale = values["primary-locale"] ?? "en-US";
   const outputDir = values.output ? resolve(values.output) : defaultOutputDir;
   const explicitBuildNumber =
     values["build-number"] ?? process.env.SHIDOU_BUILD_NUMBER;
@@ -132,10 +149,12 @@ async function main(): Promise<void> {
   const apiKeyPath =
     values["api-key-path"] ?? process.env.SHIDOU_ASC_API_KEY_PATH;
 
-  if (uploading && (!apiKeyId || !apiIssuer)) {
+  if (ensureAppRecord && (!apiKeyId || !apiIssuer)) {
     throw new Error(
-      "--upload needs an App Store Connect API key: pass --api-key-id and " +
-        "--api-issuer (or set SHIDOU_ASC_API_KEY_ID / SHIDOU_ASC_API_ISSUER_ID).",
+      "--upload/--create-app-record need an App Store Connect API key: pass " +
+        "--api-key-id and --api-issuer (or set SHIDOU_ASC_API_KEY_ID / " +
+        "SHIDOU_ASC_API_ISSUER_ID). Create one in ASC under Users and Access " +
+        "→ Integrations, with the App Manager role.",
     );
   }
   if (apiKeyPath && !apiKeyId) {
@@ -186,6 +205,40 @@ async function main(): Promise<void> {
   const version = findPackageVersion(manifest).version;
   parseVersion(version); // Fail on a malformed version before building anything.
   const buildNumber = explicitBuildNumber ?? derivedBuildNumber(version);
+
+  /** Find-or-create the ASC app record, idempotently. Creates nothing when
+   *  the record already exists, so uploads stay repeatable. */
+  async function ensureAppRecordExists(): Promise<void> {
+    const keyPath = findApiKey();
+    if (!keyPath) {
+      throw new Error(
+        `AuthKey_${apiKeyId}.p8 not found in any standard location ` +
+          `(${uploadKeyPaths(apiKeyId!).join(", ")}); pass --api-key-path.`,
+      );
+    }
+    const asc = new AscApi(apiKeyId!, apiIssuer!, await Bun.file(keyPath).text());
+    const existing = await asc.findAppByBundleId(appBundleId);
+    if (existing) {
+      console.log(
+        `  ok   App Store Connect app record already exists (${existing.id}).`,
+      );
+      return;
+    }
+    logStep(
+      `Creating the App Store Connect app record for ${appBundleId} ` +
+        `("${appName}", ${primaryLocale})`,
+    );
+    if (!(await asc.findBundleIdRegistration(appBundleId))) {
+      await asc.registerBundleId(appBundleId);
+    }
+    const created = await asc.createApp({
+      name: appName,
+      sku: appBundleId,
+      primaryLocale,
+      bundleId: appBundleId,
+    });
+    console.log(`  ok   App record created (${created.id}).`);
+  }
 
   logStep(`Building Shidou iOS ${version} (build ${buildNumber})`);
   requireTool("xcodegen");
@@ -280,6 +333,7 @@ async function main(): Promise<void> {
   if (!apiKeyId || !apiIssuer) {
     throw new Error("Upload requires an App Store Connect API key.");
   }
+  await ensureAppRecordExists();
   // altool has no --api-key-path flag; it searches ./private_keys first.
   if (apiKeyPath) {
     await mkdir("private_keys", { recursive: true });

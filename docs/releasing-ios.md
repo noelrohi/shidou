@@ -49,29 +49,38 @@ carries correct values without the script.)
 `--upload` needs an App Store Connect API key (`--api-key-id` +
 `--api-issuer`, plus `--api-key-path` unless `AuthKey_<id>.p8` already sits
 in `./private_keys/`, `~/private_keys/`, `~/.private_keys/`, or
-`~/.appstoreconnect/private_keys/`). With a key, xcodebuild can also create
-the Apple Distribution certificate it needs for the export; without one, an
-existing distribution certificate in the keychain is enough.
+`~/.appstoreconnect/private_keys/`). Create the key in App Store Connect
+under **Users and Access → Integrations**, with the **App Manager** role —
+that role is what allows the app-record creation and the upload. With a
+key, xcodebuild can also create the Apple Distribution certificate it needs
+for the export; without one, an existing distribution certificate in the
+keychain is enough.
 
 ## What only the App Store Connect dashboard can do
 
-The script cannot do any of this; the first time through, do it in order:
+The script creates the app record itself (`POST /v1/apps` — the same thing
+`fastlane produce` automates), so the dashboard is down to three human
+steps:
 
-1. **Create the app record** — bundle id `dev.shidou.ios`, team
-   `2Z79866758`, name *Shidou*, primary language. The bundle id must be
-   registered on the team (Xcode's automatic signing does this on the first
-   archive).
-2. **Upload the build** — `bun run ios-release --upload`, or drag the IPA
-   into Xcode Organizer / Transporter. Wait out processing (a few minutes;
-   an export-compliance prompt here means the Info.plist key was lost —
-   treat that as a bug in `apps/ios/project.yml`).
-3. **Internal testing** — create an internal tester group under
+1. **Create the API key** — Users and Access → Integrations → App Store
+   Connect API, App Manager role. Note the key id and issuer id; download
+   the `.p8` once and keep it somewhere safe (it cannot be re-downloaded).
+   Then `bun run ios-release --upload --api-key-id <id> --api-issuer <id>
+   --api-key-path <path-to-p8>` finds-or-creates the app record (name
+   *Shidou*, locale `en-US` — override with `--app-name`/`--primary-locale`;
+   App Store names are unique across the store, so the name is the one
+   thing that can still bounce), registers the bundle id if needed, and
+   uploads the build. Processing takes a few minutes before the build
+   shows in TestFlight; an export-compliance prompt at upload means the
+   Info.plist key was lost — treat that as a bug in
+   `apps/ios/project.yml`.
+2. **Internal testing** — create an internal tester group under
    TestFlight → Internal Testing and add yourself. Internal testers must
    hold an App Store Connect role on the team; internal testing needs **no
    Beta App Review**, which is why this lands before the device pass and
    before the external build that does need review
    ([#17](https://github.com/noelrohi/shidou/issues/17)).
-4. **Install** — accept the TestFlight invite on the phone, install,
+3. **Install** — accept the TestFlight invite on the phone, install,
    launch, and check it reaches the pairing screen.
 
 ## The manual Xcode route
