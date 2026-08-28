@@ -107,12 +107,13 @@ export function reduceRuntimeEvent(
         ) continue
         session.messages.push(clone(candidate as Message))
       }
-      if (!knownTurn) {
-        const accepted = clone(value!.turn as AgentTurn)
-        session.turns.push(accepted)
-        if (accepted.status === 'running') session.status = 'connecting'
-        session.updated_at = Math.max(session.updated_at, accepted.started_at)
-      }
+      const accepted = clone(value!.turn as AgentTurn)
+      if (
+        accepted.status === 'running'
+        && (session.status === 'idle' || session.status === 'failed')
+      ) session.status = 'connecting'
+      session.updated_at = Math.max(session.updated_at, accepted.started_at)
+      if (!knownTurn) session.turns.push(accepted)
       break
     }
     case 'turnStarted': {

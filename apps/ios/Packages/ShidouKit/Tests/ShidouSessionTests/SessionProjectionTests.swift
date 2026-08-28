@@ -255,7 +255,7 @@ final class SessionProjectionTests: XCTestCase {
         )
         let remoteTurn = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
         let remoteMessage = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
-        session = apply(session, "turnAccepted", [
+        let accepted: JSONValue = [
             "turn": [
                 "id": .string(remoteTurn.uuidString.lowercased()),
                 "turn_count": 2,
@@ -273,7 +273,11 @@ final class SessionProjectionTests: XCTestCase {
                 "created_at": 201,
                 "streaming": false,
             ]],
-        ], clock: clock)
+        ]
+        session = apply(session, "turnAccepted", accepted, clock: clock)
+        session.status = .idle
+        session = apply(session, "turnAccepted", accepted, clock: clock)
+        XCTAssertEqual(session.status, .connecting)
         session = apply(session, "turnStarted", .null, clock: clock)
         session = apply(
             session, "textDelta", "Great. What would you like to work on next?", clock: clock

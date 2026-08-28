@@ -105,11 +105,11 @@ public func reduceRuntimeEvent(
         for message in accepted.messages where !session.messages.contains(where: { $0.id == message.id }) {
             session.messages.append(message)
         }
-        if !knownTurn {
-            session.turns.append(accepted.turn)
-            if accepted.turn.status == .running { session.status = .connecting }
-            session.updatedAt = max(session.updatedAt, accepted.turn.startedAt)
+        if accepted.turn.status == .running, !session.status.isBusy {
+            session.status = .connecting
         }
+        session.updatedAt = max(session.updatedAt, accepted.turn.startedAt)
+        if !knownTurn { session.turns.append(accepted.turn) }
     case "turnStarted":
         if let index = activeTurnIndex(session) {
             session.turns[index].providerTurnStarted = true

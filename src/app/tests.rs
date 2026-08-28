@@ -180,6 +180,31 @@ fn remote_follow_up_reaches_an_attached_desktop_transcript() {
 }
 
 #[test]
+fn accepted_remote_turn_repairs_stale_desktop_working_indicators() {
+    let mut desktop = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+    let turn_id = desktop.begin_turn("continue from web");
+    let accepted_turn = desktop.turns.last().unwrap().clone();
+    let accepted_messages = desktop
+        .messages
+        .iter()
+        .filter(|message| message.turn_id == Some(turn_id))
+        .cloned()
+        .collect();
+
+    // A catalog/hydration race can expose the canonical running turn before
+    // its transient busy status. Replaying turnAccepted must repair the UI
+    // even though the turn ID is already known.
+    desktop.status = SessionStatus::Idle;
+    accept_remote_turn(&mut desktop, accepted_turn, accepted_messages);
+
+    assert_eq!(desktop.status, SessionStatus::Connecting);
+    assert_eq!(
+        folded_transcript_row_kinds(&desktop, &HashSet::new()),
+        vec![Message(0), WorkingIndicator]
+    );
+}
+
+#[test]
 fn composer_only_offers_stop_after_submission_preparation() {
     assert_eq!(
         composer_submit_action(Some(SessionStatus::Idle), false),

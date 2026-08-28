@@ -608,6 +608,9 @@ impl Backend for ShidouBackend {
             }
             Command::Start { options } => {
                 let previous = self.sessions.lock().remove(&session_id);
+                if let Some((_, previous_driver)) = &previous {
+                    previous_driver.cancel();
+                }
                 drop(previous);
                 let provider = decode_enum(&options.provider)?;
                 let options = DriverStartOptions {
@@ -663,7 +666,12 @@ impl Backend for ShidouBackend {
                         .then(|| sessions.remove(&session_id))
                         .flatten()
                 };
-                drop(removed);
+                // A torn-down runtime must not leave its provider process
+                // resident: cancel asks the driver to stop the child, since a
+                // driver dropped mid-RPC cannot get there on its own.
+                if let Some((_, driver)) = removed {
+                    driver.cancel();
+                }
                 Ok(ResponsePayload::Ack)
             }
             command => {
@@ -691,9 +699,20 @@ impl Backend for ShidouBackend {
 
     fn shutdown(&self) {
         let sessions = std::mem::take(&mut *self.sessions.lock());
+        for (_, (_, driver)) in &sessions {
+            driver.cancel();
+        }
         drop(sessions);
         let terminals = std::mem::take(&mut *self.terminals.lock());
         drop(terminals);
+    }
+
+    fn session_has_active_turn(&self, session_id: Uuid) -> bool {
+        self.task_state
+            .lock()
+            .sessions
+            .iter()
+            .any(|session| session.id == session_id && session.active_turn_id().is_some())
     }
 }
 

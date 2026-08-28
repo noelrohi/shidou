@@ -746,12 +746,12 @@ pub(super) fn accept_remote_turn(
             session.messages.push(message);
         }
     }
+    session.updated_at = session.updated_at.max(turn.started_at);
+    if turn.status == TurnStatus::Running && !session.status.is_busy() {
+        session.status = SessionStatus::Connecting;
+    }
     if known_turn {
         return;
-    }
-    session.updated_at = session.updated_at.max(turn.started_at);
-    if turn.status == TurnStatus::Running {
-        session.status = SessionStatus::Connecting;
     }
     session.turns.push(turn);
 }

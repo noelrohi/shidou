@@ -39,7 +39,7 @@ describe('reduceRuntimeEvent', () => {
 
   test('incorporates a follow-up accepted by another client before its output', () => {
     let session = apply(runningSession(), 'turnFinished', { success: true, summary: null })
-    session = apply(session, 'turnAccepted', {
+    const accepted = {
       turn: {
         id: 'remote-turn',
         turn_count: 2,
@@ -60,7 +60,11 @@ describe('reduceRuntimeEvent', () => {
         created_at: 201,
         streaming: false,
       }],
-    })
+    }
+    session = apply(session, 'turnAccepted', accepted)
+    session.status = 'idle'
+    session = apply(session, 'turnAccepted', accepted)
+    expect(session.status).toBe('connecting')
     session = apply(session, 'turnStarted', null)
     session = apply(session, 'textDelta', 'Great. What would you like to work on next?')
 
