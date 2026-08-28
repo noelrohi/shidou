@@ -1754,6 +1754,8 @@ mod tests {
         assert!(observer_events.try_recv().is_err());
 
         client.shutdown();
+        observer.shutdown();
+        shutdown.store(true, Ordering::Release);
         server.join().unwrap();
     }
 
