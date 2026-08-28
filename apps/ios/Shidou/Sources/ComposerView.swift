@@ -95,12 +95,12 @@ struct ComposerView: View {
                 ComposerSuggestions(
                     rows: suggestionRows, highlight: highlight, accept: accept)
             }
-            surface
+            GlassGroup(spacing: 0) { surface }
             workspaceControls
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
-        .background(.bar)
+        .floatingBarBackdrop()
         .task(id: draftKeyIdentity) { loadDraft() }
         .task(id: session.id) { preferences = ComposerPreferenceStore().preferences(for: daemonAddress) }
         .task(id: composerSourcesKey) { store.refreshComposerSources(for: session) }
@@ -198,14 +198,11 @@ struct ComposerView: View {
         .padding(.leading, expanded ? 10 : 14)
         .padding(.trailing, expanded ? 10 : 5)
         .padding(.vertical, expanded ? 10 : 5)
-        .background(
-            .background.secondary,
-            in: RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous)
+        .glassSurface(
+            in: RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous),
+            fallback: AnyShapeStyle(.background.secondary)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous)
-                .strokeBorder(.separator)
-        }
+        .fallbackBorder(RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous))
         .onTapGesture {
             // A pill is all tap target: touching anywhere in it means "I want
@@ -346,9 +343,13 @@ struct ComposerView: View {
         }
     }
 
+    /// Access and Build/Plan are the two chips a glyph says completely, so the
+    /// strip spends its width on the ones it cannot — the model name above all.
     private var accessChip: some View {
         let mode = AccessMode.selected(for: session.runtimeMode)
-        return ControlChip(systemImage: mode.systemImage, action: { sheet = .access }) {
+        return ControlChip(
+            systemImage: mode.systemImage, iconOnly: true, action: { sheet = .access }
+        ) {
             Text(mode.title)
         }
         .accessibilityLabel("Access: \(mode.title)")
@@ -361,6 +362,7 @@ struct ComposerView: View {
         return ControlChip(
             systemImage: plan ? "list.bullet.clipboard" : "hammer",
             tint: plan ? .accentColor : nil,
+            iconOnly: true,
             action: {
                 patch { $0.interactionMode = plan ? .build : .plan }
             }
@@ -385,61 +387,82 @@ struct ComposerView: View {
         let locked = busy || started
         return HStack(spacing: 8) {
             ScrollView(.horizontal) {
-                HStack(spacing: 14) {
-                    ghostButton(
-                        "folder",
-                        project.map {
-                            $0.isProjectless ? String(localized: "No project") : $0.name
-                        } ?? String(localized: "Choose a project")
-                    ) { sheet = .project }
-                    .disabled(locked)
-
-                    ghostButton(
-                        session.workspace.isLocal ? "laptopcomputer" : "arrow.triangle.branch",
-                        workspaceLabel
-                    ) { sheet = .workspace }
-                    .disabled(locked)
-
-                    if project?.isProjectless == false, store.branchSnapshot(for: session) != nil {
+                // The container travels with the strip rather than wrapping
+                // it: a glass container renders outside the clip of the scroll
+                // view it sits above, and the pinned gauge ends up drawn over
+                // whichever pill happens to be at the scrolling edge.
+                GlassGroup(spacing: 6) {
+                    HStack(spacing: 6) {
                         ghostButton(
-                            "arrow.triangle.branch",
-                            store.branchSnapshot(for: session)?.displayBranch
-                                ?? String(localized: "Detached HEAD")
-                        ) { sheet = .branch }
-                        .disabled(busy)
-                    }
+                            "folder",
+                            project.map {
+                                $0.isProjectless ? String(localized: "No project") : $0.name
+                            } ?? String(localized: "Choose a project")
+                        ) { sheet = .project }
+                        .disabled(locked)
 
-                    if store.starting.contains(session.id) {
-                        Text("Starting agent…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        ghostButton(
+                            session.workspace.isLocal ? "laptopcomputer" : "arrow.triangle.branch",
+                            workspaceLabel
+                        ) { sheet = .workspace }
+                        .disabled(locked)
+
+                        if project?.isProjectless == false,
+                            store.branchSnapshot(for: session) != nil
+                        {
+                            ghostButton(
+                                "arrow.triangle.branch",
+                                store.branchSnapshot(for: session)?.displayBranch
+                                    ?? String(localized: "Detached HEAD")
+                            ) { sheet = .branch }
+                            .disabled(busy)
+                        }
+
+                        if store.starting.contains(session.id) {
+                            Text("Starting agent…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .padding(.vertical, 1)
             }
             .scrollIndicators(.hidden)
+            .clipped()
 
-            Button { sheet = .usage } label: {
-                HStack(spacing: 5) {
-                    ContextGauge(percent: ContextUsagePresentation.percent(session))
-                    if let remaining = ContextUsagePresentation.remaining(session) {
-                        Text("\(Int(remaining.rounded()))% left")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(usageLabel)
+            GlassGroup(spacing: 0) { usageButton }
         }
     }
 
-    /// A quiet toolbar entry: small icon, caption label, dropdown chevron —
-    /// the vocabulary of a system bar, drawn here so it can live inside the
-    /// composer's keyboard-floating stack.
+    /// The context gauge, pinned outside the scrolling strip: how much of the
+    /// window is left is the one thing on this row you should never have to
+    /// scroll to find.
+    private var usageButton: some View {
+        Button { sheet = .usage } label: {
+            HStack(spacing: 5) {
+                ContextGauge(percent: ContextUsagePresentation.percent(session))
+                if let remaining = ContextUsagePresentation.remaining(session) {
+                    Text("\(Int(remaining.rounded()))% left")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .glassSurface(
+                in: Capsule(),
+                interactive: true,
+                fallback: AnyShapeStyle(.quaternary.opacity(0.4))
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(usageLabel)
+    }
+
+    /// A workspace entry: small icon, caption label, dropdown chevron, on its
+    /// own glass pill. The row says where you are rather than shouting, so the
+    /// glyph and text stay secondary — the pill is what makes it a target.
     private func ghostButton(
         _ icon: String,
         _ label: String,
@@ -458,8 +481,14 @@ struct ComposerView: View {
                     .accessibilityHidden(true)
             }
             .foregroundStyle(.secondary)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .glassSurface(
+                in: Capsule(),
+                interactive: true,
+                fallback: AnyShapeStyle(.quaternary.opacity(0.4))
+            )
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }

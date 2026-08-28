@@ -2,80 +2,205 @@ import ShidouProtocol
 import ShidouSession
 import SwiftUI
 
-/// Sessions, the root of the navigation spine. One section per recency
-/// bucket; rows carry what the web sidebar carries, at mobile density.
+/// The task list, shared by the iPhone drawer and the iPad sidebar.
+///
+/// It carries what the web sidebar carries, at mobile density: a search field,
+/// collapsible sections that file tasks either by recency or by project, an
+/// options menu on the first header that chooses between the two, and rows
+/// that say what the task is, where it lives, and what it is doing.
 struct SessionListView: View {
     @Binding var selection: UUID?
 
     @Environment(DaemonConnection.self) private var connection
 
+    /// Same defaults keys the web client uses, because the two clients are the
+    /// same product and a person who files by project on one means it on both.
+    @AppStorage("shidou.sidebarGrouping") private var groupingChoice = SessionListGrouping.updated.rawValue
+    @AppStorage("shidou.sidebarOrdering") private var orderingChoice = SessionListOrdering.newest.rawValue
+
+    @State private var query = ""
+    @State private var collapsed: Set<String> = []
+    /// Per project section: how many tasks older than the recent window the
+    /// user has asked to see.
+    @State private var revealed: [String: Int] = [:]
     @State private var now = Date()
     @State private var renaming: AgentSession?
     @State private var renameText = ""
     @State private var deleting: AgentSession?
     @State private var actionError: String?
 
+    @FocusState private var searchFocused: Bool
+
     private var store: SessionStore? { connection.sessions }
 
+    private var grouping: SessionListGrouping {
+        SessionListGrouping(rawValue: groupingChoice) ?? .updated
+    }
+
+    private var ordering: SessionListOrdering {
+        SessionListOrdering(rawValue: orderingChoice) ?? .newest
+    }
+
     var body: some View {
-        list
-            .listStyle(.insetGrouped)
-            .overlay { emptyState }
-            .refreshable { store?.refreshCatalog() }
-            .task(id: tickKey) { await tick() }
-            .alert("Rename task", isPresented: Binding(
-                get: { renaming != nil },
-                set: { if !$0 { renaming = nil } }
-            )) {
-                TextField("Title", text: $renameText)
-                Button("Cancel", role: .cancel) { renaming = nil }
-                Button("Rename") { commitRename() }
+        VStack(spacing: 0) {
+            searchField
+            list
+                .overlay { emptyState }
+        }
+        .refreshable { store?.refreshCatalog() }
+        .task(id: tickKey) { await tick() }
+        .alert("Rename task", isPresented: Binding(
+            get: { renaming != nil },
+            set: { if !$0 { renaming = nil } }
+        )) {
+            TextField("Title", text: $renameText)
+            Button("Cancel", role: .cancel) { renaming = nil }
+            Button("Rename") { commitRename() }
+        }
+        .confirmationDialog(
+            "Delete this task?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { commitDelete() }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: {
+            Text("Its transcript is removed from the daemon. This cannot be undone.")
+        }
+        .alert("Something went wrong", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK") { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+    }
+
+    // MARK: - Search
+
+    /// The web's search row, as the field it stands for. A drawer has no
+    /// navigation bar of its own to hang `.searchable` on, and a row that only
+    /// opens a search screen is a tap this list does not need.
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search tasks", text: $query)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+                .focused($searchFocused)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
-            .confirmationDialog(
-                "Delete this task?",
-                isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) { commitDelete() }
-                Button("Cancel", role: .cancel) { deleting = nil }
-            } message: {
-                Text("Its transcript is removed from the daemon. This cannot be undone.")
-            }
-            .alert("Something went wrong", isPresented: Binding(
-                get: { actionError != nil },
-                set: { if !$0 { actionError = nil } }
-            )) {
-                Button("OK") { actionError = nil }
-            } message: {
-                Text(actionError ?? "")
-            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 
     private var list: some View {
-        List(selection: $selection) { rows }
-            .listStyle(.insetGrouped)
-    }
-
-    @ViewBuilder
-    private var rows: some View {
-        ForEach(sections) { section in
-            Section(section.group.title) {
-                ForEach(section.items) { item in
-                    row(item)
+        List {
+            ForEach(groups) { group in
+                Section {
+                    if !collapsed.contains(group.key) {
+                        ForEach(group.items) { item in
+                            row(item, group: group)
+                        }
+                        if group.hasMore {
+                            showMore(group)
+                        }
+                    }
+                } header: {
+                    GroupHeader(
+                        group: group,
+                        collapsed: collapsed.contains(group.key),
+                        showsOptions: group.key == groups.first?.key,
+                        grouping: grouping,
+                        ordering: ordering,
+                        toggle: { toggle(group.key) },
+                        chooseGrouping: { groupingChoice = $0.rawValue },
+                        chooseOrdering: { orderingChoice = $0.rawValue }
+                    )
                 }
             }
+            // Keeps the last row clear of the floating footer bar.
+            Color.clear
+                .frame(height: 64)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .accessibilityHidden(true)
         }
+        .listStyle(.plain)
+        .scrollDismissesKeyboard(.interactively)
+        .environment(\.defaultMinListRowHeight, 1)
     }
 
     // MARK: - Rows
 
-    private func row(_ item: SessionListItem) -> some View {
-        SessionRow(item: item, now: UInt64(now.timeIntervalSince1970))
-            .tag(item.session.id)
-            .swipeActions(edge: .trailing) { actions(for: item) }
-            // A swipe is invisible to VoiceOver and unreachable from a keyboard,
-            // so the same actions are also a context menu that focus can open.
-            .contextMenu { actions(for: item) }
+    private func row(_ item: SessionListItem, group: SessionListGroup) -> some View {
+        let selected = selection == item.session.id
+        return Button {
+            selection = item.session.id
+        } label: {
+            SessionRow(
+                item: item,
+                now: UInt64(now.timeIntervalSince1970),
+                inFolder: group.isFolder
+            )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                selected ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 1, leading: 12, bottom: 1, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .swipeActions(edge: .trailing) { actions(for: item) }
+        // A swipe is invisible to VoiceOver and unreachable from a keyboard,
+        // so the same actions are also a context menu that focus can open.
+        .contextMenu { actions(for: item) }
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    private func showMore(_ group: SessionListGroup) -> some View {
+        Button {
+            revealed[group.key] = (revealed[group.key] ?? 0)
+                + SessionListPresentation.projectRevealBatch
+        } label: {
+            Text("Show more")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 1, leading: 24, bottom: 4, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
     }
 
     @ViewBuilder
@@ -96,11 +221,19 @@ struct SessionListView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if let store, store.hasLoadedCatalog, sections.isEmpty {
-            ContentUnavailableView {
-                Label("No tasks yet", systemImage: "tray")
-            } description: {
-                Text("Start one with ＋, or from Shidou on your Mac.")
+        if let store, store.hasLoadedCatalog, isEmpty {
+            if !query.isEmpty {
+                ContentUnavailableView {
+                    Label("No matches", systemImage: "magnifyingglass")
+                } description: {
+                    Text("No task's title, project or branch contains “\(query)”.")
+                }
+            } else {
+                ContentUnavailableView {
+                    Label("No tasks yet", systemImage: "tray")
+                } description: {
+                    Text("Start one with ＋, or from Shidou on your Mac.")
+                }
             }
         } else if let error = store?.catalogError {
             ContentUnavailableView {
@@ -117,11 +250,31 @@ struct SessionListView: View {
 
     // MARK: - Data
 
-    private var sections: [SessionListSection] {
+    private var groups: [SessionListGroup] {
         guard let store else { return [] }
-        return SessionListPresentation.sections(
-            sessions: store.sessions, projects: store.projects, now: now
+        return SessionListPresentation.groups(
+            sessions: store.sessions,
+            projects: store.projects,
+            grouping: grouping,
+            ordering: ordering,
+            query: query,
+            revealed: revealed,
+            now: now,
+            unknownProjectName: String(localized: "Unknown project"),
+            projectlessName: String(localized: "No project")
         )
+    }
+
+    private var isEmpty: Bool { groups.allSatisfy { $0.items.isEmpty } }
+
+    private func toggle(_ key: String) {
+        withAnimation(.snappy(duration: 0.2)) {
+            if collapsed.contains(key) {
+                collapsed.remove(key)
+            } else {
+                collapsed.insert(key)
+            }
+        }
     }
 
     /// The list re-times itself only when what it would say changes: seconds
@@ -165,71 +318,176 @@ struct SessionListView: View {
     }
 }
 
+/// One collapsible section header — the web sidebar's `GroupRow`.
+///
+/// The first header also carries the options menu, so choosing how tasks are
+/// filed costs no chrome of its own. Arrow keys collapse and expand, because a
+/// disclosure that only answers to a tap is not a disclosure on a keyboard.
+private struct GroupHeader: View {
+    let group: SessionListGroup
+    let collapsed: Bool
+    let showsOptions: Bool
+    let grouping: SessionListGrouping
+    let ordering: SessionListOrdering
+    let toggle: () -> Void
+    let chooseGrouping: (SessionListGrouping) -> Void
+    let chooseOrdering: (SessionListOrdering) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(action: toggle) {
+                HStack(spacing: 5) {
+                    if group.isFolder {
+                        Image(systemName: "folder")
+                            .font(.caption2)
+                            .accessibilityHidden(true)
+                    }
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(collapsed ? -90 : 0))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(collapsed ? Text("Collapsed") : Text("Expanded"))
+            .accessibilityHint("Shows or hides this section")
+            .onKeyPress(.leftArrow) {
+                guard !collapsed else { return .ignored }
+                toggle()
+                return .handled
+            }
+            .onKeyPress(.rightArrow) {
+                guard collapsed else { return .ignored }
+                toggle()
+                return .handled
+            }
+            if showsOptions { options }
+        }
+        .textCase(nil)
+        .padding(.horizontal, 12)
+        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
+    }
+
+    private var title: String {
+        if case .date(let bucket) = group.kind { return bucket.title }
+        return group.folderName ?? ""
+    }
+
+    private var options: some View {
+        Menu {
+            Picker("Group by", selection: Binding(get: { grouping }, set: chooseGrouping)) {
+                Text("Project").tag(SessionListGrouping.project)
+                Text("Last updated").tag(SessionListGrouping.updated)
+            }
+            Picker("Order", selection: Binding(get: { ordering }, set: chooseOrdering)) {
+                Text("Newest first").tag(SessionListOrdering.newest)
+                Text("Oldest first").tag(SessionListOrdering.oldest)
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.caption)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        // A menu tints its label with the accent colour, which would make the
+        // quietest control in the header the loudest thing in it.
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("List options")
+    }
+}
+
+/// One task, at the density the web sidebar settled on: the title with its
+/// status beside it, and one metadata line saying where the task lives and
+/// when it last said something.
 struct SessionRow: View {
     let item: SessionListItem
     let now: UInt64
+    /// Inside a project section the project name is the header, so the line
+    /// says the branch instead of repeating it.
+    var inFolder = false
 
-    /// The status column keeps the titles aligned, and scales with the text so
-    /// a larger type size does not crop the glyph into it.
-    @ScaledMetric(relativeTo: .footnote) private var glyphColumn: CGFloat = 18
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            statusGlyph
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(displayTitle(item.session))
-                    .font(.body)
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(item.projectName)
-                    if let branch = item.branch {
-                        Text(verbatim: "·").foregroundStyle(.quaternary).accessibilityHidden(true)
-                        Label(branch, systemImage: "arrow.triangle.branch")
-                            .labelStyle(.titleAndIcon)
-                            .lineLimit(1)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if !statusLabel.isEmpty {
-                    Text(statusLabel)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(item.isWaiting ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
-                }
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                statusGlyph
             }
-            Spacer(minLength: 0)
+            metadata
         }
-        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    /// A Waiting Session is marked with a glyph and a sentence, not with a
-    /// colour: the whole point of the mark is that it must not be missable.
+    private var metadata: some View {
+        HStack(spacing: 5) {
+            if inFolder {
+                if let branch = item.branch {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 10))
+                        .accessibilityHidden(true)
+                    Text(branch).lineLimit(1)
+                }
+            } else {
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                    .accessibilityHidden(true)
+                Text(item.projectName).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if !statusLabel.isEmpty {
+                Text(statusLabel)
+                    .monospacedDigit()
+                    .foregroundStyle(statusTint)
+                    .lineLimit(1)
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+    }
+
+    /// A Waiting Session is marked with a glyph *and* a sentence, never with a
+    /// colour alone: the whole point of the mark is that it must not be
+    /// missable.
+    @ViewBuilder
     private var statusGlyph: some View {
-        Image(systemName: glyphName)
-            .font(.footnote)
-            .foregroundStyle(glyphColor)
-            .frame(minWidth: glyphColumn, alignment: .leading)
-            .accessibilityHidden(true)
-    }
-
-    private var glyphName: String {
         switch item.session.status {
-        case .waiting: return "hand.raised.fill"
-        case .failed: return "exclamationmark.triangle.fill"
-        case .working, .connecting: return "circle.dotted"
-        case .idle, .unknown: return "checkmark.circle"
+        case .working, .connecting:
+            if reduceMotion {
+                Image(systemName: "circle.dotted")
+                    .font(.caption2)
+                    .foregroundStyle(.tint)
+            } else {
+                ProgressView().controlSize(.mini)
+            }
+        case .waiting:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.red)
+        case .idle, .unknown:
+            EmptyView()
         }
     }
 
-    private var glyphColor: Color {
-        switch item.session.status {
-        case .waiting: return .orange
-        case .failed: return .red
-        case .working, .connecting: return .accentColor
-        case .idle, .unknown: return .secondary
-        }
+    private var statusTint: HierarchicalShapeStyle {
+        item.session.status == .idle ? .quaternary : .tertiary
     }
 
     private var statusLabel: String {
@@ -239,7 +497,7 @@ struct SessionRow: View {
         case .failed:
             return String(localized: "Stopped")
         case .working(let elapsed):
-            return String(localized: "Working for \(elapsed.durationShortLabel)")
+            return elapsed.durationShortLabel
         case .replied(let ago):
             return ago.agoLabel
         case .none:

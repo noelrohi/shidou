@@ -176,17 +176,26 @@ struct TranscriptView: View {
                 )
             }
             if model.isCatchingUp { CatchingUpBar() }
-            if rows.isEmpty && !model.session.hasStarted {
-                // A draft has no transcript to scroll. Saying what to do reads
-                // better than an empty scroll view, and it leaves the composer
-                // the rest of the screen.
-                EmptyDraftPrompt()
-            } else {
-                scroller(rows: rows, matches: matches, model: model)
+            Group {
+                if rows.isEmpty && !model.session.hasStarted {
+                    // A draft has no transcript to scroll. Saying what to do
+                    // reads better than an empty scroll view, and it leaves the
+                    // composer the rest of the screen.
+                    EmptyDraftPrompt()
+                } else {
+                    scroller(rows: rows, matches: matches, model: model)
+                }
             }
-            if let store {
-                ComposerView(
-                    model: model, store: store, daemonAddress: connection.preferenceKey)
+            // The composer is a bottom bar, not the last row of a stack: as an
+            // inset the transcript keeps scrolling underneath it and the system
+            // blurs and fades what passes behind, the same way the navigation
+            // bar treats the top of the screen. Stacked, it would sit on an
+            // opaque slab and the transcript would simply stop above it.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let store {
+                    ComposerView(
+                        model: model, store: store, daemonAddress: connection.preferenceKey)
+                }
             }
         }
     }
@@ -270,8 +279,9 @@ struct TranscriptView: View {
         if let opensDrawer {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: opensDrawer) {
-                    Image(systemName: "line.3.horizontal")
+                    Image(systemName: "sidebar.leading")
                 }
+                .keyboardShortcut("s", modifiers: [.command, .control])
                 .accessibilityLabel("Tasks")
             }
         }

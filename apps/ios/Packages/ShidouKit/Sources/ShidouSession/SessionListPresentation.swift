@@ -159,3 +159,200 @@ public enum SessionListPresentation {
         return max(1, tomorrow.timeIntervalSince(now))
     }
 }
+
+// MARK: - Sidebar grouping
+
+/// How the sidebar files tasks, ported from the web client's
+/// `SidebarGrouping`. Recency is the default because it answers "what was I
+/// just doing"; project answers "what is going on in this repo".
+public enum SessionListGrouping: String, Sendable, CaseIterable, Codable {
+    case updated, project
+}
+
+/// Newest-first is the default; the reverse is for reading a long day forward.
+public enum SessionListOrdering: String, Sendable, CaseIterable, Codable {
+    case newest, oldest
+}
+
+/// One collapsible sidebar section. Keys are stable across a grouping switch,
+/// so each view keeps its own disclosure state when the user toggles back.
+public struct SessionListGroup: Identifiable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case date(SessionDateGroup)
+        case project(UUID)
+        case projectless
+    }
+
+    public var key: String
+    public var kind: Kind
+    /// A folder section's name — the project, or the scratch section's label.
+    /// Date sections carry none: their titles are localized recency buckets,
+    /// which belong to the view layer that already owns that catalog.
+    public var folderName: String?
+    public var items: [SessionListItem]
+    /// Older tasks this project group is holding back until asked.
+    public var hasMore: Bool
+
+    public var id: String { key }
+
+    /// Project and scratch sections are folders — they draw a folder glyph and
+    /// an indent guide. Date sections are derived from timestamps and draw
+    /// neither.
+    public var isFolder: Bool {
+        if case .date = kind { return false }
+        return true
+    }
+}
+
+extension SessionListPresentation {
+    /// Project sections list only the last three days up front.
+    public static let projectRecentWindow: TimeInterval = 3 * 24 * 60 * 60
+    /// How many older tasks each "Show more" reveals.
+    public static let projectRevealBatch = 30
+
+    /// The sidebar's sections, in display order.
+    ///
+    /// This is the web sidebar's `sidebarGroups` with the same contracts: only
+    /// started tasks, stable keys, an empty first section rather than nothing
+    /// so the header actions never vanish, and project sections that hold back
+    /// anything older than three days behind a reveal count.
+    public static func groups(
+        sessions: [AgentSession],
+        projects: [Project],
+        grouping: SessionListGrouping = .updated,
+        ordering: SessionListOrdering = .newest,
+        query: String = "",
+        revealed: [String: Int] = [:],
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        unknownProjectName: String = "Unknown project",
+        projectlessName: String = "No project"
+    ) -> [SessionListGroup] {
+        let projectsById = Dictionary(
+            projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let items = sessions
+            .filter(hasStarted)
+            .map { session -> SessionListItem in
+                let project = projectsById[session.projectId]
+                return SessionListItem(
+                    session: session,
+                    projectName: project.map { $0.isProjectless ? projectlessName : $0.name }
+                        ?? unknownProjectName,
+                    projectPath: project?.path,
+                    branch: {
+                        if case .worktree(_, let branch) = session.workspace { return branch }
+                        return nil
+                    }(),
+                    timestamp: timestamp(session)
+                )
+            }
+            .filter { matches($0, query: query) }
+            .sorted {
+                ordering == .oldest ? $0.timestamp < $1.timestamp : $0.timestamp > $1.timestamp
+            }
+
+        let groups = grouping == .project
+            ? projectGroups(
+                items, projectsById: projectsById, revealed: revealed, now: now,
+                projectlessName: projectlessName)
+            : dateGroups(items, ordering: ordering, now: now, calendar: calendar)
+        if !groups.isEmpty { return groups }
+        // An empty result still needs its first header, or the section actions
+        // disappear along with the history.
+        if grouping == .project {
+            return [
+                SessionListGroup(
+                    key: "projectless", kind: .projectless, folderName: projectlessName,
+                    items: [], hasMore: false)
+            ]
+        }
+        return [
+            SessionListGroup(
+                key: "updated:today", kind: .date(.today), folderName: nil, items: [],
+                hasMore: false)
+        ]
+    }
+
+    /// Whether a row survives the search field. Title, project, and branch are
+    /// what the row itself shows, so they are what it can be found by.
+    public static func matches(_ item: SessionListItem, query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return true }
+        let haystack = [displayTitle(item.session), item.projectName, item.branch ?? ""]
+        return haystack.contains {
+            $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
+
+    private static func dateGroups(
+        _ items: [SessionListItem],
+        ordering: SessionListOrdering,
+        now: Date,
+        calendar: Calendar
+    ) -> [SessionListGroup] {
+        var grouped: [SessionDateGroup: [SessionListItem]] = [:]
+        for item in items {
+            grouped[dateGroup(item.timestamp, now: now, calendar: calendar), default: []]
+                .append(item)
+        }
+        let order = ordering == .oldest
+            ? SessionDateGroup.allCases.reversed().map { $0 }
+            : SessionDateGroup.allCases
+        return order.compactMap { group in
+            guard let items = grouped[group], !items.isEmpty else { return nil }
+            return SessionListGroup(
+                key: "updated:\(group.rawValue)", kind: .date(group), folderName: nil,
+                items: items, hasMore: false)
+        }
+    }
+
+    private static func projectGroups(
+        _ items: [SessionListItem],
+        projectsById: [UUID: Project],
+        revealed: [String: Int],
+        now: Date,
+        projectlessName: String
+    ) -> [SessionListGroup] {
+        var groups: [SessionListGroup] = []
+        var indexByProject: [UUID: Int] = [:]
+        var projectless: [SessionListItem] = []
+        for item in items {
+            let project = projectsById[item.session.projectId]
+            if let project, project.isProjectless {
+                projectless.append(item)
+                continue
+            }
+            let id = item.session.projectId
+            if let index = indexByProject[id] {
+                groups[index].items.append(item)
+                continue
+            }
+            indexByProject[id] = groups.count
+            groups.append(
+                SessionListGroup(
+                    key: "project:\(id.uuidString)", kind: .project(id),
+                    folderName: project?.name ?? item.projectName, items: [item],
+                    hasMore: false))
+        }
+        if !projectless.isEmpty {
+            groups.append(
+                SessionListGroup(
+                    key: "projectless", kind: .projectless, folderName: projectlessName,
+                    items: projectless, hasMore: false))
+        }
+        let cutoff = UInt64(max(0, now.timeIntervalSince1970 - projectRecentWindow))
+        return groups.map { group in
+            var group = group
+            let revealedOlder = revealed[group.key] ?? 0
+            var visible: [SessionListItem] = []
+            var olderSeen = 0
+            for item in group.items {
+                if item.timestamp >= cutoff || olderSeen < revealedOlder { visible.append(item) }
+                if item.timestamp < cutoff { olderSeen += 1 }
+            }
+            group.hasMore = olderSeen > revealedOlder
+            group.items = visible
+            return group
+        }
+    }
+}

@@ -13,19 +13,30 @@ import SwiftUI
 struct ControlChip<Label: View>: View {
     let systemImage: String
     let tint: Color?
+    /// Drops the written label and keeps the glyph. Reserved for the two
+    /// controls whose state a single symbol says completely — access and
+    /// build-versus-plan — so the strip spends its width on the ones a symbol
+    /// cannot, like which model is selected. Call sites still carry the
+    /// `accessibilityLabel`, which is the label that has to survive.
+    let iconOnly: Bool
     let action: () -> Void
     @ViewBuilder let label: () -> Label
 
     @Environment(\.isEnabled) private var isEnabled
+    /// The glyph column grows with the text it stands in for, so an icon-only
+    /// chip stays the same height as its neighbours at every type size.
+    @ScaledMetric(relativeTo: .footnote) private var glyphWidth: CGFloat = 17
 
     init(
         systemImage: String,
         tint: Color? = nil,
+        iconOnly: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
         self.systemImage = systemImage
         self.tint = tint
+        self.iconOnly = iconOnly
         self.action = action
         self.label = label
     }
@@ -34,17 +45,24 @@ struct ControlChip<Label: View>: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.caption2)
+                    .font(iconOnly ? .footnote : .caption2)
                     .foregroundStyle(tint ?? .secondary)
+                    .frame(minWidth: iconOnly ? glyphWidth : nil)
                     .accessibilityHidden(true)
-                label()
-                    .font(.footnote)
-                    .foregroundStyle(tint ?? .primary)
-                    .lineLimit(1)
+                if !iconOnly {
+                    label()
+                        .font(.footnote)
+                        .foregroundStyle(tint ?? .primary)
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.5), in: Capsule())
+            .glassSurface(
+                in: Capsule(),
+                interactive: true,
+                fallback: AnyShapeStyle(.quaternary.opacity(0.5))
+            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

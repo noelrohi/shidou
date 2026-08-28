@@ -127,20 +127,28 @@ struct RootView: View {
     // MARK: - The compact spine: task is the screen, drawer is the list
 
     private var compactSpine: some View {
-        ZStack(alignment: .top) {
-            // The stack exists for the toolbar alone — nothing is ever pushed
-            // onto it — but without it the transcript's toolbar items never
-            // render, and the surfaces and overflow menus vanish with them.
-            NavigationStack {
-                ZStack(alignment: .leading) {
-                    compactRoot
-                    if showingDrawer {
-                        drawer
-                    }
+        SideDrawer(isOpen: $showingDrawer) {
+            SessionsDrawer(
+                selection: $selection,
+                showingDraft: $showingDraft,
+                isPresented: $showingDrawer,
+                onSettings: {
+                    settingsPresentation += 1
+                    showingSettings = true
                 }
-                .toolbarBackground(.visible, for: .navigationBar)
+            )
+        } content: {
+            ZStack(alignment: .top) {
+                // The stack exists for the toolbar alone — nothing is ever
+                // pushed onto it — but without it the transcript's toolbar
+                // items never render, and the surfaces and overflow menus
+                // vanish with them.
+                NavigationStack {
+                    compactRoot
+                        .toolbarBackground(.visible, for: .navigationBar)
+                }
+                if case .inlineIndicator = connection.presentation { ReconnectingBar() }
             }
-            if case .inlineIndicator = connection.presentation { ReconnectingBar() }
         }
         .onAppear {
             // Nothing open means the drawer is the screen: the launch state of
@@ -169,45 +177,8 @@ struct RootView: View {
     }
 
     private func openDrawer() {
-        withAnimation(.snappy) { showingDrawer = true }
-    }
-
-    private func closeDrawer() {
-        withAnimation(.snappy) { showingDrawer = false }
-    }
-
-    /// The slide-over panel and its dimming backdrop. The panel is the real
-    /// width of the drawer; the backdrop swallows the rest and any tap on it
-    /// closes.
-    @ViewBuilder
-    private var drawer: some View {
-        ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(.black.opacity(0.4))
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { closeDrawer() }
-                .transition(.opacity)
-                .accessibilityHidden(true)
-            GeometryReader { geo in
-                SessionsDrawer(
-                    selection: $selection,
-                    showingDraft: $showingDraft,
-                    isPresented: $showingDrawer,
-                    onSettings: {
-                        settingsPresentation += 1
-                        showingSettings = true
-                    }
-                )
-                .frame(width: min(320, geo.size.width * 0.85), alignment: .leading)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .background {
-                    Rectangle().fill(.bar)
-                        .ignoresSafeArea(.container, edges: .vertical)
-                }
-                .overlay(alignment: .trailing) { Divider() }
-                .transition(.move(edge: .leading))
-            }
+        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.86)) {
+            showingDrawer = true
         }
     }
 
@@ -248,7 +219,9 @@ struct RootView: View {
     private func open(_ sessionId: UUID) {
         showingDraft = false
         selection = sessionId
-        showingDrawer = false
+        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.86)) {
+            showingDrawer = false
+        }
     }
 
     @ViewBuilder
