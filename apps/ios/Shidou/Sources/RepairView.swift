@@ -59,6 +59,9 @@ struct RepairView: View {
                             SecureField("Daemon token", text: $token)
                                 .textFieldStyle(.roundedBorder)
                                 .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .submitLabel(.done)
+                                .onSubmit { save() }
                                 .focused($tokenFocused)
                             Button("Save") { save() }
                                 .buttonStyle(.bordered)

@@ -154,6 +154,9 @@ private struct ManualEntrySheet: View {
     @State private var address = ""
     @State private var token = ""
     @State private var error: String?
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable { case address, token }
 
     var body: some View {
         NavigationStack {
@@ -169,6 +172,9 @@ private struct ManualEntrySheet: View {
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                        .focused($focusedField, equals: .address)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .token }
                 } header: {
                     Text("Address")
                 } footer: {
@@ -179,6 +185,9 @@ private struct ManualEntrySheet: View {
                     SecureField("Daemon token", text: $token)
                         .textContentType(.password)
                         .autocorrectionDisabled()
+                        .focused($focusedField, equals: .token)
+                        .submitLabel(.go)
+                        .onSubmit { submit() }
                 }
 
                 if let error {

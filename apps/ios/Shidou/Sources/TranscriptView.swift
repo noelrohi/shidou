@@ -211,6 +211,7 @@ struct TranscriptView: View {
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
+            .dismissesKeyboardOnTap()
             .onChange(of: currentMatch) { _, index in
                 guard let index, index < matches.matches.count else { return }
                 let key = matches.matches[index].rowKey
@@ -474,6 +475,22 @@ private struct FindBar: View {
     }
 }
 
+
+/// Tapping through a view also puts the keyboard away. The transcript is the
+/// composer's outside, and a tap there is an unambiguous "done typing" —
+/// scrolling already dismisses interactively, but a tap is what people try
+/// first. It resigns whatever is first responder through the responder chain,
+/// so the wrapped composer text view and the find bar both obey, and the
+/// gesture is simultaneous, so row buttons and file links still get the touch.
+extension View {
+    func dismissesKeyboardOnTap() -> some View {
+        simultaneousGesture(TapGesture().onEnded {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil,
+                for: nil)
+        })
+    }
+}
 
 /// A task with nothing in it yet. It says what to do rather than showing an
 /// empty scroll view, and it leaves the composer the whole rest of the screen.
