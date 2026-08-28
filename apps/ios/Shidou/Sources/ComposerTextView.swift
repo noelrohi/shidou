@@ -82,7 +82,9 @@ struct ComposerTextView: UIViewRepresentable {
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .placeholderText
-        placeholderLabel.numberOfLines = 0
+        // One line: the collapsed pill is single-line, and a wrapping
+        // placeholder would stretch it.
+        placeholderLabel.numberOfLines = 1
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.isAccessibilityElement = false
         view.addSubview(placeholderLabel)

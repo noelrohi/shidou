@@ -309,7 +309,7 @@ struct CheckpointSummary: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text("Changed ^[\(checkpoint.files.count) file](inflect: true)")
+                Text("Changed \(checkpoint.files.count) file")
                     .font(.caption.bold())
                 Text(verbatim: "+\(checkpoint.additions) −\(checkpoint.deletions)")
                     .font(.caption2.monospacedDigit())
@@ -467,30 +467,11 @@ enum ActivityCopy {
 
 extension Int {
     /// "2 minutes 3 seconds" — spelled out, for VoiceOver and for a label with
-    /// room.
-    ///
-    /// The `inflect: true` markup is what makes the plural a translator's
-    /// decision rather than an English `+ "s"`: languages with more than two
-    /// plural forms get their own entries in the catalog for free.
+    /// "1 minute, 30 seconds" — the system's own Duration formatting, so the
+    /// plural forms are a locale decision rather than markup in the catalog.
     var durationLabel: String {
-        if self < 60 {
-            return String(localized: "^[\(self) second](inflect: true)")
-        }
-        if self < 3_600 {
-            let minutes = self / 60
-            let seconds = self % 60
-            let first = String(localized: "^[\(minutes) minute](inflect: true)")
-            guard seconds > 0 else { return first }
-            return String(
-                localized: "\(first) \(String(localized: "^[\(seconds) second](inflect: true)"))"
-            )
-        }
-        let hours = self / 3_600
-        let minutes = (self % 3_600) / 60
-        let first = String(localized: "^[\(hours) hour](inflect: true)")
-        guard minutes > 0 else { return first }
-        return String(
-            localized: "\(first) \(String(localized: "^[\(minutes) minute](inflect: true)"))"
+        Duration.seconds(Double(self)).formatted(
+            .units(allowed: [.hours, .minutes, .seconds], width: .wide, maximumUnitCount: 2)
         )
     }
 

@@ -256,7 +256,7 @@ private struct DailyChart: View {
         .padding(.vertical, 6)
         .accessibilityLabel("Cost per day")
         .accessibilityValue(
-            "\(UsageFormat.cost(history.costUsd)) over ^[\(history.daily.count) day](inflect: true)")
+            "\(history.daily.count) day, \(UsageFormat.cost(history.costUsd))")
     }
 }
 

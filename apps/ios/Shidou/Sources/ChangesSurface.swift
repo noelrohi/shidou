@@ -35,7 +35,7 @@ struct ChangesView: View {
             } header: {
                 if !surfaces.diffFiles.isEmpty {
                     Text(
-                        "^[\(surfaces.diffFiles.count) file](inflect: true) · +\(surfaces.diffAdditions) −\(surfaces.diffDeletions)"
+                        "\(surfaces.diffFiles.count) file · +\(surfaces.diffAdditions) −\(surfaces.diffDeletions)"
                     )
                 }
             }

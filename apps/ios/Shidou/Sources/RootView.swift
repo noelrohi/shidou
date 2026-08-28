@@ -3,23 +3,13 @@ import ShidouProtocol
 import ShidouSession
 import SwiftUI
 
-/// The navigation spine from the IA decision: Sessions is the root, the
-/// transcript is pushed on top of it, and back-swipe is how you switch tasks.
-/// iPad gets the same two surfaces as a split view. No tab bar, no drawer, no
-/// palette, no session-switcher sheet.
-/// What the iPhone's navigation stack can be showing on top of the list.
+/// The navigation spine. iPad keeps the split view — its sidebar *is* the
+/// session list. iPhone drops the sessions page entirely: the task is the
+/// screen, and a slide-in drawer (the shape Claude's iOS app normalized) is
+/// the task switcher. Nothing open means the drawer is open.
 ///
-/// It exists as one type rather than a `UUID` destination beside a boolean
-/// one because SwiftUI traps when a `NavigationStack(path:)` carries both.
-enum SessionsRoute: Hashable {
-    case session(UUID)
-    case draft
-
-    var sessionId: UUID? {
-        if case .session(let id) = self { return id }
-        return nil
-    }
-}
+/// Both size classes now carry "which task" the same way — a selection and a
+/// draft flag — so crossing the boundary keeps the open task in place.
 
 struct RootView: View {
     @Environment(DaemonConnection.self) private var connection
@@ -33,14 +23,8 @@ struct RootView: View {
     @State private var settingsPresentation = 0
     @State private var selection: UUID?
     @State private var showingDraft = false
-    /// The stack's path, so a tapped notification can push a transcript from
-    /// outside the list.
-    ///
-    /// One route type, not a value destination beside a boolean one: a
-    /// `NavigationStack` given both traps inside SwiftUI the moment the value
-    /// destination pushes (`NavigationColumnState.boundPathChange`). A draft
-    /// is just another thing the stack can hold, so it belongs in the path.
-    @State private var path: [SessionsRoute] = []
+    /// iPhone only: the drawer over the task screen.
+    @State private var showingDrawer = false
     /// Both columns, rather than `.automatic`: with an explicit binding a
     /// `.balanced` split view starts the sidebar hidden in portrait, and a
     /// task list you have to reveal is not the spine the IA decision settled.
@@ -79,18 +63,12 @@ struct RootView: View {
         // pushes stop happening at all.
         .animation(.snappy, value: attention.banner)
         // Stage Manager and Split View cross the size-class boundary while a
-        // task is open, and the two spines hold "which task" in different
-        // places — a stack path on iPhone, a list selection on iPad. Carrying
-        // it across is what stops a resize from throwing the user back to the
-        // list. See the multitasking half of the IA decision (#10).
+        // task is open, and both spines hold "which task" in the same places
+        // now, so nothing to migrate — only the drawer needs to make sense of
+        // a window that just grew a real sidebar.
         .onChange(of: sizeClass) { _, newValue in
             if newValue == .regular {
-                selection = path.last?.sessionId ?? selection
-                showingDraft = path.contains(.draft)
-                path = []
-            } else {
-                path = selection.map { [.session($0)] } ?? (showingDraft ? [.draft] : [])
-                selection = nil
+                showingDrawer = false
             }
         }
         .task(id: connection.sessions.map(ObjectIdentifier.init)) {
@@ -128,7 +106,7 @@ struct RootView: View {
             // slice ③; the spine itself is here so the transcript never has to
             // be re-parented later.
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                sessionsColumn(selectsInPlace: true)
+                sessionsColumn
                     // A Stage Manager window can be narrower than two usable
                     // columns; pinning the sidebar's range is what keeps the
                     // transcript readable instead of squeezing both.
@@ -142,23 +120,101 @@ struct RootView: View {
             // overlaying it, which is what a resize should preserve.
             .navigationSplitViewStyle(.balanced)
         } else {
-            NavigationStack(path: $path) {
-                sessionsColumn(selectsInPlace: false)
-                    .navigationDestination(for: SessionsRoute.self) { route in
-                        switch route {
-                        case .session(let id): TranscriptView(sessionId: id)
-                        case .draft: NewTaskView()
-                        }
+            compactSpine
+        }
+    }
+
+    // MARK: - The compact spine: task is the screen, drawer is the list
+
+    private var compactSpine: some View {
+        ZStack(alignment: .top) {
+            // The stack exists for the toolbar alone — nothing is ever pushed
+            // onto it — but without it the transcript's toolbar items never
+            // render, and the surfaces and overflow menus vanish with them.
+            NavigationStack {
+                ZStack(alignment: .leading) {
+                    compactRoot
+                    if showingDrawer {
+                        drawer
                     }
+                }
+                .toolbarBackground(.visible, for: .navigationBar)
+            }
+            if case .inlineIndicator = connection.presentation { ReconnectingBar() }
+        }
+        .onAppear {
+            // Nothing open means the drawer is the screen: the launch state of
+            // the phone is the drawer, the way a fresh visit lands on Chats.
+            if selection == nil, !showingDraft { showingDrawer = true }
+        }
+    }
+
+    @ViewBuilder
+    private var compactRoot: some View {
+        if showingDraft, selection == nil {
+            NewTaskView(opensDrawer: openDrawer)
+        } else if let selection {
+            TranscriptView(sessionId: selection, opensDrawer: openDrawer)
+                .id(selection)
+        } else {
+            ContentUnavailableView {
+                Label("No task open", systemImage: "text.bubble")
+            } description: {
+                Text("Pick a task from the drawer, or start a new one.")
+            } actions: {
+                Button("Browse tasks") { openDrawer() }
+                Button("New task") { showingDraft = true }
             }
         }
     }
 
-    private func sessionsColumn(selectsInPlace: Bool) -> some View {
+    private func openDrawer() {
+        withAnimation(.snappy) { showingDrawer = true }
+    }
+
+    private func closeDrawer() {
+        withAnimation(.snappy) { showingDrawer = false }
+    }
+
+    /// The slide-over panel and its dimming backdrop. The panel is the real
+    /// width of the drawer; the backdrop swallows the rest and any tap on it
+    /// closes.
+    @ViewBuilder
+    private var drawer: some View {
+        ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(.black.opacity(0.4))
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { closeDrawer() }
+                .transition(.opacity)
+                .accessibilityHidden(true)
+            GeometryReader { geo in
+                SessionsDrawer(
+                    selection: $selection,
+                    showingDraft: $showingDraft,
+                    isPresented: $showingDrawer,
+                    onSettings: {
+                        settingsPresentation += 1
+                        showingSettings = true
+                    }
+                )
+                .frame(width: min(320, geo.size.width * 0.85), alignment: .leading)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background {
+                    Rectangle().fill(.bar)
+                        .ignoresSafeArea(.container, edges: .vertical)
+                }
+                .overlay(alignment: .trailing) { Divider() }
+                .transition(.move(edge: .leading))
+            }
+        }
+    }
+
+    private var sessionsColumn: some View {
         VStack(spacing: 0) {
             if connection.isDemo { DemoBanner() }
-            if case .inlineIndicator = connection.presentation { ReconnectingBar() }
-            SessionListView(selection: $selection, selectsInPlace: selectsInPlace)
+            SessionListView(selection: $selection)
         }
         // Picking a task is how you leave a draft you did not start.
         .onChange(of: selection) { _, newValue in
@@ -178,11 +234,7 @@ struct RootView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     selection = nil
-                    if sizeClass == .regular {
-                        showingDraft = true
-                    } else {
-                        path.append(.draft)
-                    }
+                    showingDraft = true
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -191,15 +243,12 @@ struct RootView: View {
         }
     }
 
-    /// Shows one task, from wherever the app currently is.
+    /// Shows one task, from wherever the app currently is. Both size classes
+    /// read the same state, so this is the whole story again.
     private func open(_ sessionId: UUID) {
         showingDraft = false
-        if sizeClass == .regular {
-            selection = sessionId
-        } else {
-            selection = nil
-            path = [.session(sessionId)]
-        }
+        selection = sessionId
+        showingDrawer = false
     }
 
     @ViewBuilder
@@ -240,7 +289,7 @@ private struct SettingsStack: View {
 /// permission, it shows a diff — and a demo that is convincing without
 /// saying so is a demo that misleads. It stays on screen rather than
 /// appearing once, because the sentence is true the whole time.
-private struct DemoBanner: View {
+struct DemoBanner: View {
     @Environment(DaemonConnection.self) private var connection
     @Environment(\.dynamicTypeSize) private var typeSize
 

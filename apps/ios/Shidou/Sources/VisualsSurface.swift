@@ -74,7 +74,7 @@ private struct SectionHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("^[\(count) image](inflect: true) in \(title)")
+        .accessibilityLabel("\(count) image in \(title)")
     }
 }
 

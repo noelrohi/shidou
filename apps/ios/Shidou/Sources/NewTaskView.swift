@@ -9,6 +9,10 @@ import SwiftUI
 /// they started a task with, because reconfiguring the same model on every new
 /// task is the tax a phone can least afford.
 struct NewTaskView: View {
+    /// Passed through to the transcript, whose toolbar hosts the drawer
+    /// button on iPhone.
+    var opensDrawer: (() -> Void)?
+
     @Environment(DaemonConnection.self) private var connection
 
     @State private var draft: AgentSession?
@@ -19,7 +23,7 @@ struct NewTaskView: View {
     var body: some View {
         Group {
             if let draft {
-                TranscriptView(draft: draft)
+                TranscriptView(draft: draft, opensDrawer: opensDrawer)
             } else if let store, store.hasLoadedCatalog, store.projects.isEmpty {
                 ContentUnavailableView {
                     Label("No projects yet", systemImage: "folder.badge.plus")

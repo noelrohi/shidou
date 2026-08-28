@@ -95,7 +95,7 @@ struct ComposerView: View {
                 ComposerSuggestions(
                     rows: suggestionRows, highlight: highlight, accept: accept)
             }
-            box
+            surface
             workspaceControls
         }
         .padding(.horizontal, 12)
@@ -142,70 +142,116 @@ struct ComposerView: View {
         }
     }
 
-    // MARK: - The box
+    // MARK: - The surface
 
-    private var box: some View {
+    /// The composer morphs between two shapes, the way T3 Code's mobile
+    /// composer does: a single-line pill while it has nothing to say, and a
+    /// card — attachments, growing text, and the control row — once it is
+    /// focused or holds a draft. The text view is shared by both, so focus
+    /// survives the transition and the caret never jumps.
+    private var expanded: Bool { focused || hasContent }
+
+    private var surface: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !attachments.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(attachments.enumerated()), id: \.offset) { index, attachment in
-                            AttachmentTile(attachment: attachment, store: store) {
-                                attachments.remove(at: index)
-                                saveDraft()
-                            }
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-                .scrollIndicators(.hidden)
+            if expanded, !attachments.isEmpty {
+                attachmentStrip
             }
-            ComposerTextView(
-                text: $prompt,
-                selection: $cursor,
-                focused: $focused,
-                height: $inputHeight,
-                placeholder: busy
-                    ? String(localized: "Queue a follow-up…")
-                    : String(localized: "Ask Shidou to build something…"),
-                maxHeight: 180,
-                suggestionsOpen: suggestionsOpen,
-                onKeyCommand: handle(key:)
-            )
-            .frame(height: inputHeight)
-            .onChange(of: prompt) { _, _ in saveDraft() }
-            turnControls
+            HStack(alignment: .center, spacing: 6) {
+                ComposerTextView(
+                    text: $prompt,
+                    selection: $cursor,
+                    focused: $focused,
+                    height: $inputHeight,
+                    placeholder: busy
+                        ? String(localized: "Queue a follow-up…")
+                        : String(localized: "Ask Shidou to build something…"),
+                    maxHeight: 180,
+                    suggestionsOpen: suggestionsOpen,
+                    onKeyCommand: handle(key:)
+                )
+                .frame(height: expanded ? inputHeight : 34)
+                .onChange(of: prompt) { _, _ in saveDraft() }
+                if !expanded {
+                    primaryButton
+                        .contextMenu { primaryAlternatives }
+                }
+            }
+            if expanded {
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 6) {
+                            attachButton
+                            modelChip
+                            traitsChip
+                            agentPresetChip
+                            accessChip
+                            interactionModeChip
+                        }
+                        .padding(.vertical, 1)
+                    }
+                    .scrollIndicators(.hidden)
+                    primaryButton
+                        .contextMenu { primaryAlternatives }
+                }
+            }
         }
-        .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.separator) }
+        .padding(.leading, expanded ? 10 : 14)
+        .padding(.trailing, expanded ? 10 : 5)
+        .padding(.vertical, expanded ? 10 : 5)
+        .background(
+            .background.secondary,
+            in: RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous)
+                .strokeBorder(.separator)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: expanded ? 24 : 999, style: .continuous))
+        .onTapGesture {
+            // A pill is all tap target: touching anywhere in it means "I want
+            // to type", which is what expands it.
+            if !expanded { focused = true }
+        }
+        .animation(.snappy(duration: 0.22), value: expanded)
     }
 
-    /// The pill itself: text on top, attach and stop/send pinned at the
-    /// trailing edge — the two controls that must never be scrolled off or
-    /// moved. Everything configurable lives in the badge row below.
-    private var turnControls: some View {
-        HStack(spacing: 8) {
-            Spacer(minLength: 0)
-            Menu {
-                attachmentMenuItems
-            } label: {
-                Image(systemName: "paperclip")
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .foregroundStyle(.secondary)
-            .disabled(uploading)
-            .accessibilityLabel("Attach")
-
-            primaryButton
-                .contextMenu {
-                    if busy && hasContent {
-                        Button(canSteer ? "Queue instead" : "Steer current turn") {
-                            if canSteer { sendOrQueue() } else { steerTurn() }
-                        }
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(Array(attachments.enumerated()), id: \.offset) { index, attachment in
+                    AttachmentTile(attachment: attachment, store: store) {
+                        attachments.remove(at: index)
+                        saveDraft()
                     }
                 }
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// Attach joins the card's control row once expanded; the pill has no
+    /// room for it and the send/stop control stands in for the row entirely.
+    private var attachButton: some View {
+        Menu {
+            attachmentMenuItems
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(.body.weight(.medium))
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .foregroundStyle(.secondary)
+        .disabled(uploading)
+        .accessibilityLabel("Attach")
+    }
+
+    @ViewBuilder
+    private var primaryAlternatives: some View {
+        if busy && hasContent {
+            Button(canSteer ? "Queue instead" : "Steer current turn") {
+                if canSteer { sendOrQueue() } else { steerTurn() }
+            }
         }
     }
 
@@ -330,42 +376,36 @@ struct ComposerView: View {
 
     // MARK: - Workspace controls
 
-    /// The toolbar row: every configurable badge — model, traits, agent
-    /// preset, access, mode, project, workspace, branch — scrolls in one slim
-    /// line under the pill, with the context gauge pinned at the trailing
-    /// edge so it stays readable while the badges travel.
+    /// The toolbar under the surface, styled like a native bottom bar rather
+    /// than a second row of pills: quiet caption buttons in the secondary
+    /// tint, no borders, with the context gauge pinned at the trailing edge.
+    /// The workspace is context, not a control you are about to press — the
+    /// row should say where you are, not shout.
     private var workspaceControls: some View {
         let locked = busy || started
         return HStack(spacing: 8) {
             ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    modelChip
-                    traitsChip
-                    agentPresetChip
-                    accessChip
-                    interactionModeChip
-                    ControlChip(systemImage: "folder", action: { sheet = .project }) {
-                        Text(
-                            project.map { $0.isProjectless ? String(localized: "No project") : $0.name }
-                                ?? String(localized: "Choose a project"))
-                    }
+                HStack(spacing: 14) {
+                    ghostButton(
+                        "folder",
+                        project.map {
+                            $0.isProjectless ? String(localized: "No project") : $0.name
+                        } ?? String(localized: "Choose a project")
+                    ) { sheet = .project }
                     .disabled(locked)
 
-                    ControlChip(
-                        systemImage: session.workspace.isLocal
-                            ? "laptopcomputer" : "arrow.triangle.branch",
-                        action: { sheet = .workspace }
-                    ) {
-                        Text(workspaceLabel)
-                    }
+                    ghostButton(
+                        session.workspace.isLocal ? "laptopcomputer" : "arrow.triangle.branch",
+                        workspaceLabel
+                    ) { sheet = .workspace }
                     .disabled(locked)
 
                     if project?.isProjectless == false, store.branchSnapshot(for: session) != nil {
-                        ControlChip(systemImage: "arrow.triangle.branch", action: { sheet = .branch }) {
-                            Text(
-                                store.branchSnapshot(for: session)?.displayBranch
-                                    ?? String(localized: "Detached HEAD"))
-                        }
+                        ghostButton(
+                            "arrow.triangle.branch",
+                            store.branchSnapshot(for: session)?.displayBranch
+                                ?? String(localized: "Detached HEAD")
+                        ) { sheet = .branch }
                         .disabled(busy)
                     }
 
@@ -388,13 +428,40 @@ struct ComposerView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 4)
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(usageLabel)
         }
+    }
+
+    /// A quiet toolbar entry: small icon, caption label, dropdown chevron —
+    /// the vocabulary of a system bar, drawn here so it can live inside the
+    /// composer's keyboard-floating stack.
+    private func ghostButton(
+        _ icon: String,
+        _ label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                    .accessibilityHidden(true)
+                Text(label)
+                    .font(.caption)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var workspaceLabel: String {

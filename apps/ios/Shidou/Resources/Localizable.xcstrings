@@ -1,28 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "%@ over ^[%lld day](inflect: true)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（%2$lld 日間）"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ sa loob ng %2$lld araw"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（共 %2$lld 天）"
-          }
-        }
-      }
-    },
     "%@ tokens · %@": {
       "localizations": {
         "ja": {
@@ -41,6 +19,94 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ 令牌 · %2$@"
+          }
+        }
+      }
+    },
+    "%lld day, %@": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld day, %@"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld days, %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld file · +%lld −%lld": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld file · +%lld −%lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld files · +%lld −%lld"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld image in %@": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld image in %@"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld images in %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld model": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld models"
+                }
+              }
+            }
           }
         }
       }
@@ -67,6 +133,28 @@
         }
       },
       "shouldTranslate": true
+    },
+    "%lld running": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld running"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld running"
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "%lld%% left": {
       "localizations": {
@@ -1257,24 +1345,24 @@
         }
       }
     },
-    "Changed ^[%lld file](inflect: true)": {
+    "Changed %lld file": {
       "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 個のファイルを変更"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld na file ang binago"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已更改 %lld 个文件"
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Changed %lld file"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Changed %lld files"
+                }
+              }
+            }
           }
         }
       }
@@ -9785,160 +9873,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "你在 %@ 后停止了"
-          }
-        }
-      }
-    },
-    "^[%lld file](inflect: true) · +%lld −%lld": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld 個のファイル · +%2$lld −%3$lld"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld na file · +%2$lld −%3$lld"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld 个文件 · +%2$lld −%3$lld"
-          }
-        }
-      }
-    },
-    "^[%lld hour](inflect: true)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 時間"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld oras"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 小时"
-          }
-        }
-      }
-    },
-    "^[%lld image](inflect: true) in %@": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ 内の画像 %1$lld 件"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld na imahe sa %2$@"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ 中有 %1$lld 张图片"
-          }
-        }
-      }
-    },
-    "^[%lld minute](inflect: true)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 分"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld minuto"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 分钟"
-          }
-        }
-      }
-    },
-    "^[%lld model](inflect: true)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 個のモデル"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld na model"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 个模型"
-          }
-        }
-      }
-    },
-    "^[%lld running](inflect: true)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 件実行中"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld ang tumatakbo"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 个运行中"
-          }
-        }
-      }
-    },
-    "^[%lld second](inflect: true)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 秒"
-          }
-        },
-        "tl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld segundo"
-          }
-        },
-        "zh-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 秒"
           }
         }
       }

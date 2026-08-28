@@ -79,7 +79,7 @@ struct SurfacesView: View {
                 NavigationLink(value: SurfaceRoute.backgroundWork) {
                     LabeledContent {
                         if model.backgroundWork.liveCount > 0 {
-                            Text("^[\(model.backgroundWork.liveCount) running](inflect: true)")
+                            Text("\(model.backgroundWork.liveCount) running")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

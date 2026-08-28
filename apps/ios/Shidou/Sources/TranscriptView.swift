@@ -24,13 +24,19 @@ struct TranscriptView: View {
     }
 
     let source: Source
+    /// Set on iPhone, where the drawer is the task switcher and this button
+    /// is its only door. iPad's split view has a real sidebar, so it leaves
+    /// this nil and the item does not appear.
+    var opensDrawer: (() -> Void)?
 
-    init(sessionId: UUID) {
+    init(sessionId: UUID, opensDrawer: (() -> Void)? = nil) {
         self.source = .existing(sessionId)
+        self.opensDrawer = opensDrawer
     }
 
-    init(draft: AgentSession) {
+    init(draft: AgentSession, opensDrawer: (() -> Void)? = nil) {
         self.source = .draft(draft)
+        self.opensDrawer = opensDrawer
     }
 
     private var sessionId: UUID { source.sessionId }
@@ -261,6 +267,14 @@ struct TranscriptView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        if let opensDrawer {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: opensDrawer) {
+                    Image(systemName: "line.3.horizontal")
+                }
+                .accessibilityLabel("Tasks")
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 showingSurfaces.toggle()

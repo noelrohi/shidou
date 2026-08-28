@@ -6,10 +6,6 @@ import SwiftUI
 /// bucket; rows carry what the web sidebar carries, at mobile density.
 struct SessionListView: View {
     @Binding var selection: UUID?
-    /// A split view drives its detail column from `List` selection; a
-    /// navigation stack pushes from a link. The row has to be one or the
-    /// other, so the spine says which.
-    let selectsInPlace: Bool
 
     @Environment(DaemonConnection.self) private var connection
 
@@ -55,17 +51,9 @@ struct SessionListView: View {
             }
     }
 
-    /// A `List` bound to a selection puts its rows in selection mode, which
-    /// swallows the tap a `NavigationLink` needs. The split view wants that
-    /// binding and the stack must not have it, so the two are separate lists
-    /// rather than one list with an optional binding.
-    @ViewBuilder
     private var list: some View {
-        if selectsInPlace {
-            List(selection: $selection) { rows }
-        } else {
-            List { rows }
-        }
+        List(selection: $selection) { rows }
+            .listStyle(.insetGrouped)
     }
 
     @ViewBuilder
@@ -81,25 +69,13 @@ struct SessionListView: View {
 
     // MARK: - Rows
 
-    @ViewBuilder
     private func row(_ item: SessionListItem) -> some View {
-        Group {
-            if selectsInPlace {
-                SessionRow(item: item, now: UInt64(now.timeIntervalSince1970))
-                    .tag(item.session.id)
-            } else {
-                // The stack's path is `[SessionsRoute]`, so the link has to
-                // carry that type: a value of any other type has no
-                // destination and the tap does nothing at all.
-                NavigationLink(value: SessionsRoute.session(item.session.id)) {
-                    SessionRow(item: item, now: UInt64(now.timeIntervalSince1970))
-                }
-            }
-        }
-        .swipeActions(edge: .trailing) { actions(for: item) }
-        // A swipe is invisible to VoiceOver and unreachable from a keyboard,
-        // so the same actions are also a context menu that focus can open.
-        .contextMenu { actions(for: item) }
+        SessionRow(item: item, now: UInt64(now.timeIntervalSince1970))
+            .tag(item.session.id)
+            .swipeActions(edge: .trailing) { actions(for: item) }
+            // A swipe is invisible to VoiceOver and unreachable from a keyboard,
+            // so the same actions are also a context menu that focus can open.
+            .contextMenu { actions(for: item) }
     }
 
     @ViewBuilder

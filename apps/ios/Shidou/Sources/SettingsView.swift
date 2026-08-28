@@ -427,7 +427,7 @@ private struct ProviderRow: View {
         guard let probe else { return "Checking…" }
         if !probe.installed { return "Not installed" }
         if !isEnabled { return "Installed, turned off" }
-        return "^[\(probe.models.count) model](inflect: true)"
+        return "\(probe.models.count) model"
     }
 
     private var statusSymbol: String {
