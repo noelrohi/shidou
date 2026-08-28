@@ -1,4 +1,5 @@
 import {
+  PROTOCOL_VERSION,
   type ClientMessage,
   type Command,
   type ReplayCursor,
@@ -6,11 +7,6 @@ import {
   type SequencedEvent,
   type ServerMessage,
 } from "./generated";
-
-// TODO(protocol): pinned to 4 until the next daemon release ships protocol 5
-// (ReplayGap). The deployed daemons still speak 4, so the web client must too.
-// Restore importing PROTOCOL_VERSION from "./generated" once both sides match.
-export const WIRE_PROTOCOL_VERSION = 4 as const;
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const OPEN = 1;
@@ -85,7 +81,7 @@ export class ShidouClient {
     this.address = options.address;
     this.token = options.token;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
-    this.protocolVersion = options.protocolVersion ?? WIRE_PROTOCOL_VERSION;
+    this.protocolVersion = options.protocolVersion ?? PROTOCOL_VERSION;
     this.socketFactory =
       options.webSocketFactory ??
       ((url) => {
