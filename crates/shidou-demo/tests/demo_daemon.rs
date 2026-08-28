@@ -339,13 +339,17 @@ fn a_reconnecting_client_replays_exactly_the_tail_it_missed() {
     let before = drain(&first, &events, session_id, runtime_id, |event| {
         matches!(event, DriverEvent::InteractionResolved { .. })
     });
-    let cursors = first.last_sequences();
-    let cursor = cursors
-        .iter()
-        .find(|cursor| cursor.session_id == session_id && cursor.runtime_id == runtime_id)
-        .expect("the client tracked no cursor for the runtime it was watching")
-        .sequence;
-    assert_eq!(cursor, before.last().unwrap().sequence);
+    // Resume from the last event the projection consumed, not the socket
+    // reader's high-water mark. The reader may already have queued later
+    // events while this test is deliberately disconnecting mid-stream.
+    let last_before = before.last().unwrap();
+    let cursor = last_before.sequence;
+    let cursors = vec![ReplayCursor {
+        session_id,
+        runtime_id,
+        epoch: last_before.epoch,
+        sequence: cursor,
+    }];
     first.shutdown();
 
     let second = daemon.reconnect(cursors);
