@@ -1,5 +1,4 @@
 import {
-  PROTOCOL_VERSION,
   type ClientMessage,
   type Command,
   type ReplayCursor,
@@ -7,6 +6,11 @@ import {
   type SequencedEvent,
   type ServerMessage,
 } from "./generated";
+
+// TODO(protocol): pinned to 4 until the next daemon release ships protocol 5
+// (ReplayGap). The deployed daemons still speak 4, so the web client must too.
+// Restore importing PROTOCOL_VERSION from "./generated" once both sides match.
+export const WIRE_PROTOCOL_VERSION = 4 as const;
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const OPEN = 1;
@@ -134,7 +138,7 @@ export class ShidouClient {
         if (generation !== this.connectionGeneration) return;
         const hello: ClientMessage = {
           type: "hello",
-          protocolVersion: PROTOCOL_VERSION,
+          protocolVersion: WIRE_PROTOCOL_VERSION,
           token: this.token,
           clientId: this.clientId,
           resumeFrom: this.replayCursors(),
@@ -153,10 +157,10 @@ export class ShidouClient {
 
         if (!handshakeSettled) {
           if (message.type === "hello") {
-            if (message.protocolVersion !== PROTOCOL_VERSION) {
+            if (message.protocolVersion !== WIRE_PROTOCOL_VERSION) {
               failHandshake(
                 new Error(
-                  `daemon protocol ${message.protocolVersion} does not match client protocol ${PROTOCOL_VERSION}`,
+                  `daemon protocol ${message.protocolVersion} does not match client protocol ${WIRE_PROTOCOL_VERSION}`,
                 ),
               );
               socket.close(1002, "protocol version mismatch");
