@@ -14,11 +14,18 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
-## [unreleased]
+## [0.2.10]
 
+- Sync follow-up turns across clients: a turn started from one client now
+  appears with its user message on every attached client, so assistant output
+  is no longer dropped
 - Tell a client when replay cannot make it whole: a reconnect whose events have
   already been evicted from the daemon's journal now reports the gap, so the
   transcript is refetched instead of quietly missing a stretch of a long run
+- Show a phone pairing code in Daemon settings
+- Broadcast interaction resolution across clients, so status stays consistent
+  when a task finishes from another window
+- Stop the daemon's terminal close from hanging on shell exit
 
 ## [0.2.9]
 

@@ -47,8 +47,8 @@ targets:
         # same marketing version needs an explicit increasing override via
         # `bun run ios-release --build-number <n>` — see
         # docs/releasing-ios.md.
-        MARKETING_VERSION: 0.2.9
-        CURRENT_PROJECT_VERSION: 2009
+        MARKETING_VERSION: 0.2.10
+        CURRENT_PROJECT_VERSION: 2010
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
