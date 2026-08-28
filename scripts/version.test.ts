@@ -1,0 +1,98 @@
+import { describe, expect, test } from "bun:test";
+import {
+  derivedBuildNumber,
+  findPackageVersion,
+  parseVersion,
+} from "./version";
+
+describe("findPackageVersion", () => {
+  test("reads the version of the root [package] table", () => {
+    const manifest = [
+      "[package]",
+      'name = "shidou"',
+      'version = "0.2.9"',
+      "",
+      "[dependencies]",
+      'serde = "1"',
+    ].join("\n");
+    expect(findPackageVersion(manifest)).toEqual({ line: 2, version: "0.2.9" });
+  });
+
+  test("ignores version keys in later tables", () => {
+    const manifest = [
+      "[package]",
+      'name = "shidou"',
+      'version = "0.2.9"',
+      "",
+      "[package.metadata.notes]",
+      'version = "not-the-release"',
+    ].join("\n");
+    expect(findPackageVersion(manifest).version).toBe("0.2.9");
+  });
+
+  test("reports the line the version sits on", () => {
+    const manifest = "\n[package]\nversion = \"1.0.0\"\n";
+    expect(findPackageVersion(manifest)).toEqual({ line: 2, version: "1.0.0" });
+  });
+
+  test("throws when the root table has no version", () => {
+    const manifest = "[package]\nname = \"shidou\"\n\n[dependencies]\n";
+    expect(() => findPackageVersion(manifest)).toThrow(/version/);
+  });
+
+  test("throws when there is no [package] table at all", () => {
+    expect(() => findPackageVersion("[dependencies]\n")).toThrow(/version/);
+  });
+});
+
+describe("parseVersion", () => {
+  test("parses a plain triple", () => {
+    expect(parseVersion("0.2.9")).toEqual([0, 2, 9]);
+  });
+
+  test("parses a prerelease suffix", () => {
+    expect(parseVersion("1.2.3-beta.1")).toEqual([1, 2, 3]);
+  });
+
+  test("accepts up to three digits per field", () => {
+    expect(parseVersion("123.456.789")).toEqual([123, 456, 789]);
+  });
+
+  test("rejects fields wider than three digits", () => {
+    expect(() => parseVersion("1234.0.0")).toThrow(/version/);
+  });
+
+  test("rejects a partial triple", () => {
+    expect(() => parseVersion("1.2")).toThrow(/version/);
+  });
+
+  test("rejects non-numeric junk", () => {
+    expect(() => parseVersion("not-a-version")).toThrow(/version/);
+  });
+});
+
+describe("derivedBuildNumber", () => {
+  test("packs three digits per semver field", () => {
+    expect(derivedBuildNumber("0.2.9")).toBe("2009");
+    expect(derivedBuildNumber("0.1.9")).toBe("1009");
+    expect(derivedBuildNumber("0.2.0")).toBe("2000");
+    expect(derivedBuildNumber("1.0.0")).toBe("1000000");
+  });
+
+  test("orders across field boundaries", () => {
+    // 0.2.0 must sort above 0.1.9 — the whole point of three digits per field.
+    expect(Number(derivedBuildNumber("0.2.0"))).toBeGreaterThan(
+      Number(derivedBuildNumber("0.1.9")),
+    );
+  });
+
+  test("ignores a prerelease suffix", () => {
+    expect(derivedBuildNumber("0.2.9-beta.1")).toBe(
+      derivedBuildNumber("0.2.9"),
+    );
+  });
+
+  test("throws on a version it cannot parse", () => {
+    expect(() => derivedBuildNumber("1.2")).toThrow(/build number/);
+  });
+});

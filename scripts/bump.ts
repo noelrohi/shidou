@@ -5,9 +5,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { extractReleaseNotes } from "./changelog";
+import { derivedBuildNumber, findPackageVersion, parseVersion } from "./version";
 
 const projectRoot = resolve(import.meta.dir, "..");
 const manifestPath = join(projectRoot, "Cargo.toml");
+const iosProjectYmlPath = join(projectRoot, "apps/ios/project.yml");
 
 const help = `Bump the release version in Cargo.toml and regenerate what derives from it.
 
@@ -52,41 +54,6 @@ if (positionals.length !== 1) {
 
 function logStep(message: string): void {
   console.log(`\n==> ${message}`);
-}
-
-/** The `version` line of the root `[package]` table. Later tables carry their
- *  own `version` keys (dependencies, metadata), so the search stops at the
- *  next table header rather than taking the first match in the file. */
-function findPackageVersion(manifest: string): { line: number; version: string } {
-  const lines = manifest.split("\n");
-  let inPackage = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    if (/^\s*\[/.test(line)) {
-      inPackage = /^\s*\[package\]\s*$/.test(line);
-      continue;
-    }
-    if (!inPackage) continue;
-    const match = line.match(/^\s*version\s*=\s*"([^"]+)"\s*$/);
-    if (match?.[1]) return { line: i, version: match[1] };
-  }
-  throw new Error("No `version` key in the root [package] table of Cargo.toml.");
-}
-
-// The same shape scripts/release.ts derives a CFBundleVersion from: three
-// fields of at most three digits, plus an optional prerelease tag.
-const versionPattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:-([0-9A-Za-z.-]+))?$/;
-
-function parseVersion(version: string): [number, number, number] {
-  const match = version.match(versionPattern);
-  if (!match) {
-    throw new Error(
-      `"${version}" is not a version this project can release. Use ` +
-        "major.minor.patch, each at most three digits, with an optional " +
-        "-prerelease suffix.",
-    );
-  }
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
 function nextVersion(current: string, requested: string): string {
@@ -145,6 +112,36 @@ await writeFile(manifestPath, lines.join("\n"));
 logStep("Refreshing Cargo.lock");
 await $`cargo update --workspace`;
 
+// The iOS build settings mirror the Cargo version so a manual Xcode archive
+// carries the right values; scripts/ios-release.ts overrides them the same
+// way when archiving from the command line.
+logStep("Syncing apps/ios/project.yml");
+const iosProject = await readFile(iosProjectYmlPath, "utf8");
+const syncedIosProject = iosProject
+  .replace(/^        MARKETING_VERSION: .*$/m, `        MARKETING_VERSION: ${version}`)
+  .replace(
+    /^        CURRENT_PROJECT_VERSION: .*$/m,
+    `        CURRENT_PROJECT_VERSION: ${derivedBuildNumber(version)}`,
+  );
+// A no-match replace is a silent no-op, which would ship a stale iOS
+// version — fail instead of letting project.yml drift from Cargo.toml.
+if (syncedIosProject === iosProject) {
+  throw new Error(
+    "apps/ios/project.yml has no MARKETING_VERSION/CURRENT_PROJECT_VERSION " +
+      "pair to sync; the file drifted from what bump expects.",
+  );
+}
+await writeFile(iosProjectYmlPath, syncedIosProject);
+if (Bun.which("xcodegen")) {
+  logStep("Regenerating the Xcode project");
+  await $`cd apps/ios && xcodegen generate`;
+} else {
+  console.log(
+    "xcodegen is not installed; run `xcodegen generate` in apps/ios before " +
+      "the next iOS build.",
+  );
+}
+
 logStep("Regenerating the license reports");
 // `bun run`, not `bun scripts/licenses.ts`: the license reports shell out to
 // license-checker-rseidelsohn, which only resolves from node_modules/.bin when
@@ -160,6 +157,7 @@ console.log(`\nBumped to ${version}. Commit these together:`);
 for (const path of [
   "Cargo.toml",
   "Cargo.lock",
+  "apps/ios/project.yml",
   "licenses/THIRD_PARTY_RUST_LICENSES.html",
 ]) {
   console.log(`  ${path}`);

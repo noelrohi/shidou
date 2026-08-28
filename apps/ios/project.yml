@@ -38,12 +38,27 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.shidou.ios
         TARGETED_DEVICE_FAMILY: "1,2"
+        # App Store Connect rejects an upload without both. `bun run bump`
+        # rewrites them from Cargo.toml (the single source of truth), so a
+        # manual Xcode archive still carries the right values. The build
+        # number is derived the same way as the desktop's CFBundleVersion
+        # (scripts/version.ts): major*1_000_000 + minor*1_000 + patch. ASC
+        # refuses a build number it has already seen, so re-uploading the
+        # same marketing version needs an explicit increasing override via
+        # `bun run ios-release --build-number <n>` — see
+        # docs/releasing-ios.md.
+        MARKETING_VERSION: 0.2.9
+        CURRENT_PROJECT_VERSION: 2009
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Shidou/Info.plist
       properties:
         CFBundleDisplayName: Shidou
+        # Resolved from the build settings above at compile time, so the
+        # plist itself never goes stale.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

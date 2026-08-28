@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "bun ./scripts/dev.ts",
     "release": "bun ./scripts/release.ts",
+    "ios-release": "bun ./scripts/ios-release.ts",
     "bump": "bun ./scripts/bump.ts",
     "licenses:generate": "bun ./scripts/licenses.ts",
     "licenses:check": "bun ./scripts/licenses.ts --check",

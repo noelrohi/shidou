@@ -7,6 +7,10 @@ download a notarized **`.dmg`**; existing users get smaller in-app updates
 `https://releases.shidou.dev/appcast.xml`, verifies each build's EdDSA signature,
 and installs it. One release command produces and publishes both.
 
+The iOS app ships through TestFlight instead; that process — archive, export,
+upload, and the App Store Connect dashboard steps — lives in
+[docs/releasing-ios.md](docs/releasing-ios.md).
+
 Once set up, cutting a release is:
 
 ```sh
