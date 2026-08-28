@@ -56,6 +56,12 @@ func run(watchSession: UUID?) async -> Int32 {
                     "  hydrated \(hydrated.displayTitle): \(hydrated.messages.count) messages, "
                         + "\(hydrated.turns.count) turns, \(activities) activities"
                 )
+                if CommandLine.arguments.contains("--messages") {
+                    for message in hydrated.messages {
+                        let preview = message.displayContent ?? message.content
+                        print("      [\(message.role.rawValue)] streaming=\(message.streaming): \(preview.prefix(80))")
+                    }
+                }
             }
         }
 
