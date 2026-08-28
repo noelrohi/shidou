@@ -40,8 +40,7 @@ public enum SessionListPresentation {
     /// A task the user has actually started. Drafts that never got a prompt
     /// are the composer's business, not the list's.
     public static func hasStarted(_ session: AgentSession) -> Bool {
-        !session.turns.isEmpty || !session.messages.isEmpty || session.providerCursor != nil
-            || session.lastReplyAt != nil
+        session.hasStarted
     }
 
     public static func timestamp(_ session: AgentSession) -> UInt64 {

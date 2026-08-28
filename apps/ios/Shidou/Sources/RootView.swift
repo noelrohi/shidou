@@ -9,6 +9,7 @@ import SwiftUI
 /// palette, no session-switcher sheet.
 struct RootView: View {
     @Environment(DaemonConnection.self) private var connection
+    @Environment(AttentionCenter.self) private var attention
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var showingSettings = false
@@ -18,6 +19,9 @@ struct RootView: View {
     @State private var settingsPresentation = 0
     @State private var selection: UUID?
     @State private var showingDraft = false
+    /// The stack's path, so a tapped notification can push a transcript from
+    /// outside the list.
+    @State private var path: [UUID] = []
 
     var body: some View {
         Group {
@@ -29,6 +33,32 @@ struct RootView: View {
             case .inlineIndicator, .silent:
                 sessionsSpine
             }
+        }
+        // The banner rides above the whole spine, because the task it names is
+        // by definition not the one on screen.
+        .overlay(alignment: .top) {
+            if let banner = attention.banner {
+                AttentionBannerView(
+                    banner: banner,
+                    open: {
+                        attention.dismissBanner()
+                        open(banner.sessionId)
+                    },
+                    dismiss: { attention.dismissBanner() }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: attention.banner)
+        .task(id: connection.sessions.map(ObjectIdentifier.init)) {
+            attention.follow(connection.sessions)
+        }
+        // A tapped notification is a request to look at that task, whichever
+        // screen the app came back to.
+        .onChange(of: attention.openSessionId) { _, sessionId in
+            guard let sessionId else { return }
+            attention.openSessionId = nil
+            open(sessionId)
         }
         .sheet(isPresented: $showingSettings) {
             SettingsStack(presentation: settingsPresentation) { showingSettings = false }
@@ -63,10 +93,10 @@ struct RootView: View {
             }
             .navigationSplitViewStyle(.balanced)
         } else {
-            NavigationStack {
+            NavigationStack(path: $path) {
                 sessionsColumn(selectsInPlace: false)
                     .navigationDestination(for: UUID.self) { TranscriptView(sessionId: $0) }
-                    .navigationDestination(isPresented: $showingDraft) { DraftTranscriptView() }
+                    .navigationDestination(isPresented: $showingDraft) { NewTaskView() }
             }
         }
     }
@@ -104,10 +134,21 @@ struct RootView: View {
         }
     }
 
+    /// Shows one task, from wherever the app currently is.
+    private func open(_ sessionId: UUID) {
+        showingDraft = false
+        if sizeClass == .regular {
+            selection = sessionId
+        } else {
+            selection = nil
+            path = [sessionId]
+        }
+    }
+
     @ViewBuilder
     private var detailColumn: some View {
         if showingDraft, selection == nil {
-            DraftTranscriptView()
+            NewTaskView()
         } else if let selection {
             TranscriptView(sessionId: selection)
                 .id(selection)
@@ -163,20 +204,6 @@ private struct SettingsStack: View {
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    }
-}
-
-/// New Task, reachable but not yet usable: the composer is slice ②. Saying so
-/// beats a screen that looks broken.
-struct DraftTranscriptView: View {
-    var body: some View {
-        ContentUnavailableView {
-            Label("New task", systemImage: "square.and.pencil")
-        } description: {
-            Text("The composer arrives in the next update. Start a task from Shidou on your Mac in the meantime.")
-        }
-        .navigationTitle("New task")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

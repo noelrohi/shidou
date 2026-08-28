@@ -126,6 +126,8 @@ public enum ShidouSessionError: Error, LocalizedError, Sendable {
     case providerNotInstalled(ProviderKind)
     case unexpectedResponse(expected: String)
     case daemonDisconnected
+    case noLiveRuntime
+    case attachmentTooLarge(String)
 
     public var errorDescription: String? {
         switch self {
@@ -139,6 +141,10 @@ public enum ShidouSessionError: Error, LocalizedError, Sendable {
             return "The daemon returned an unexpected response (expected \(expected))"
         case .daemonDisconnected:
             return "The daemon is not connected"
+        case .noLiveRuntime:
+            return "This task has no running agent"
+        case .attachmentTooLarge(let name):
+            return "\(name) is too large to send to the daemon"
         }
     }
 }

@@ -106,6 +106,16 @@ public final class SessionRuntimeModel {
         return result
     }
 
+    /// Re-attaches a prompt the store was holding for a session that had no
+    /// projection yet.
+    public func restore(permission: PendingPermission) {
+        pendingPermission = permission
+    }
+
+    public func restore(userInput: PendingUserInput) {
+        pendingUserInput = userInput
+    }
+
     public func clearPendingPermission() {
         pendingPermission = nil
     }

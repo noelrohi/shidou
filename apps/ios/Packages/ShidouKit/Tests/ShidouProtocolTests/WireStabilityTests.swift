@@ -243,4 +243,285 @@ final class WireStabilityTests: XCTestCase {
         XCTAssertEqual(commands[0].name, "compact")
         XCTAssertEqual(commands[1].description, "Review code")
     }
+
+    // MARK: - Slice ② commands
+
+    func testComposerDraftCommandsHaveStableWireKeys() throws {
+        let projectId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000007"))
+        let sessionId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000008"))
+
+        XCTAssertEqual(
+            try json(Command.loadComposerDrafts)["type"] as? String, "loadComposerDrafts")
+
+        var object = try json(Command.applyComposerDraftChanges(changes: [
+            ComposerDraftChange(
+                target: .newSession(projectId: projectId),
+                draft: ComposerDraft(text: "unfinished")
+            )
+        ]))
+        XCTAssertEqual(object["type"] as? String, "applyComposerDraftChanges")
+        let changes = try XCTUnwrap(object["changes"] as? [[String: Any]])
+        let target = try XCTUnwrap(changes[0]["target"] as? [String: Any])
+        XCTAssertEqual(target["type"] as? String, "newSession")
+        XCTAssertEqual(target["projectId"] as? String, "00000000-0000-0000-0000-000000000007")
+        let draft = try XCTUnwrap(changes[0]["draft"] as? [String: Any])
+        XCTAssertEqual(draft["text"] as? String, "unfinished")
+
+        var drafts = ComposerDrafts()
+        drafts[.session(sessionId: sessionId)] = ComposerDraft(text: "keep")
+        object = try json(Command.saveComposerDrafts(drafts: drafts, generation: 3))
+        XCTAssertEqual(object["type"] as? String, "saveComposerDrafts")
+        XCTAssertEqual(object["generation"] as? UInt64, 3)
+        let saved = try XCTUnwrap(object["drafts"] as? [String: Any])
+        // The maps stay snake_case: `ComposerDrafts` carries no `rename_all`.
+        let sessionDrafts = try XCTUnwrap(saved["sessions"] as? [String: Any])
+        XCTAssertNotNil(sessionDrafts["00000000-0000-0000-0000-000000000008"])
+        XCTAssertNotNil(saved["new_sessions"])
+    }
+
+    func testComposerDraftsDecodeFromTheDaemonsMaps() throws {
+        let drafts = try JSONDecoder().decode(
+            ComposerDrafts.self,
+            from: Data(
+                """
+                {"new_sessions":{"00000000-0000-0000-0000-000000000007":{"text":"a"}},\
+                "sessions":{"00000000-0000-0000-0000-000000000008":{"text":"b",\
+                "attachments":[{"path":"/p","mention":"p","name":"p","is_dir":false,\
+                "is_image":true,"blob_reference":"shidou-blob:1"}]}}}
+                """.utf8
+            )
+        )
+        let projectId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000007"))
+        let sessionId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000008"))
+        XCTAssertEqual(drafts[.newSession(projectId: projectId)]?.text, "a")
+        XCTAssertEqual(drafts[.session(sessionId: sessionId)]?.attachments.first?.isImage, true)
+    }
+
+    func testAttachmentAndBlobCommandsHaveStableWireKeys() throws {
+        var object = try json(Command.storeBlob(mimeType: "image/png", bytes: Data([0, 1, 2, 255])))
+        XCTAssertEqual(object["type"] as? String, "storeBlob")
+        XCTAssertEqual(object["mimeType"] as? String, "image/png")
+        XCTAssertEqual(object["bytes"] as? String, "AAEC/w==")
+
+        object = try json(Command.importAttachment(
+            name: "shot.png", upload: .file(dataBase64: "AAEC")
+        ))
+        XCTAssertEqual(object["type"] as? String, "importAttachment")
+        XCTAssertEqual(object["name"] as? String, "shot.png")
+        let upload = try XCTUnwrap(object["upload"] as? [String: Any])
+        XCTAssertEqual(upload["kind"] as? String, "file")
+        // The upload enum has no `rename_all_fields`, so this one stays snake.
+        XCTAssertEqual(upload["data_base64"] as? String, "AAEC")
+        XCTAssertNil(upload["dataBase64"])
+
+        object = try json(Command.importPathAttachment(path: "/src/main.rs"))
+        XCTAssertEqual(object["type"] as? String, "importPathAttachment")
+        XCTAssertEqual(object["path"] as? String, "/src/main.rs")
+
+    }
+
+    func testApplyOptionsHasStableWireKeys() throws {
+        let object = try json(Command.applyOptions(SessionOptions(
+            mode: .autoAcceptEdits, interactionMode: .plan, model: "gpt-5", reasoningEffort: "high"
+        )))
+        XCTAssertEqual(object["type"] as? String, "applyOptions")
+        let options = try XCTUnwrap(object["options"] as? [String: Any])
+        XCTAssertEqual(options["mode"] as? String, "autoAcceptEdits")
+        XCTAssertEqual(options["interactionMode"] as? String, "plan")
+        XCTAssertEqual(options["reasoningEffort"] as? String, "high")
+        XCTAssertTrue(options.keys.contains("serviceTier"), "unset traits are sent as null")
+    }
+
+    func testComposerWorkspaceOperationsHaveStableWireKeys() throws {
+        var operation = try XCTUnwrap(
+            try json(Command.workspace(.browseDirectory(path: nil)))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "browseDirectory")
+        XCTAssertTrue(operation.keys.contains("path"), "a nil path means the daemon's home")
+
+        operation = try XCTUnwrap(
+            try json(Command.workspace(.listProjectFiles(root: "/src", cap: 50_000)))["operation"]
+                as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "listProjectFiles")
+        XCTAssertEqual(operation["root"] as? String, "/src")
+        XCTAssertEqual(operation["cap"] as? Int, 50_000)
+
+        operation = try XCTUnwrap(
+            try json(Command.workspace(
+                .discoverSlashCommands(provider: .claude, projectRoot: "/src")
+            ))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "discoverSlashCommands")
+        XCTAssertEqual(operation["provider"] as? String, "claude")
+        XCTAssertEqual(operation["project_root"] as? String, "/src")
+        XCTAssertNil(operation["projectRoot"])
+
+        operation = try XCTUnwrap(
+            try json(Command.workspace(.inspectBranches(cwd: "/src")))["operation"]
+                as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "inspectBranches")
+
+        operation = try XCTUnwrap(
+            try json(Command.workspace(
+                .checkoutBranch(cwd: "/src", branch: "main", create: true)
+            ))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "checkoutBranch")
+        XCTAssertEqual(operation["branch"] as? String, "main")
+        XCTAssertEqual(operation["create"] as? Bool, true)
+
+        operation = try XCTUnwrap(
+            try json(Command.workspace(.createWorktree(
+                projectPath: "/src",
+                projectId: .zero,
+                sessionId: .zero,
+                prompt: "fix the limiter",
+                baseBranch: "main"
+            )))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "createWorktree")
+        XCTAssertEqual(operation["project_path"] as? String, "/src")
+        XCTAssertEqual(operation["base_branch"] as? String, "main")
+    }
+
+    func testComposerWorkspaceResultsDecode() throws {
+        var result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"directory","path":"/Users/demo","parent":"/Users","home":"/Users/demo",                "filesystem_root":"/","entries":[{"relativePath":"src","absolutePath":                "/Users/demo/src","name":"src","isDir":true,"expanded":false,"depth":0,                "status":"modified"}]}
+                """.utf8
+            )
+        )
+        guard case .directory(let directory) = result else {
+            return XCTFail("expected a directory result")
+        }
+        XCTAssertEqual(directory.parent, "/Users")
+        XCTAssertEqual(directory.filesystemRoot, "/")
+        XCTAssertEqual(directory.entries.first?.absolutePath, "/Users/demo/src")
+        XCTAssertEqual(directory.entries.first?.status, .modified)
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                #"{"type":"projectFiles","entries":[{"path":"src/main.rs","is_dir":false}]}"#.utf8)
+        )
+        guard case .projectFiles(let files) = result else {
+            return XCTFail("expected a project-file result")
+        }
+        XCTAssertEqual(files.first?.path, "src/main.rs")
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"slashCommands","commands":[{"name":"tdd","description":"Test first",                "scope":"Skill","argument_hint":null,"template":null}]}
+                """.utf8
+            )
+        )
+        guard case .slashCommands(let commands) = result else {
+            return XCTFail("expected a slash-command result")
+        }
+        // `CommandScope` has no serde rename, so its values are PascalCase.
+        XCTAssertEqual(commands.first?.scope, .skill)
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"branches","snapshot":{"repository":"/src","current":"main",                "detached_head":null,"default_branch":"main","branches":[{"name":"main",                "checked_out_elsewhere":false}],"additions":3,"deletions":1}}
+                """.utf8
+            )
+        )
+        guard case .branches(let snapshot) = result else {
+            return XCTFail("expected a branches result")
+        }
+        XCTAssertEqual(snapshot?.displayBranch, "main")
+        XCTAssertEqual(snapshot?.branches.first?.checkedOutElsewhere, false)
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"branchChanged","snapshot":{"repository":"/src","current":"feature",                "detached_head":null,"default_branch":"main","branches":[],"additions":0,                "deletions":0}}
+                """.utf8
+            )
+        )
+        guard case .branchChanged(let changed) = result else {
+            return XCTFail("expected a branchChanged result")
+        }
+        XCTAssertEqual(changed.current, "feature")
+    }
+
+    func testComposerResponsePayloadsDecode() throws {
+        var payload = try JSONDecoder().decode(
+            ResponsePayload.self, from: Data(#"{"type":"optionsApplied","applied":true}"#.utf8))
+        guard case .optionsApplied(let applied) = payload else {
+            return XCTFail("expected optionsApplied")
+        }
+        XCTAssertTrue(applied)
+
+        payload = try JSONDecoder().decode(
+            ResponsePayload.self,
+            from: Data(
+                #"{"type":"blobStored","reference":"shidou-blob:1","path":"/blobs/1.png"}"#.utf8)
+        )
+        guard case .blobStored(let reference, let path) = payload else {
+            return XCTFail("expected blobStored")
+        }
+        XCTAssertEqual(reference, "shidou-blob:1")
+        XCTAssertEqual(path, "/blobs/1.png")
+
+        payload = try JSONDecoder().decode(
+            ResponsePayload.self,
+            from: Data(
+                """
+                {"type":"attachmentStored","attachment":{"reference":"shidou-attachment:2",                "path":"/src/main.rs","name":"main.rs","isDir":false}}
+                """.utf8
+            )
+        )
+        guard case .attachmentStored(let attachment) = payload else {
+            return XCTFail("expected attachmentStored")
+        }
+        XCTAssertEqual(attachment.name, "main.rs")
+
+    }
+
+    func testPlanUsageRoundTripsThroughItsCamelCaseFields() throws {
+        let object = try json(Command.fetchPlanUsage(
+            provider: .claude, binaryOverride: "/opt/claude", cliVersion: "2.4.1"))
+        XCTAssertEqual(object["type"] as? String, "fetchPlanUsage")
+        XCTAssertEqual(object["binaryOverride"] as? String, "/opt/claude")
+        XCTAssertEqual(object["cliVersion"] as? String, "2.4.1")
+
+        let payload = try JSONDecoder().decode(
+            ResponsePayload.self,
+            from: Data(
+                """
+                {"type":"planUsage","usage":{"planLabel":"Demo","windows":[{"label":"5-hour",\
+                "percent":34.0,"resetsAt":1700000000}]}}
+                """.utf8
+            )
+        )
+        guard case .planUsage(let usage) = payload else { return XCTFail("expected planUsage") }
+        XCTAssertEqual(usage?.planLabel, "Demo")
+        XCTAssertEqual(usage?.windows.first?.resetsAt, 1_700_000_000)
+    }
+
+    func testProjectCarriesItsWorkspaceDefault() throws {
+        let project = try JSONDecoder().decode(
+            Project.self,
+            from: Data(
+                """
+                {"id":"00000000-0000-0000-0000-000000000001","name":"shidou","path":"/src",                "created_at":7,"workspace_default":"NewWorktree"}
+                """.utf8
+            )
+        )
+        XCTAssertEqual(project.workspaceDefault, .newWorktree)
+        XCTAssertEqual(project.workspaceDefault.sessionWorkspace, .newWorktree(baseBranch: nil))
+
+        // Older daemons omit the field entirely rather than sending a default.
+        let legacy = try JSONDecoder().decode(
+            Project.self,
+            from: Data(
+                #"{"id":"00000000-0000-0000-0000-000000000001","name":"n","path":"/p"}"#.utf8)
+        )
+        XCTAssertEqual(legacy.workspaceDefault, .local)
+    }
 }

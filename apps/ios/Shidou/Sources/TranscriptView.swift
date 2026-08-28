@@ -8,9 +8,35 @@ import SwiftUI
 /// projection republished on an 80 ms cadence so a token-rate stream cannot
 /// invalidate SwiftUI per event.
 struct TranscriptView: View {
-    let sessionId: UUID
+    /// A transcript is opened one of two ways: from the list, where the daemon
+    /// has the session and it must be hydrated; or from ＋, where the task is
+    /// still a local draft with nothing on the daemon to fetch.
+    enum Source {
+        case existing(UUID)
+        case draft(AgentSession)
+
+        var sessionId: UUID {
+            switch self {
+            case .existing(let id): return id
+            case .draft(let session): return session.id
+            }
+        }
+    }
+
+    let source: Source
+
+    init(sessionId: UUID) {
+        self.source = .existing(sessionId)
+    }
+
+    init(draft: AgentSession) {
+        self.source = .draft(draft)
+    }
+
+    private var sessionId: UUID { source.sessionId }
 
     @Environment(DaemonConnection.self) private var connection
+    @Environment(AttentionCenter.self) private var attention
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var model: SessionRuntimeModel?
@@ -48,6 +74,12 @@ struct TranscriptView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .task { await load() }
+        // Nothing about the task on screen is ever announced: the user is
+        // already looking at it.
+        .onAppear { attention.visibleSessionId = sessionId }
+        .onDisappear {
+            if attention.visibleSessionId == sessionId { attention.visibleSessionId = nil }
+        }
         .task(id: model?.session.status) { await tickWhileWorking() }
         .alert("Rename task", isPresented: $showingRename) {
             TextField("Title", text: $renameText)
@@ -84,33 +116,53 @@ struct TranscriptView: View {
                 )
             }
             if model.isCatchingUp { CatchingUpBar() }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(rows) { row in
-                            rowView(row, model: model)
-                                .id(row.id)
-                        }
-                        // Anchors the bottom above the safe area, and gives
-                        // slice ②'s composer somewhere to sit without the last
-                        // row disappearing under it.
-                        Color.clear.frame(height: 24).id("transcript-tail")
+            if rows.isEmpty && !model.session.hasStarted {
+                // A draft has no transcript to scroll. Saying what to do reads
+                // better than an empty scroll view, and it leaves the composer
+                // the rest of the screen.
+                EmptyDraftPrompt()
+            } else {
+                scroller(rows: rows, matches: matches, model: model)
+            }
+            if let store {
+                ComposerView(
+                    model: model, store: store, daemonAddress: connection.preferenceKey)
+            }
+        }
+    }
+
+    /// The virtualized transcript itself, exactly as the rendering decision
+    /// settled it: bottom-anchored, lazy, and dismissing the keyboard as the
+    /// user scrolls away from the composer.
+    private func scroller(
+        rows: [TranscriptRow],
+        matches: TranscriptFind.Result,
+        model: SessionRuntimeModel
+    ) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(rows) { row in
+                        rowView(row, model: model)
+                            .id(row.id)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    // Keeps the last row clear of the composer's top edge.
+                    Color.clear.frame(height: 8).id("transcript-tail")
                 }
-                .defaultScrollAnchor(.bottom)
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: currentMatch) { _, index in
-                    guard let index, index < matches.matches.count else { return }
-                    let key = matches.matches[index].rowKey
-                    // Scrolling to a match is navigation, but animating the
-                    // journey is decoration, and Reduce Motion asks for none.
-                    if reduceMotion {
-                        proxy.scrollTo(key, anchor: .center)
-                    } else {
-                        withAnimation { proxy.scrollTo(key, anchor: .center) }
-                    }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: currentMatch) { _, index in
+                guard let index, index < matches.matches.count else { return }
+                let key = matches.matches[index].rowKey
+                // Scrolling to a match is navigation, but animating the
+                // journey is decoration, and Reduce Motion asks for none.
+                if reduceMotion {
+                    proxy.scrollTo(key, anchor: .center)
+                } else {
+                    withAnimation { proxy.scrollTo(key, anchor: .center) }
                 }
             }
         }
@@ -153,7 +205,10 @@ struct TranscriptView: View {
     // MARK: - Chrome
 
     private var title: String {
-        model.map { displayTitle($0.session) }
+        if case .draft = source, model?.session.hasStarted != true {
+            return String(localized: "New task")
+        }
+        return model.map { displayTitle($0.session) }
             ?? store?.sessions.first { $0.id == sessionId }.map(displayTitle)
             ?? String(localized: "Task")
     }
@@ -208,11 +263,19 @@ struct TranscriptView: View {
 
     private func load() async {
         guard model == nil, let store else { return }
-        do {
-            model = try await store.open(sessionId)
+        switch source {
+        case .draft(let session):
+            // Nothing to hydrate: the task exists only here until its first
+            // prompt, which is what the draft contract means.
+            model = store.adopt(session)
             loadError = nil
-        } catch {
-            loadError = error.localizedDescription
+        case .existing(let id):
+            do {
+                model = try await store.open(id)
+                loadError = nil
+            } catch {
+                loadError = error.localizedDescription
+            }
         }
     }
 
@@ -342,5 +405,28 @@ private struct FindBar: View {
         guard matchCount > 0 else { return query.isEmpty ? "" : String(localized: "No matches") }
         let position = (current ?? 0) + 1
         return limited ? "\(position)/\(matchCount)+" : "\(position)/\(matchCount)"
+    }
+}
+
+
+/// A task with nothing in it yet. It says what to do rather than showing an
+/// empty scroll view, and it leaves the composer the whole rest of the screen.
+private struct EmptyDraftPrompt: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "square.and.pencil")
+                .font(.largeTitle)
+                .foregroundStyle(.tertiary)
+            Text("Start a new task")
+                .font(.headline)
+            Text("Describe what you want built. Attach files with @, run a command with /.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }

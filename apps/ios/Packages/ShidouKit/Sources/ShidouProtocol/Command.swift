@@ -66,6 +66,58 @@ public struct DriverStartOptions: Encodable, Sendable {
     }
 }
 
+/// Options a started runtime can be re-tuned with mid-session, mirroring
+/// `WireSessionOptions` (camelCase fields).
+public struct SessionOptions: Encodable, Sendable {
+    public var mode: RuntimeMode
+    public var interactionMode: InteractionMode
+    public var model: String?
+    public var reasoningEffort: String?
+    public var serviceTier: String?
+    public var contextWindow: String?
+
+    public init(
+        mode: RuntimeMode,
+        interactionMode: InteractionMode,
+        model: String? = nil,
+        reasoningEffort: String? = nil,
+        serviceTier: String? = nil,
+        contextWindow: String? = nil
+    ) {
+        self.mode = mode
+        self.interactionMode = interactionMode
+        self.model = model
+        self.reasoningEffort = reasoningEffort
+        self.serviceTier = serviceTier
+        self.contextWindow = contextWindow
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case mode, interactionMode, model, reasoningEffort, serviceTier, contextWindow
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(interactionMode, forKey: .interactionMode)
+        try container.encode(model, forKey: .model)
+        try container.encode(reasoningEffort, forKey: .reasoningEffort)
+        try container.encode(serviceTier, forKey: .serviceTier)
+        try container.encode(contextWindow, forKey: .contextWindow)
+    }
+
+    public init(session: AgentSession) {
+        self.init(
+            mode: session.runtimeMode,
+            interactionMode: session.interactionMode,
+            model: session.model,
+            reasoningEffort: session.reasoningEffort,
+            serviceTier: session.serviceTier,
+            contextWindow: session.contextWindow
+        )
+    }
+}
+
 /// The v1 subset of the daemon's `Command` enum. Encode-only: clients never
 /// decode commands. Tag and fields are camelCase.
 public enum Command: Sendable {
@@ -76,6 +128,7 @@ public enum Command: Sendable {
     case cancel
     case respond(requestId: String, optionId: String)
     case respondUserInput(requestId: String, answers: [UserInputAnswer])
+    case applyOptions(SessionOptions)
     case getSettings
     case probeProvider(
         provider: ProviderKind,
@@ -83,10 +136,17 @@ public enum Command: Sendable {
         discoverModels: Bool,
         probeVersion: Bool
     )
+    case fetchPlanUsage(provider: ProviderKind, binaryOverride: String?, cliVersion: String?)
     case loadTaskState
     case saveTaskState(projects: [Project], liveSessionIds: [UUID], sessions: [AgentSession])
     case removeSession
     case hydrateSession(sessionId: UUID)
+    case loadComposerDrafts
+    case saveComposerDrafts(drafts: ComposerDrafts, generation: UInt64)
+    case applyComposerDraftChanges(changes: [ComposerDraftChange])
+    case storeBlob(mimeType: String, bytes: Data)
+    case importAttachment(name: String, upload: AttachmentUpload)
+    case importPathAttachment(path: String)
     case readBlob(reference: String)
     case readAttachment(reference: String, path: String)
     case forkSessionFromResponse(turnCount: Int)
@@ -101,6 +161,8 @@ extension Command: Encodable {
         case binaryOverride, discoverModels, probeVersion
         case projects, liveSessionIds, sessions, sessionId, reference, path
         case turnCount, operation
+        case drafts, generation, changes, mimeType, bytes, name, upload
+        case cliVersion
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -127,6 +189,9 @@ extension Command: Encodable {
             try container.encode("respondUserInput", forKey: .type)
             try container.encode(requestId, forKey: .requestId)
             try container.encode(answers, forKey: .answers)
+        case .applyOptions(let options):
+            try container.encode("applyOptions", forKey: .type)
+            try container.encode(options, forKey: .options)
         case .getSettings:
             try container.encode("getSettings", forKey: .type)
         case .probeProvider(let provider, let binaryOverride, let discoverModels, let probeVersion):
@@ -135,6 +200,11 @@ extension Command: Encodable {
             try container.encode(binaryOverride, forKey: .binaryOverride)
             try container.encode(discoverModels, forKey: .discoverModels)
             try container.encode(probeVersion, forKey: .probeVersion)
+        case .fetchPlanUsage(let provider, let binaryOverride, let cliVersion):
+            try container.encode("fetchPlanUsage", forKey: .type)
+            try container.encode(provider, forKey: .provider)
+            try container.encode(binaryOverride, forKey: .binaryOverride)
+            try container.encode(cliVersion, forKey: .cliVersion)
         case .loadTaskState:
             try container.encode("loadTaskState", forKey: .type)
         case .saveTaskState(let projects, let liveSessionIds, let sessions):
@@ -147,6 +217,26 @@ extension Command: Encodable {
         case .hydrateSession(let sessionId):
             try container.encode("hydrateSession", forKey: .type)
             try container.encode(sessionId.wireString, forKey: .sessionId)
+        case .loadComposerDrafts:
+            try container.encode("loadComposerDrafts", forKey: .type)
+        case .saveComposerDrafts(let drafts, let generation):
+            try container.encode("saveComposerDrafts", forKey: .type)
+            try container.encode(drafts, forKey: .drafts)
+            try container.encode(generation, forKey: .generation)
+        case .applyComposerDraftChanges(let changes):
+            try container.encode("applyComposerDraftChanges", forKey: .type)
+            try container.encode(changes, forKey: .changes)
+        case .storeBlob(let mimeType, let bytes):
+            try container.encode("storeBlob", forKey: .type)
+            try container.encode(mimeType, forKey: .mimeType)
+            try container.encode(bytes.base64EncodedString(), forKey: .bytes)
+        case .importAttachment(let name, let upload):
+            try container.encode("importAttachment", forKey: .type)
+            try container.encode(name, forKey: .name)
+            try container.encode(upload, forKey: .upload)
+        case .importPathAttachment(let path):
+            try container.encode("importPathAttachment", forKey: .type)
+            try container.encode(path, forKey: .path)
         case .readBlob(let reference):
             try container.encode("readBlob", forKey: .type)
             try container.encode(reference, forKey: .reference)

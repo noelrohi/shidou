@@ -73,6 +73,20 @@ public struct SequencedEvent: Codable, Sendable {
     public var epoch: UUID
     public var sequence: UInt64
     public var event: WireDriverEvent
+
+    public init(
+        sessionId: UUID,
+        runtimeId: UUID,
+        epoch: UUID,
+        sequence: UInt64,
+        event: WireDriverEvent
+    ) {
+        self.sessionId = sessionId
+        self.runtimeId = runtimeId
+        self.epoch = epoch
+        self.sequence = sequence
+        self.event = event
+    }
 }
 
 public struct Request: Sendable {

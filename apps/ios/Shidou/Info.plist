@@ -51,7 +51,7 @@
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Shidou uses the camera to scan the pairing code shown by the Shidou app on your computer.</string>
+	<string>Shidou uses the camera to scan the pairing code shown by the Shidou app on your computer, and to take a photo to attach to a prompt.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Shidou connects to the Shidou daemon running on your own computer over your local network.</string>
 	<key>UILaunchScreen</key>

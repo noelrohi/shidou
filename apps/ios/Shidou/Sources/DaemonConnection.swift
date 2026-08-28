@@ -103,6 +103,10 @@ final class DaemonConnection {
     /// The one-time cleartext warning, shown at pairing and never again.
     var showsInsecureBadge: Bool { saved?.warnsAboutInsecureTransport ?? false }
 
+    /// Which daemon the composer's remembered choices belong to. Models
+    /// installed on one Mac say nothing about another's.
+    var preferenceKey: String { saved?.id ?? "unpaired" }
+
     /// The phone is on the Demo Daemon, which the transcript says out loud
     /// for as long as it lasts — nothing on screen is running on a Mac.
     var isDemo: Bool { saved?.isDemo ?? false }

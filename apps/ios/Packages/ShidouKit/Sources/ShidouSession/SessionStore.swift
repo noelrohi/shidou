@@ -19,7 +19,7 @@ import ShidouProtocol
 public final class SessionStore {
     // MARK: Catalog
 
-    public private(set) var projects: [Project] = []
+    public internal(set) var projects: [Project] = []
     /// List projections: titles, status, recency. Transcripts arrive per
     /// session through `open(_:)`.
     public private(set) var sessions: [AgentSession] = []
@@ -37,7 +37,7 @@ public final class SessionStore {
     /// Sessions with a live projection. A phone holds few of these on purpose:
     /// one transcript is what fits on screen, and the rest of the list is a
     /// catalog row until it is opened.
-    public private(set) var open: [UUID: SessionRuntimeModel] = [:]
+    public internal(set) var open: [UUID: SessionRuntimeModel] = [:]
     /// Sessions whose replay came up short. Set the instant the daemon says so
     /// and cleared when the refetch lands; while set, events for that session
     /// are buffered rather than applied.
@@ -48,26 +48,74 @@ public final class SessionStore {
     /// longer than the daemon could remember.
     public private(set) var lastReplayGap: ReplayGap?
 
-    /// Composer text typed but not sent, keyed by session. The composer itself
-    /// arrives in the next slice; the model is owned here from the start so
-    /// switching sessions never loses what was typed.
-    public private(set) var drafts: [UUID: String] = [:]
+    /// Composer text and attachments typed but not sent. These are the
+    /// daemon's drafts, not the phone's: they are loaded on connect and
+    /// written back keyed, so what was typed here shows up in the browser and
+    /// on the Mac — and so this client cannot delete a draft another one is
+    /// still editing.
+    public internal(set) var composerDrafts = ComposerDrafts()
 
     /// Git state per workspace directory, for the transcript header's
     /// branch and diff-stat subtitle. Refreshed in the background and read
     /// from the store on every frame — a miss means "not known yet".
     public private(set) var workspaces: [String: CommitSnapshot] = [:]
 
+    // MARK: Composer sources
+
+    /// Daemon settings, needed before a provider can be probed or started.
+    public internal(set) var settings: DaemonSettings?
+    /// What each provider reports it can run: models, traits, agent presets.
+    public internal(set) var probes: [ProviderKind: ProviderProbe] = [:]
+    /// Branches per workspace directory, for the branch picker.
+    public internal(set) var branches: [String: BranchSnapshot] = [:]
+    /// The project's files, for `@file` completion.
+    public internal(set) var projectFiles: [String: [FileEntry]] = [:]
+    /// The project's slash commands, keyed by provider and directory.
+    public internal(set) var slashCommands: [ComposerCommandKey: [SlashCommand]] = [:]
+    /// Sessions whose provider process is coming up, so the composer can say
+    /// so rather than look stuck.
+    public internal(set) var starting: Set<UUID> = []
+
+    /// The unanswered permission or question for every session, open or not.
+    ///
+    /// The store sees these on the wire whether or not a transcript is on
+    /// screen, and a cold start replays them from the daemon's journal before
+    /// the user has opened anything. Holding them here is what lets a task
+    /// opened afterwards still show the prompt it is blocked on, and what lets
+    /// a banner name a task the user is not looking at.
+    public internal(set) var pendingInteractions: [UUID: PendingInteraction] = [:]
+
     // MARK: Wiring
 
-    private let supervisor: ConnectionSupervisor
-    private var pump: Task<Void, Never>?
-    private var catalogTask: Task<Void, Never>?
+    @ObservationIgnored let supervisor: ConnectionSupervisor
+    @ObservationIgnored private var pump: Task<Void, Never>?
+    @ObservationIgnored private var catalogTask: Task<Void, Never>?
     /// Events that arrived for a session while its refetch was in flight.
-    private var buffered: [UUID: [SequencedEvent]] = [:]
+    @ObservationIgnored private var buffered: [UUID: [SequencedEvent]] = [:]
     /// Rejects a catalog load that a newer one has already superseded.
-    private var catalogGeneration = 0
-    private var workspaceProbes: Set<String> = []
+    @ObservationIgnored private var catalogGeneration = 0
+    @ObservationIgnored private var workspaceProbes: Set<String> = []
+
+    // MARK: Composer wiring
+
+    /// Draft writes are debounced per key, so a keystroke rate does not become
+    /// a request rate.
+    @ObservationIgnored var draftWrites: [ComposerDraftKey: Task<Void, Never>] = [:]
+    @ObservationIgnored var draftGeneration: UInt64 = 0
+    /// Steers awaiting the daemon's verdict, oldest first. `steerAccepted`
+    /// turns one into a transcript message; `steerRejected` turns it back into
+    /// a queued follow-up rather than losing what was typed.
+    @ObservationIgnored var pendingSteers: [UUID: [PendingSteer]] = [:]
+    /// Sends already in flight for a session, so a double-tap cannot open two
+    /// turns against one runtime.
+    @ObservationIgnored var sending: Set<UUID> = []
+    /// Composer-source loads in flight, keyed the same way their results are.
+    @ObservationIgnored var sourceLoads: Set<String> = []
+    @ObservationIgnored var attentionSubscribers: [UUID: AsyncStream<AttentionEvent>.Continuation] =
+        [:]
+    /// The highest sequence each runtime has already raised attention for, so
+    /// a reconnect's replay cannot notify twice about one permission.
+    @ObservationIgnored var attentionWatermark: [AttentionWatermarkKey: UInt64] = [:]
 
     public init(supervisor: ConnectionSupervisor) {
         self.supervisor = supervisor
@@ -91,13 +139,28 @@ public final class SessionStore {
         catalogTask?.cancel()
         catalogTask = nil
         catalogGeneration &+= 1
+        for write in draftWrites.values { write.cancel() }
+        draftWrites.removeAll()
         open.removeAll()
         refetching.removeAll()
         buffered.removeAll()
         workspaces.removeAll()
         workspaceProbes.removeAll()
+        branches.removeAll()
+        projectFiles.removeAll()
+        slashCommands.removeAll()
+        probes.removeAll()
+        sourceLoads.removeAll()
+        pendingSteers.removeAll()
+        sending.removeAll()
+        starting.removeAll()
+        settings = nil
+        pendingInteractions.removeAll()
         hasLoadedCatalog = false
         lastReplayGap = nil
+        for subscriber in attentionSubscribers.values { subscriber.finish() }
+        attentionSubscribers.removeAll()
+        attentionWatermark.removeAll()
     }
 
     // MARK: - Supervised events
@@ -106,11 +169,14 @@ public final class SessionStore {
         switch event {
         case .phase(.connected):
             refreshCatalog()
+            refreshComposerDrafts()
         case .reconnected:
             // Replayed events follow on this same stream, so the projections
             // catch up on their own. What cannot: the catalog, whose other
-            // clients may have renamed or removed a task while we were away.
+            // clients may have renamed or removed a task while we were away,
+            // and the drafts, which they may have typed into.
             refreshCatalog()
+            refreshComposerDrafts()
             reattachOpenSessions()
         case .taskStateChanged:
             refreshCatalog()
@@ -125,6 +191,11 @@ public final class SessionStore {
     }
 
     private func apply(_ event: SequencedEvent) {
+        // Attention is raised before the projection is touched, and for every
+        // session rather than only the open ones: the phone is told about a
+        // permission on a task it is not looking at, which is the whole point
+        // of the notification.
+        raiseAttention(for: event)
         // A session mid-refetch is holding a projection with a hole in it.
         // Buffering rather than applying is what stops the tail from landing
         // on top of that hole and looking like a complete transcript.
@@ -133,11 +204,18 @@ public final class SessionStore {
             return
         }
         guard let model = open[event.sessionId] else { return }
+        applySteerVerdict(event, to: model)
         let result = model.apply(event)
         guard let result else { return }
         if result.settled || result.removeRuntime {
             persist(model.currentProjection)
             refreshWorkspace(for: model.currentProjection, force: true)
+        }
+        if result.settled {
+            finishSettledTurn(model)
+        }
+        if result.removeRuntime {
+            starting.remove(event.sessionId)
         }
     }
 
@@ -204,12 +282,27 @@ public final class SessionStore {
             throw error
         }
         model.endCatchUp()
+        restorePendingInteraction(into: model)
         refreshWorkspace(for: model.currentProjection, force: false)
         return model
     }
 
     /// Drop a session's projection. The daemon keeps running it; this is only
     /// the phone reclaiming the memory a transcript costs.
+    /// Re-attaches the prompt a session is blocked on to a projection that was
+    /// just hydrated. Hydration returns the daemon's stored transcript, which
+    /// records that the task is waiting but not what it is waiting on — that
+    /// lives in the runtime journal this store has already been reading.
+    private func restorePendingInteraction(into model: SessionRuntimeModel) {
+        guard model.pendingPermission == nil, model.pendingUserInput == nil,
+            let pending = pendingInteractions[model.currentProjection.id]
+        else { return }
+        switch pending {
+        case .permission(let permission): model.restore(permission: permission)
+        case .userInput(let userInput): model.restore(userInput: userInput)
+        }
+    }
+
     public func close(_ sessionId: UUID) {
         open.removeValue(forKey: sessionId)
         refetching.remove(sessionId)
@@ -226,7 +319,7 @@ public final class SessionStore {
         )
     }
 
-    private func hydrate(_ sessionId: UUID, into model: SessionRuntimeModel) async throws {
+    func hydrate(_ sessionId: UUID, into model: SessionRuntimeModel) async throws {
         let payload = try await request(.hydrateSession(sessionId: sessionId), sessionId: sessionId)
         guard case .session(let session) = payload else {
             throw ShidouSessionError.unexpectedResponse(expected: "session")
@@ -235,7 +328,7 @@ public final class SessionStore {
         model.replaceSession(session)
     }
 
-    private func attach(_ sessionId: UUID, model: SessionRuntimeModel) async throws {
+    func attach(_ sessionId: UUID, model: SessionRuntimeModel) async throws {
         let payload = try await request(.attachSession, sessionId: sessionId)
         guard case .sessionRuntime(let runtimeId, let supportsSteer) = payload else {
             throw ShidouSessionError.unexpectedResponse(expected: "sessionRuntime")
@@ -306,16 +399,8 @@ public final class SessionStore {
         _ = try await request(.removeSession, sessionId: sessionId)
         sessions.removeAll { $0.id == sessionId }
         close(sessionId)
-        drafts.removeValue(forKey: sessionId)
+        setDraft(ComposerDraft(), for: .session(sessionId: sessionId))
         refreshCatalog()
-    }
-
-    public func setDraft(_ text: String, for sessionId: UUID) {
-        if text.isEmpty {
-            drafts.removeValue(forKey: sessionId)
-        } else {
-            drafts[sessionId] = text
-        }
     }
 
     /// A task the user is about to start: local until it carries a prompt, so
@@ -326,11 +411,27 @@ public final class SessionStore {
 
     /// Mirror a session into the catalog row and the open projection, so the
     /// list and the transcript agree before the daemon answers.
-    private func applyLocally(_ session: AgentSession) {
+    func applyLocally(_ session: AgentSession) {
         if let index = sessions.firstIndex(where: { $0.id == session.id }) {
             sessions[index] = merged(listProjection: sessions[index], with: session)
+        } else if session.hasStarted {
+            // A task started on this phone belongs in the list straight away:
+            // waiting for the next catalog load would leave the user's own new
+            // task missing from the screen they came from.
+            sessions.insert(listProjection(of: session), at: 0)
         }
         open[session.id]?.replaceSession(session)
+    }
+
+    /// The catalog row for a session: everything the list reads, and none of
+    /// the transcript it does not.
+    private func listProjection(of session: AgentSession) -> AgentSession {
+        var row = session
+        row.messages = []
+        row.transcriptBlocks = []
+        row.turns = []
+        row.queuedMessages = []
+        return row
     }
 
     /// The catalog row carries no transcript, so a rename must not overwrite
@@ -346,13 +447,13 @@ public final class SessionStore {
         return row
     }
 
-    private func persist(_ session: AgentSession) {
+    func persist(_ session: AgentSession) {
         Task { [weak self] in
             try? await self?.persistAndWait(session)
         }
     }
 
-    private func persistAndWait(_ session: AgentSession) async throws {
+    func persistAndWait(_ session: AgentSession) async throws {
         _ = try await request(
             .saveTaskState(projects: [], liveSessionIds: [session.id], sessions: [session]),
             sessionId: session.id
@@ -385,11 +486,15 @@ public final class SessionStore {
         cwd(for: session).flatMap { workspaces[$0] }
     }
 
+    func setWorkspaceSnapshot(_ snapshot: CommitSnapshot, for cwd: String) {
+        workspaces[cwd] = snapshot
+    }
+
     // MARK: - Dispatch
 
     /// One place where a command becomes a correlated request, so every caller
     /// gets the same disconnected behaviour instead of inventing its own.
-    private func request(
+    func request(
         _ command: Command,
         sessionId: UUID = .zero,
         runtimeId: UUID = .zero

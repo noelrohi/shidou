@@ -103,22 +103,45 @@ public enum ActivityFileChangeStatus: String, WireStringEnum {
     public static var unknownCase: Self { .unknown }
 }
 
+/// Filesystem context a project preselects for its new tasks.
+public enum ProjectWorkspaceDefault: String, WireStringEnum {
+    case local = "Local"
+    case newWorktree = "NewWorktree"
+    case unknown = "Unknown"
+
+    public static var unknownCase: Self { .unknown }
+
+    /// Mirrors `ProjectWorkspaceDefault::session_workspace`.
+    public var sessionWorkspace: SessionWorkspace {
+        self == .newWorktree ? .newWorktree(baseBranch: nil) : .local
+    }
+}
+
 public struct Project: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var path: String
     public var createdAt: UInt64
+    public var workspaceDefault: ProjectWorkspaceDefault
 
     enum CodingKeys: String, CodingKey {
         case id, name, path
         case createdAt = "created_at"
+        case workspaceDefault = "workspace_default"
     }
 
-    public init(id: UUID = UUID(), name: String, path: String, createdAt: UInt64) {
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        path: String,
+        createdAt: UInt64,
+        workspaceDefault: ProjectWorkspaceDefault = .local
+    ) {
         self.id = id
         self.name = name
         self.path = path
         self.createdAt = createdAt
+        self.workspaceDefault = workspaceDefault
     }
 
     public init(from decoder: Decoder) throws {
@@ -127,9 +150,16 @@ public struct Project: Codable, Hashable, Identifiable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
         createdAt = try container.decodeIfPresent(UInt64.self, forKey: .createdAt) ?? 0
+        workspaceDefault =
+            try container.decodeIfPresent(ProjectWorkspaceDefault.self, forKey: .workspaceDefault)
+            ?? .local
     }
 
     public static let projectlessName = "No project"
+
+    /// The daemon's scratch workspace, kept out of the project picker's list
+    /// and offered as its own choice instead.
+    public var isProjectless: Bool { name == Self.projectlessName }
 }
 
 /// Filesystem context a task runs in. Tagged by `kind`, camelCase fields.
@@ -204,6 +234,22 @@ public struct MessageAttachment: Codable, Hashable, Sendable {
         case isDir = "is_dir"
         case isImage = "is_image"
         case blobReference = "blob_reference"
+    }
+
+    public init(
+        path: String,
+        mention: String,
+        name: String,
+        isDir: Bool,
+        isImage: Bool,
+        blobReference: String? = nil
+    ) {
+        self.path = path
+        self.mention = mention
+        self.name = name
+        self.isDir = isDir
+        self.isImage = isImage
+        self.blobReference = blobReference
     }
 }
 
@@ -475,6 +521,24 @@ public struct Checkpoint: Codable, Hashable, Sendable {
         case createdAt = "created_at"
     }
 
+    public init(
+        turnCount: Int,
+        gitRef: String,
+        status: CheckpointStatus,
+        files: [CheckpointFile] = [],
+        additions: UInt64 = 0,
+        deletions: UInt64 = 0,
+        createdAt: UInt64
+    ) {
+        self.turnCount = turnCount
+        self.gitRef = gitRef
+        self.status = status
+        self.files = files
+        self.additions = additions
+        self.deletions = deletions
+        self.createdAt = createdAt
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         turnCount = try container.decode(Int.self, forKey: .turnCount)
@@ -719,10 +783,16 @@ public struct UserInputAnswer: Codable, Hashable, Sendable {
     }
 }
 
-public struct ProviderModelOption: Codable, Hashable, Sendable {
+public struct ProviderModelOption: Codable, Hashable, Sendable, Identifiable {
     public var id: String
     public var label: String
     public var description: String?
+
+    public init(id: String, label: String, description: String? = nil) {
+        self.id = id
+        self.label = label
+        self.description = description
+    }
 }
 
 public struct ProviderModel: Codable, Hashable, Sendable {
@@ -1016,5 +1086,22 @@ public struct AgentSession: Codable, Identifiable, Sendable {
     public var displayTitle: String {
         if title != Self.defaultTitle { return title }
         return autoTitle ?? title
+    }
+
+    /// A task the user has actually started. Drafts that never carried a
+    /// prompt are the composer's business: they key their draft by project,
+    /// and nothing about them is on the daemon yet. Port of the web client's
+    /// `sessionHasStarted`.
+    public var hasStarted: Bool {
+        !turns.isEmpty || !messages.isEmpty || providerCursor != nil || lastReplyAt != nil
+    }
+
+    /// A turn the provider has acknowledged, so there is something to steer.
+    /// Busy alone is not enough: a prompt still on its way to the provider has
+    /// no turn, and a runtime that missed `turnStarted` must queue instead.
+    /// Port of `sessionHasActiveProviderTurn`.
+    public var hasActiveProviderTurn: Bool {
+        guard status.isBusy, let turn = turns.last else { return false }
+        return turn.status == .running && turn.providerTurnStarted
     }
 }

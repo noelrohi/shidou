@@ -215,15 +215,16 @@ final class SessionStoreTests: XCTestCase {
         // so this asserts the store's own bookkeeping, which is what it owns.
         try await store.delete(waitingSession)
         XCTAssertFalse(store.open.keys.contains(waitingSession))
-        XCTAssertNil(store.drafts[waitingSession])
+        XCTAssertTrue(store.draft(for: .session(sessionId: waitingSession)).isEmpty)
     }
 
-    func testDraftsAreKeptPerSession() async throws {
+    func testDraftsAreKeptPerComposerAndClearedWhenEmptied() async throws {
         let store = try await connect()
-        store.setDraft("half a thought", for: demoSession)
-        XCTAssertEqual(store.drafts[demoSession], "half a thought")
-        store.setDraft("", for: demoSession)
-        XCTAssertNil(store.drafts[demoSession])
+        let key = ComposerDraftKey.session(sessionId: demoSession)
+        store.setDraft(ComposerDraft(text: "half a thought"), for: key)
+        XCTAssertEqual(store.draft(for: key).text, "half a thought")
+        store.setDraft(ComposerDraft(), for: key)
+        XCTAssertTrue(store.draft(for: key).isEmpty)
     }
 
     // MARK: - Helpers

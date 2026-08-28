@@ -16,6 +16,11 @@ public enum ResponsePayload: Sendable {
     )
     case taskStateSaved(sessions: [AgentSession])
     case session(AgentSession?)
+    case optionsApplied(Bool)
+    case planUsage(PlanUsage?)
+    case composerDrafts(ComposerDrafts)
+    case blobStored(reference: String, path: String)
+    case attachmentStored(StoredAttachment)
     case blobData(Data)
     case sessionForked(session: AgentSession, checkpointWarning: String?)
     case sessionRewound(session: AgentSession, cleanupWarning: String?)
@@ -28,6 +33,7 @@ extension ResponsePayload: Decodable {
         case type, runtimeId, supportsSteer, settings, probe, version
         case projects, sessions, defaultCwd, projectlessRoot, session, bytes
         case checkpointWarning, cleanupWarning, result
+        case applied, drafts, reference, path, attachment, usage
     }
 
     public init(from decoder: Decoder) throws {
@@ -61,6 +67,20 @@ extension ResponsePayload: Decodable {
             self = .taskStateSaved(sessions: try container.decode([AgentSession].self, forKey: .sessions))
         case "session":
             self = .session(try container.decodeIfPresent(AgentSession.self, forKey: .session))
+        case "planUsage":
+            self = .planUsage(try container.decodeIfPresent(PlanUsage.self, forKey: .usage))
+        case "optionsApplied":
+            self = .optionsApplied(try container.decode(Bool.self, forKey: .applied))
+        case "composerDrafts":
+            self = .composerDrafts(try container.decode(ComposerDrafts.self, forKey: .drafts))
+        case "blobStored":
+            self = .blobStored(
+                reference: try container.decode(String.self, forKey: .reference),
+                path: try container.decode(String.self, forKey: .path)
+            )
+        case "attachmentStored":
+            self = .attachmentStored(
+                try container.decode(StoredAttachment.self, forKey: .attachment))
         case "blobData":
             let encoded = try container.decode(String.self, forKey: .bytes)
             guard let data = Data(base64Encoded: encoded) else {

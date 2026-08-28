@@ -76,7 +76,7 @@ targets:
           over your local network.
         NSCameraUsageDescription: >-
           Shidou uses the camera to scan the pairing code shown by the Shidou
-          app on your computer.
+          app on your computer, and to take a photo to attach to a prompt.
         # Pairing is a `shidou://pair` URL: the QR the desktop renders, and a
         # tapped link. See issue #4.
         CFBundleURLTypes:
