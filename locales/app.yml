@@ -2211,3 +2211,564 @@ usage_error.unknown_error:
   en: unknown error
 usage_error.curl_no_status:
   en: curl returned no HTTP status line
+
+# --- iOS catalog -------------------------------------------------------
+# Mirrored from apps/ios/Shidou/Resources/Localizable.xcstrings so the
+# phone and the web client say the same thing in the same language.
+# Strings the desktop catalog already carries are not repeated here; these
+# are the ones iOS introduced. Source text is mirrored verbatim, iOS format
+# specifiers included, because this is a record of what the phone says.
+ios.over:
+  en: "%@ over ^[%lld day](inflect: true)"
+ios.tokens:
+  en: "%@ tokens · %@"
+ios.left:
+  en: "%lld%% left"
+ios.a_host_and_port_or_a_full_ws_url_a_pasted:
+  en: "A host and port, or a full ws:// URL. A pasted pairing link works too."
+ios.a_public_server_running_a_scripted_session:
+  en: "A public server running a scripted session. Nothing in it runs on your computer, and nothing you send it is executed."
+ios.a_scratch_workspace_has_no_repository_to_branch:
+  en: "A scratch workspace has no repository to branch from"
+ios.about:
+  en: "About"
+ios.access:
+  en: "Access"
+ios.access_2:
+  en: "Access: %@"
+ios.add:
+  en: "Add"
+ios.add_a_folder_from_your_daemon_s_computer_to:
+  en: "Add a folder from your daemon's computer to start a task in it."
+ios.added:
+  en: "Added %@, %@"
+ios.added_line:
+  en: "Added line %lld: %@"
+ios.address:
+  en: "Address"
+ios.addresses:
+  en: "Addresses"
+ios.agent_preset:
+  en: "Agent preset"
+ios.agents_run_on_the_mac_you_paired_with_turning:
+  en: "Agents run on the Mac you paired with. Turning one off hides it from the model picker; it does not uninstall anything."
+ios.allowed_tools:
+  en: "Allowed tools"
+ios.an_absolute_path_on_the_mac_leave_it_empty_to:
+  en: "An absolute path on the Mac. Leave it empty to let the daemon find the agent on its own PATH."
+ios.ask_the_agent_for_a_type_scope_subject_first:
+  en: "Ask the agent for a `type(scope): subject` first line when it writes a commit message."
+ios.at_least_one_address_is_a_plain_ws_connection:
+  en: "At least one address is a plain ws:// connection outside your Mac and your tailnet. Anyone on that network can read the token."
+ios.attach:
+  en: "Attach %@"
+ios.background_work:
+  en: "Background Work"
+ios.binary_file:
+  en: "Binary file"
+ios.binary_file_2:
+  en: "Binary file %@"
+ios.binary_path_for:
+  en: "Binary path for %@"
+ios.browse:
+  en: "Browse"
+ios.browse_the_folders_on_your_daemon_s_computer_to:
+  en: "Browse the folders on your daemon's computer to add a project."
+ios.browse_2:
+  en: "Browse…"
+ios.by_agent:
+  en: "By agent"
+ios.by_day:
+  en: "By day"
+ios.by_model:
+  en: "By model"
+ios.camera_viewfinder_point_it_at_the_pairing_code:
+  en: "Camera viewfinder. Point it at the pairing code on your Mac."
+ios.catching_up:
+  en: "Catching up…"
+ios.changed:
+  en: "Changed"
+ios.changed_2:
+  en: "Changed ^[%lld file](inflect: true)"
+ios.check_again:
+  en: "Check again"
+ios.choose_a_project:
+  en: "Choose a project"
+ios.collapses_this_folder:
+  en: "Collapses this folder"
+ios.command_failed:
+  en: "Command failed: %@"
+ios.commit_push:
+  en: "Commit & Push"
+ios.commit:
+  en: "Commit…"
+ios.connect_to_your_mac:
+  en: "Connect to your Mac"
+ios.connects_to_shidou_s_public_demo_server_with_a:
+  en: "Connects to Shidou's public demo server with a scripted session. Nothing in it runs on your computer."
+ios.continue:
+  en: "Continue"
+ios.conventional_commit_messages:
+  en: "Conventional commit messages"
+ios.copy_code:
+  en: "Copy code"
+ios.copy_file:
+  en: "Copy file"
+ios.copy_response:
+  en: "Copy response"
+ios.copy_transcript:
+  en: "Copy transcript"
+ios.cost_per_day:
+  en: "Cost per day"
+ios.could_not_list_the_workspace:
+  en: "Could not list the workspace"
+ios.could_not_load_your_tasks:
+  en: "Could not load your tasks"
+ios.could_not_open_this_task:
+  en: "Could not open this task"
+ios.could_not_pair:
+  en: "Could not pair"
+ios.could_not_read_the_diff:
+  en: "Could not read the diff"
+ios.could_not_read_the_skills:
+  en: "Could not read the skills"
+ios.could_not_read_the_workspace:
+  en: "Could not read the workspace"
+ios.could_not_read_this_file:
+  en: "Could not read this file"
+ios.could_not_read_usage:
+  en: "Could not read usage"
+ios.could_not_stop_it:
+  en: "Could not stop it"
+ios.daemon_token:
+  en: "Daemon token"
+ios.delete:
+  en: "Delete %@?"
+ios.delete_this_skill:
+  en: "Delete this skill?"
+ios.delete_this_task:
+  en: "Delete this task?"
+ios.deleted:
+  en: "Deleted %@, %@"
+ios.demo_daemon:
+  en: "Demo daemon"
+ios.demo_session:
+  en: "Demo session"
+ios.describe_what_you_want_built_attach_files_with:
+  en: "Describe what you want built. Attach files with @, run a command with /."
+ios.diff_options:
+  en: "Diff options"
+ios.directory:
+  en: "Directory"
+ios.dismiss:
+  en: "Dismiss"
+ios.done:
+  en: "Done"
+ios.duration:
+  en: "Duration"
+ios.edited:
+  en: "Edited %@"
+ios.editing:
+  en: "Editing %@"
+ios.enable:
+  en: "Enable %@"
+ios.enabled:
+  en: "Enabled"
+ios.encrypted_transport:
+  en: "Encrypted transport"
+ios.enter_address:
+  en: "Enter address"
+ios.enter_address_manually:
+  en: "Enter address manually"
+ios.exit:
+  en: "Exit"
+ios.exit_the_demo:
+  en: "Exit the demo"
+ios.expands_this_folder:
+  en: "Expands this folder"
+ios.failed_to_edit:
+  en: "Failed to edit %@"
+ios.failed_to_list_files_in:
+  en: "Failed to list files in %@"
+ios.failed_to_read:
+  en: "Failed to read %@"
+ios.failed_to_search_files_for:
+  en: "Failed to search files for %@"
+ios.failed_to_search_the_web_for:
+  en: "Failed to search the web for %@"
+ios.failed:
+  en: "Failed: %@"
+ios.file_on_the_daemon:
+  en: "File on the daemon"
+ios.file_options:
+  en: "File options"
+ios.files_and_changes:
+  en: "Files and changes"
+ios.find_in_transcript:
+  en: "Find in transcript"
+ios.finished:
+  en: "Finished"
+ios.forget:
+  en: "Forget"
+ios.forget_this_mac:
+  en: "Forget this Mac"
+ios.forget_this_mac_2:
+  en: "Forget this Mac?"
+ios.give_this_task_its_own_branch_and_directory_off:
+  en: "Give this task its own branch and directory, off the base branch"
+ios.go_up_to:
+  en: "Go up to %@"
+ios.has_a_question_for_you:
+  en: "Has a question for you"
+ios.hides_the_details:
+  en: "Hides the details"
+ios.hides_this_turn_s_work:
+  en: "Hides this turn's work"
+ios.hunk:
+  en: "Hunk %@"
+ios.installed_for:
+  en: "Installed for"
+ios.installed_turned_off:
+  en: "Installed, turned off"
+ios.its_transcript_is_removed_from_the_daemon_this:
+  en: "Its transcript is removed from the daemon. This cannot be undone."
+ios.last_used:
+  en: "Last used"
+ios.leave:
+  en: "Leave"
+ios.leave_the_demo:
+  en: "Leave the demo"
+ios.leave_the_demo_2:
+  en: "Leave the demo?"
+ios.legal:
+  en: "Legal"
+ios.license:
+  en: "License"
+ios.line:
+  en: "Line %lld: %@"
+ios.listed_files_in:
+  en: "Listed files in %@"
+ios.listing_files_in:
+  en: "Listing files in %@"
+ios.loading:
+  en: "Loading…"
+ios.local_network_access_may_be_off:
+  en: "Local Network access may be off"
+ios.lost:
+  en: "Lost"
+ios.model_prices_could_not_be_fetched_so_costs_are:
+  en: "Model prices could not be fetched, so costs are estimates from what the providers reported."
+ios.model:
+  en: "Model: %@"
+ios.modified:
+  en: "Modified"
+ios.modified_2:
+  en: "Modified %@, %@"
+ios.move_to_trash:
+  en: "Move to Trash"
+ios.needs_your_permission:
+  en: "Needs your permission"
+ios.next_match:
+  en: "Next match"
+ios.no_mac_paired_yet:
+  en: "No Mac paired yet."
+ios.no_images:
+  en: "No images"
+ios.no_matches:
+  en: "No matches"
+ios.no_projects_yet:
+  en: "No projects yet"
+ios.no_skills:
+  en: "No skills"
+ios.no_task_selected:
+  en: "No task selected"
+ios.no_tasks_yet:
+  en: "No tasks yet"
+ios.no_workspace:
+  en: "No workspace"
+ios.not_done:
+  en: "Not done"
+ios.not_installed:
+  en: "Not installed"
+ios.nothing_has_changed_in_this_range:
+  en: "Nothing has changed in this range."
+ios.nothing_here:
+  en: "Nothing here"
+ios.nothing_in_the_background:
+  en: "Nothing in the background"
+ios.nothing_is_deleted_the_demo_holds_nothing_of:
+  en: "Nothing is deleted — the demo holds nothing of yours. You can start it again from the pairing screen."
+ios.ok:
+  en: "OK"
+ios.older:
+  en: "Older"
+ios.only_the_most_recent_output_is_kept:
+  en: "Only the most recent output is kept."
+ios.open_settings:
+  en: "Open Settings"
+ios.open_shidou_on_your_mac_then_settings_daemon_to:
+  en: "Open Shidou on your Mac, then Settings → Daemon to show its pairing code."
+ios.opens_shidou_in_the_settings_app:
+  en: "Opens Shidou in the Settings app"
+ios.opens_files_changes_visuals_and_background_work:
+  en: "Opens files, changes, visuals and background work"
+ios.opens_outside_shidou:
+  en: "Opens outside Shidou"
+ios.or_paste_the_new_token:
+  en: "Or paste the new token"
+ios.overrides_where_the_daemon_looks_for_the_agent:
+  en: "Overrides where the daemon looks for the agent"
+ios.pair_again:
+  en: "Pair again"
+ios.pair_again_2:
+  en: "Pair again…"
+ios.paired_mac:
+  en: "Paired Mac"
+ios.panel:
+  en: "Panel"
+ios.permission_requested:
+  en: "Permission requested: %@"
+ios.personal:
+  en: "Personal"
+ios.photo_library:
+  en: "Photo Library"
+ios.pick_a_task_on_the_left_or_start_one_with:
+  en: "Pick a task on the left, or start one with ＋."
+ios.plan_usage_limits:
+  en: "Plan usage limits · %@"
+ios.point_the_camera_at_the_code_in_settings_daemon:
+  en: "Point the camera at the code in Settings → Daemon on your Mac."
+ios.previous_match:
+  en: "Previous match"
+ios.privacy:
+  en: "Privacy"
+ios.privacy_policy:
+  en: "Privacy Policy"
+ios.processes_monitors_and_subagents_this_task:
+  en: "Processes, monitors and subagents this task started show up here."
+ios.protocol:
+  en: "Protocol"
+ios.provider:
+  en: "Provider"
+ios.push_after_committing:
+  en: "Push after committing"
+ios.push_without_committing:
+  en: "Push without committing"
+ios.queue_a_follow_up:
+  en: "Queue a follow-up"
+ios.queue_instead:
+  en: "Queue instead"
+ios.queued_message_actions:
+  en: "Queued message actions"
+ios.queued:
+  en: "Queued: %@"
+ios.ran:
+  en: "Ran %@"
+ios.range:
+  en: "Range"
+ios.read:
+  en: "Read %@"
+ios.reading:
+  en: "Reading %@"
+ios.reading_the_repository:
+  en: "Reading the repository…"
+ios.reconnecting_to:
+  en: "Reconnecting to %@…"
+ios.reconnecting:
+  en: "Reconnecting…"
+ios.remove:
+  en: "Remove %@"
+ios.remove_follow_up:
+  en: "Remove follow-up"
+ios.removed_line:
+  en: "Removed line %lld: %@"
+ios.rename_task:
+  en: "Rename task"
+ios.renamed_to:
+  en: "Renamed to %@, %@"
+ios.reset_zoom:
+  en: "Reset zoom"
+ios.resets:
+  en: "Resets %@"
+ios.resets_in_h:
+  en: "Resets in %lld h"
+ios.resets_in_h_min:
+  en: "Resets in %lld h %lld min"
+ios.resets_in_min:
+  en: "Resets in %lld min"
+ios.response_copied:
+  en: "Response copied"
+ios.returns_to_pairing_with_your_own_mac:
+  en: "Returns to pairing with your own Mac"
+ios.running:
+  en: "Running %@"
+ios.save:
+  en: "Save"
+ios.scan_code:
+  en: "Scan code"
+ios.scan_pairing_code:
+  en: "Scan pairing code"
+ios.scan_the_new_code:
+  en: "Scan the new code"
+ios.scope:
+  en: "Scope"
+ios.scripted_on_shidou_s_demo_server_nothing_here:
+  en: "Scripted, on Shidou's demo server. Nothing here runs on your computer."
+ios.search_models:
+  en: "Search models"
+ios.search_skills:
+  en: "Search skills"
+ios.searched_files_for:
+  en: "Searched files for %@"
+ios.searched_the_web_for:
+  en: "Searched the web for %@"
+ios.searching_files_for:
+  en: "Searching files for %@"
+ios.searching_the_web_for:
+  en: "Searching the web for %@"
+ios.send_feedback:
+  en: "Send feedback"
+ios.sessions:
+  en: "Sessions"
+ios.set_the_path:
+  en: "Set the path…"
+ios.shidou_protocol_v:
+  en: "Shidou %@ · protocol v%u"
+ios.shidou_connects_only_to_a_daemon_you_run_it_has:
+  en: "Shidou connects only to a daemon you run. It has no server of its own and collects nothing."
+ios.shidou_for_ios_collects_nothing_and_talks_to_no:
+  en: "Shidou for iOS collects nothing and talks to no server of its own."
+ios.shidou_is_translated_into_english_japanese:
+  en: "Shidou is translated into English, Japanese, Filipino and Simplified Chinese. iOS keeps the choice, in Settings."
+ios.shidou_needs_it_to_reach_a_mac_on_the_same_wi_fi:
+  en: "Shidou needs it to reach a Mac on the same Wi-Fi. Check Settings → Privacy & Security → Local Network, or connect over Tailscale instead."
+ios.shidou_runs_on_your_own_computer_pair_this_phone:
+  en: "Shidou runs on your own computer. Pair this phone with its daemon to see your sessions."
+ios.shows_the_details:
+  en: "Shows the details"
+ios.shows_this_turn_s_work:
+  en: "Shows this turn's work"
+ios.size:
+  en: "Size"
+ios.skills_you_install_on_the_mac_show_up_here:
+  en: "Skills you install on the Mac show up here."
+ios.skipped:
+  en: "Skipped"
+ios.something_went_wrong:
+  en: "Something went wrong"
+ios.start_a_new_task:
+  en: "Start a new task"
+ios.start_one_with_or_from_shidou_on_your_mac:
+  en: "Start one with ＋, or from Shidou on your Mac."
+ios.stopped_before_finishing:
+  en: "Stopped before finishing"
+ios.suggestions:
+  en: "Suggestions"
+ios.supporting_files:
+  en: "Supporting files"
+ios.switch_to_build:
+  en: "Switch to Build"
+ios.switch_to_plan:
+  en: "Switch to Plan"
+ios.system_follows_the_phone_s_own_light_and_dark:
+  en: "System follows the phone's own light and dark setting."
+ios.table:
+  en: "Table"
+ios.take_photo:
+  en: "Take Photo"
+ios.task:
+  en: "Task"
+ios.tasks_projects_and_transcripts_live_on_the_mac:
+  en: "Tasks, projects and transcripts live on the Mac you paired with. This phone keeps only that Mac's address and its token."
+ios.the_agent_reads_the_diff_on_your_mac_and_writes:
+  en: "The agent reads the diff on your Mac and writes the message there. Nothing is sent anywhere else."
+ios.the_daemon_could_not_include_full_context_for:
+  en: "The daemon could not include full context for this change. Some lines are missing."
+ios.the_daemon_token_travels_in_the_clear_on_your:
+  en: "The daemon token travels in the clear on your local network. On an untrusted network, connect over Tailscale instead."
+ios.the_skill_s_folder_moves_to_the_trash_on_your:
+  en: "The skill's folder moves to the Trash on your Mac. Nothing is deleted outright."
+ios.the_token_is_deleted_from_this_phone_your:
+  en: "The token is deleted from this phone. Your sessions stay on the Mac."
+ios.there_is_no_text_diff_to_show_for:
+  en: "There is no text diff to show for %@."
+ios.this_mac_needs_pairing_again:
+  en: "This Mac needs pairing again"
+ios.this_connection_is_not_encrypted:
+  en: "This connection is not encrypted"
+ios.this_directory_is_empty:
+  en: "This directory is empty."
+ios.this_file_is_no_longer_in_the_diff:
+  en: "This file is no longer in the diff"
+ios.this_provider_does_not_report_plan_limits:
+  en: "This provider does not report plan limits."
+ios.this_task_has_no_project_directory_to_read:
+  en: "This task has no project directory to read."
+ios.this_work_is_no_longer_listed:
+  en: "This work is no longer listed"
+ios.this_workspace_has_no_pictures_in_it:
+  en: "This workspace has no pictures in it."
+ios.thought_for:
+  en: "Thought for %@"
+ios.title:
+  en: "Title"
+ios.token_sent_in_the_clear:
+  en: "Token sent in the clear"
+ios.tool_failed:
+  en: "Tool failed"
+ios.traits:
+  en: "Traits"
+ios.traits_2:
+  en: "Traits: %@"
+ios.tried_in_this_order_the_one_that_last_worked:
+  en: "Tried in this order. The one that last worked leads."
+ios.try_the_demo:
+  en: "Try the demo"
+ios.unknown:
+  en: "Unknown"
+ios.untracked:
+  en: "Untracked"
+ios.usage_of_the_context_window_used:
+  en: "Usage, %lld%% of the context window used"
+ios.used_a_tool:
+  en: "Used a tool"
+ios.version:
+  en: "Version"
+ios.waiting_for_you:
+  en: "Waiting for you"
+ios.work:
+  en: "Work"
+ios.work_directly_in_the_project_s_own_checkout:
+  en: "Work directly in the project's own checkout"
+ios.worked_for:
+  en: "Worked for %@"
+ios.working_for:
+  en: "Working for %@"
+ios.wrap_lines:
+  en: "Wrap lines"
+ios.write_it_for_me:
+  en: "Write it for me"
+ios.writing:
+  en: "Writing…"
+ios.you_said:
+  en: "You said: %@"
+ios.you_stopped_after:
+  en: "You stopped after %@"
+ios.string:
+  en: "^[%lld file](inflect: true) · +%lld −%lld"
+ios.string_2:
+  en: "^[%lld hour](inflect: true)"
+ios.in:
+  en: "^[%lld image](inflect: true) in %@"
+ios.string_3:
+  en: "^[%lld minute](inflect: true)"
+ios.string_4:
+  en: "^[%lld model](inflect: true)"
+ios.string_5:
+  en: "^[%lld running](inflect: true)"
+ios.string_6:
+  en: "^[%lld second](inflect: true)"
+ios.on_branch:
+  en: "on branch %@"
+ios.was:
+  en: "was %@"
