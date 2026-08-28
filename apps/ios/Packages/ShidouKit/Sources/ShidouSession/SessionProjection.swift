@@ -99,6 +99,17 @@ public func reduceRuntimeEvent(
         if let commands = try? payload.decode(as: [ReportedCommand].self) {
             session.availableCommands = commands
         }
+    case "turnAccepted":
+        guard let accepted = try? payload.decode(as: TurnAcceptedPayload.self) else { break }
+        let knownTurn = session.turns.contains { $0.id == accepted.turn.id }
+        for message in accepted.messages where !session.messages.contains(where: { $0.id == message.id }) {
+            session.messages.append(message)
+        }
+        if accepted.turn.status == .running, !session.status.isBusy {
+            session.status = .connecting
+        }
+        session.updatedAt = max(session.updatedAt, accepted.turn.startedAt)
+        if !knownTurn { session.turns.append(accepted.turn) }
     case "turnStarted":
         if let index = activeTurnIndex(session) {
             session.turns[index].providerTurnStarted = true
@@ -355,6 +366,11 @@ private func lastReasoningLocation(_ session: AgentSession) -> (block: Int, acti
         session.transcriptBlocks[blockIndex].activities[activityIndex].reasoning != nil
     else { return nil }
     return (blockIndex, activityIndex)
+}
+
+private struct TurnAcceptedPayload: Decodable {
+    var turn: AgentTurn
+    var messages: [Message]
 }
 
 private func activeTurnIndex(_ session: AgentSession) -> Int? {

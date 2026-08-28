@@ -17,6 +17,7 @@ import {
   type ConnectionConfig,
 } from './connection'
 import { translate, useI18n } from './i18n'
+import { webProtocolVersion } from './protocol-version'
 
 export type ConnectionPhase =
   | 'booting'
@@ -64,6 +65,7 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
       const next = new ShidouClient({
         address: normalized.address,
         token: normalized.token,
+        protocolVersion: webProtocolVersion(import.meta.env.DEV),
       })
       setClient(next)
       try {

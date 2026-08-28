@@ -37,6 +37,42 @@ describe('reduceRuntimeEvent', () => {
     expect(session.messages.at(-1)?.content).toBe('Done.')
   })
 
+  test('incorporates a follow-up accepted by another client before its output', () => {
+    let session = apply(runningSession(), 'turnFinished', { success: true, summary: null })
+    const accepted = {
+      turn: {
+        id: 'remote-turn',
+        turn_count: 2,
+        status: 'running',
+        provider_turn_started: false,
+        provider_resume_at: null,
+        started_at: 201,
+        completed_at: null,
+        checkpoint: null,
+      },
+      messages: [{
+        id: 'remote-message',
+        turn_id: 'remote-turn',
+        role: 'user',
+        content: 'this works fine',
+        display_content: null,
+        attachments: [],
+        created_at: 201,
+        streaming: false,
+      }],
+    }
+    session = apply(session, 'turnAccepted', accepted)
+    session.status = 'idle'
+    session = apply(session, 'turnAccepted', accepted)
+    expect(session.status).toBe('connecting')
+    session = apply(session, 'turnStarted', null)
+    session = apply(session, 'textDelta', 'Great. What would you like to work on next?')
+
+    expect(session.messages.at(-2)?.content).toBe('this works fine')
+    expect(session.messages.at(-1)?.content).toBe('Great. What would you like to work on next?')
+    expect(session.turns.at(-1)?.id).toBe('remote-turn')
+  })
+
   test('settles the active turn and finalizes streaming output', () => {
     let session = runningSession()
     session = apply(session, 'textDelta', 'Ready')

@@ -7,7 +7,7 @@ use super::settings::visible_settings_pages;
 use super::{
     ESCAPE_STOP_CONFIRMATION_TIMEOUT, EscapeStopConfirmation, EscapeStopPress, EscapeStopTarget,
     NAVIGATION_RAIL_TICK_HEIGHT, NAVIGATION_RAIL_TURN_HEIGHT, PendingUserInput, SessionNavigation,
-    StreamDeltaKind, TranscriptRowKind::*, active_navigation_turn_index,
+    StreamDeltaKind, TranscriptRowKind::*, accept_remote_turn, active_navigation_turn_index,
     append_text_delta_to_session, assistant_response_footer, assistant_response_footer_index,
     assistant_response_footer_time, changed_files_inline_message_index, compact_driver_error,
     disclosure_leading_space, fenced_code, fitted_file_tree_width, fitted_panel_widths,
@@ -125,6 +125,83 @@ fn remote_task_catalog_adds_web_tasks_without_replacing_hydrated_detail() {
     assert_eq!(merged_local.messages.len(), 1);
     assert_eq!(merged_local.messages[0].content, "keep this transcript");
     assert!(catalog.iter().any(|session| session.id == web_task_id));
+}
+
+#[test]
+fn remote_follow_up_reaches_an_attached_desktop_transcript() {
+    let project_id = Uuid::new_v4();
+    let mut desktop = AgentSession::new(project_id, ProviderKind::Codex);
+    desktop.begin_turn("hi");
+    desktop.push_message(MessageRole::Assistant, "Hi! How can I help?");
+    desktop.finish_active_turn(TurnStatus::Completed);
+
+    let mut web = desktop.clone();
+    let turn_id = web.begin_turn("this works fine");
+    let accepted_turn = web.turns.last().unwrap().clone();
+    let accepted_messages = web
+        .messages
+        .iter()
+        .filter(|message| message.turn_id == Some(turn_id))
+        .cloned()
+        .collect();
+
+    let mut catalog = vec![desktop];
+    merge_remote_session_catalog(&mut catalog, vec![web.list_projection()], |_| true);
+    let desktop = &mut catalog[0];
+    accept_remote_turn(desktop, accepted_turn, accepted_messages);
+    let session_id = desktop.id;
+    let accepted_output = session_accepts_turn_output(desktop);
+    if accepted_output {
+        append_text_delta_to_session(
+            std::slice::from_mut(desktop),
+            session_id,
+            false,
+            "Great. What would you like to work on next?".into(),
+        );
+    }
+
+    assert!(
+        desktop.messages.iter().any(
+            |message| message.role == MessageRole::User && message.content == "this works fine"
+        ),
+        "the desktop never incorporated the user message sent from Web"
+    );
+    assert!(
+        accepted_output,
+        "the desktop rejected the remote turn's output"
+    );
+    assert!(
+        desktop.messages.iter().any(|message| {
+            message.role == MessageRole::Assistant
+                && message.content == "Great. What would you like to work on next?"
+        }),
+        "the desktop never incorporated the assistant response"
+    );
+}
+
+#[test]
+fn accepted_remote_turn_repairs_stale_desktop_working_indicators() {
+    let mut desktop = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+    let turn_id = desktop.begin_turn("continue from web");
+    let accepted_turn = desktop.turns.last().unwrap().clone();
+    let accepted_messages = desktop
+        .messages
+        .iter()
+        .filter(|message| message.turn_id == Some(turn_id))
+        .cloned()
+        .collect();
+
+    // A catalog/hydration race can expose the canonical running turn before
+    // its transient busy status. Replaying turnAccepted must repair the UI
+    // even though the turn ID is already known.
+    desktop.status = SessionStatus::Idle;
+    accept_remote_turn(&mut desktop, accepted_turn, accepted_messages);
+
+    assert_eq!(desktop.status, SessionStatus::Connecting);
+    assert_eq!(
+        folded_transcript_row_kinds(&desktop, &HashSet::new()),
+        vec![Message(0), WorkingIndicator]
+    );
 }
 
 #[test]

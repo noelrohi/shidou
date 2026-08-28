@@ -34,6 +34,8 @@ export interface ShidouClientOptions {
   token: string;
   clientId?: string;
   requestTimeoutMs?: number;
+  /** Overrides the deployed wire pin, for clients paired with a checkout-built daemon. */
+  protocolVersion?: number;
   webSocketFactory?: (url: string) => WebSocketLike;
   randomUUID?: () => string;
 }
@@ -65,6 +67,7 @@ export class ShidouClient {
   private readonly address: string;
   private readonly token: string;
   private readonly requestTimeoutMs: number;
+  private readonly protocolVersion: number;
   private readonly socketFactory: (url: string) => WebSocketLike;
   private readonly randomUUID: () => string;
   private socket?: WebSocketLike;
@@ -82,6 +85,7 @@ export class ShidouClient {
     this.address = options.address;
     this.token = options.token;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
+    this.protocolVersion = options.protocolVersion ?? WIRE_PROTOCOL_VERSION;
     this.socketFactory =
       options.webSocketFactory ??
       ((url) => {
@@ -138,7 +142,7 @@ export class ShidouClient {
         if (generation !== this.connectionGeneration) return;
         const hello: ClientMessage = {
           type: "hello",
-          protocolVersion: WIRE_PROTOCOL_VERSION,
+          protocolVersion: this.protocolVersion,
           token: this.token,
           clientId: this.clientId,
           resumeFrom: this.replayCursors(),
@@ -157,10 +161,10 @@ export class ShidouClient {
 
         if (!handshakeSettled) {
           if (message.type === "hello") {
-            if (message.protocolVersion !== WIRE_PROTOCOL_VERSION) {
+            if (message.protocolVersion !== this.protocolVersion) {
               failHandshake(
                 new Error(
-                  `daemon protocol ${message.protocolVersion} does not match client protocol ${WIRE_PROTOCOL_VERSION}`,
+                  `daemon protocol ${message.protocolVersion} does not match client protocol ${this.protocolVersion}`,
                 ),
               );
               socket.close(1002, "protocol version mismatch");

@@ -63,6 +63,13 @@ impl Drop for ConnectionPermit {
 pub trait Backend: Send + Sync + 'static {
     fn handle(&self, request: Request, events: EventSink) -> anyhow::Result<ResponsePayload>;
 
+    /// Whether the persisted session state still has a turn marked running.
+    /// Read when a runtime is being torn down: a turn that loses its runtime
+    /// mid-flight otherwise never settles anywhere.
+    fn session_has_active_turn(&self, _session_id: Uuid) -> bool {
+        false
+    }
+
     fn shutdown(&self) {}
 }
 
@@ -806,6 +813,7 @@ fn run_runtime_mailbox(
                 if (removes_session || active_runtime_id == Some(runtime_id))
                     && matches!(&handled.outcome, ResponseOutcome::Ok { .. })
                 {
+                    settle_interrupted_turn(&hub, backend.as_ref(), session_id, runtime_id);
                     hub.end_runtime(session_id, (!removes_session).then_some(runtime_id));
                     active_runtime_id = None;
                 }
@@ -872,6 +880,29 @@ enum TaskCatalogAction {
     Load,
     Save { projects: Vec<Project> },
     Changed,
+}
+
+/// A runtime torn down while a turn is still running takes the only witness
+/// of that turn's end with it: the hub drops later driver events once the
+/// runtime is no longer active, so a phone left on the turn would spin
+/// forever and the saved session would stay "working". Before the runtime
+/// state is cleared, tell every client the turn failed — replayable, like
+/// any driver event.
+fn settle_interrupted_turn(
+    hub: &Arc<Hub>,
+    backend: &dyn Backend,
+    session_id: Uuid,
+    runtime_id: Uuid,
+) {
+    if !backend.session_has_active_turn(session_id) {
+        return;
+    }
+    let _ = hub
+        .event_sink(session_id, runtime_id)
+        .send(WireDriverEvent::new(
+            "turnFinished",
+            serde_json::json!({ "success": false }),
+        ));
 }
 
 fn handle_request(
@@ -1102,6 +1133,7 @@ mod tests {
     #[derive(Default)]
     struct TestBackend {
         runtimes: Mutex<HashMap<Uuid, Uuid>>,
+        active_turns: Mutex<HashSet<Uuid>>,
     }
 
     impl Backend for TestBackend {
@@ -1111,6 +1143,7 @@ mod tests {
             match request.command {
                 Command::Start { .. } => {
                     self.runtimes.lock().insert(session_id, runtime_id);
+                    self.active_turns.lock().insert(session_id);
                     events.send(WireDriverEvent::new("connected", json!({})))?;
                     Ok(ResponsePayload::Started {
                         supports_steer: true,
@@ -1146,6 +1179,10 @@ mod tests {
                 }
                 _ => Ok(ResponsePayload::Ack),
             }
+        }
+
+        fn session_has_active_turn(&self, session_id: Uuid) -> bool {
+            self.active_turns.lock().contains(&session_id)
         }
     }
 
@@ -1646,6 +1683,80 @@ mod tests {
         server.join().unwrap();
     }
 
+    /// A runtime closed while a turn is running must not take the turn's end
+    /// with it: every connected client hears a failed turnFinished, or a
+    /// phone left on the turn spins forever.
+    #[test]
+    fn closing_a_runtime_mid_turn_settles_the_turn_for_every_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server_shutdown = shutdown.clone();
+        let server = std::thread::spawn(move || {
+            serve(
+                listener,
+                "secret".into(),
+                Arc::new(TestBackend::default()),
+                server_shutdown,
+                ServerOptions {
+                    allow_shutdown: true,
+                    ..ServerOptions::default()
+                },
+            )
+            .unwrap()
+        });
+
+        let client = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
+        let observer = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
+        let session_id = Uuid::new_v4();
+        let runtime_id = Uuid::new_v4();
+        let observer_events = observer.subscribe(session_id, runtime_id);
+        client
+            .request(
+                session_id,
+                runtime_id,
+                Command::Start {
+                    options: WireDriverStartOptions {
+                        provider: "codex".into(),
+                        binary: PathBuf::from("codex"),
+                        cwd: PathBuf::from("."),
+                        mode: "fullAccess".into(),
+                        interaction_mode: "build".into(),
+                        model: None,
+                        reasoning_effort: None,
+                        service_tier: None,
+                        context_window: None,
+                        agent_preset: None,
+                        computer_use_enabled: false,
+                        provider_cursor: None,
+                    },
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            observer_events
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap()
+                .event
+                .kind,
+            "connected"
+        );
+
+        client
+            .request(session_id, runtime_id, Command::CloseSession)
+            .unwrap();
+
+        let settled = observer_events
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(settled.event.kind, "turnFinished");
+        assert_eq!(settled.event.payload["success"], json!(false));
+        assert!(observer_events.try_recv().is_err());
+
+        client.shutdown();
+        server.join().unwrap();
+    }
+
     #[test]
     fn late_client_attaches_to_replay_and_live_runtime_events() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1983,6 +2094,7 @@ mod tests {
     /// trap fill the PTY and block forever, while Alacritty waited to reap that
     /// same shell. Keep draining through the trap and bound the assertion
     /// independently of the client's normal 120-second request timeout.
+    #[cfg(unix)]
     #[test]
     fn closing_a_terminal_with_pending_output_responds_promptly() {
         let root = std::env::temp_dir().join(format!("shidou-terminal-{}", Uuid::new_v4()));

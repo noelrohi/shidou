@@ -248,6 +248,46 @@ final class SessionProjectionTests: XCTestCase {
         XCTAssertEqual(model.currentProjection.status, .working)
     }
 
+    func testIncorporatesFollowUpAcceptedByAnotherClientBeforeItsOutput() {
+        let clock = makeClock()
+        var session = apply(
+            runningSession(), "turnFinished", ["success": true, "summary": nil], clock: clock
+        )
+        let remoteTurn = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        let remoteMessage = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
+        let accepted: JSONValue = [
+            "turn": [
+                "id": .string(remoteTurn.uuidString.lowercased()),
+                "turn_count": 2,
+                "status": "running",
+                "provider_turn_started": false,
+                "started_at": 201,
+                "completed_at": nil,
+                "checkpoint": nil,
+            ],
+            "messages": [[
+                "id": .string(remoteMessage.uuidString.lowercased()),
+                "turn_id": .string(remoteTurn.uuidString.lowercased()),
+                "role": "user",
+                "content": "this works fine",
+                "created_at": 201,
+                "streaming": false,
+            ]],
+        ]
+        session = apply(session, "turnAccepted", accepted, clock: clock)
+        session.status = .idle
+        session = apply(session, "turnAccepted", accepted, clock: clock)
+        XCTAssertEqual(session.status, .connecting)
+        session = apply(session, "turnStarted", .null, clock: clock)
+        session = apply(
+            session, "textDelta", "Great. What would you like to work on next?", clock: clock
+        )
+
+        XCTAssertEqual(session.messages.dropLast().last?.content, "this works fine")
+        XCTAssertEqual(session.messages.last?.content, "Great. What would you like to work on next?")
+        XCTAssertEqual(session.turns.last?.id, remoteTurn)
+    }
+
     func testKeepsProviderErrorWhenWorkingRuntimeExits() {
         let clock = makeClock()
         var session = apply(runningSession(), "turnStarted", .null, clock: clock)
