@@ -88,7 +88,10 @@ struct SessionListView: View {
                 SessionRow(item: item, now: UInt64(now.timeIntervalSince1970))
                     .tag(item.session.id)
             } else {
-                NavigationLink(value: item.session.id) {
+                // The stack's path is `[SessionsRoute]`, so the link has to
+                // carry that type: a value of any other type has no
+                // destination and the tap does nothing at all.
+                NavigationLink(value: SessionsRoute.session(item.session.id)) {
                     SessionRow(item: item, now: UInt64(now.timeIntervalSince1970))
                 }
             }
@@ -204,7 +207,7 @@ struct SessionRow: View {
                 HStack(spacing: 6) {
                     Text(item.projectName)
                     if let branch = item.branch {
-                        Text("·").foregroundStyle(.quaternary).accessibilityHidden(true)
+                        Text(verbatim: "·").foregroundStyle(.quaternary).accessibilityHidden(true)
                         Label(branch, systemImage: "arrow.triangle.branch")
                             .labelStyle(.titleAndIcon)
                             .lineLimit(1)

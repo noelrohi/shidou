@@ -3,7 +3,16 @@ import SwiftUI
 
 @main
 struct ShidouApp: App {
+    /// The marketing version, for the About page and the settings footer.
+    static var versionLabel: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
     @Environment(\.scenePhase) private var scenePhase
+    /// The app's own light/dark choice. The daemon strips `theme` out of its
+    /// settings file precisely because it belongs to whichever client is
+    /// reading, so this is stored on the phone.
+    @AppStorage(ThemeChoice.storageKey) private var theme = ThemeChoice.system.rawValue
     @State private var connection = DaemonConnection()
     @State private var attention = AttentionCenter()
     @State private var openURLError: String?
@@ -11,6 +20,7 @@ struct ShidouApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .preferredColorScheme(ThemeChoice(rawValue: theme)?.colorScheme)
                 .environment(connection)
                 .environment(attention)
                 .task { connection.restore() }

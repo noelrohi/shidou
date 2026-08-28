@@ -952,7 +952,7 @@ struct UsageLane: View {
                 .tint(percent >= 95 ? .red : percent >= 80 ? .orange : .accentColor)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label), \(value)")
+        .accessibilityLabel(Text(verbatim: "\(label), \(value)"))
     }
 }
 

@@ -332,7 +332,7 @@ struct ComposerSuggestions: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text("/\(command.name)").font(.footnote.weight(.medium))
+                Text(verbatim: "/\(command.name)").font(.footnote.weight(.medium))
                 if let hint = command.argumentHint {
                     Text(hint).font(.caption2).foregroundStyle(.tertiary)
                 }

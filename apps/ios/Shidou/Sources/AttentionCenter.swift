@@ -222,6 +222,6 @@ struct AttentionBannerView: View {
         .shadow(radius: 8, y: 2)
         .padding(.horizontal, 12)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(banner.title): \(banner.message)")
+        .accessibilityLabel(Text(verbatim: "\(banner.title): \(banner.message)"))
     }
 }

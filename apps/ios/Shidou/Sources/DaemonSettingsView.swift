@@ -5,8 +5,9 @@ import SwiftUI
 /// Settings → Daemon: what the phone is paired with, how it is connected, and
 /// the two escape hatches (re-pair, forget).
 ///
-/// The rest of the settings pages land with their own slice; this is the page
-/// the connection lifecycle owns.
+/// This is the page the connection lifecycle owns. The privacy link that used
+/// to live here now has its own About page, which sits outside the paired
+/// branch — a reviewer has to reach it before pairing.
 struct DaemonSettingsView: View {
     @Environment(DaemonConnection.self) private var connection
     @Environment(\.dismiss) private var dismiss
@@ -80,20 +81,6 @@ struct DaemonSettingsView: View {
                 }
             }
 
-            // Guideline 5.1.1 wants the privacy policy reachable from inside
-            // the app, and this is the only settings surface until the settings
-            // slice lands — move it to the About page when that arrives.
-            // See issue #16.
-            Section("About") {
-                Link(destination: URL(string: "https://shidou.dev/privacy")!) {
-                    LabeledContent("Privacy Policy") {
-                        Image(systemName: "arrow.up.right")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityHint("Opens shidou.dev in Safari")
-            }
         }
         .navigationTitle("Daemon")
         .navigationBarTitleDisplayMode(.inline)

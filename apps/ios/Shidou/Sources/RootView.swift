@@ -7,6 +7,20 @@ import SwiftUI
 /// transcript is pushed on top of it, and back-swipe is how you switch tasks.
 /// iPad gets the same two surfaces as a split view. No tab bar, no drawer, no
 /// palette, no session-switcher sheet.
+/// What the iPhone's navigation stack can be showing on top of the list.
+///
+/// It exists as one type rather than a `UUID` destination beside a boolean
+/// one because SwiftUI traps when a `NavigationStack(path:)` carries both.
+enum SessionsRoute: Hashable {
+    case session(UUID)
+    case draft
+
+    var sessionId: UUID? {
+        if case .session(let id) = self { return id }
+        return nil
+    }
+}
+
 struct RootView: View {
     @Environment(DaemonConnection.self) private var connection
     @Environment(AttentionCenter.self) private var attention
@@ -21,7 +35,18 @@ struct RootView: View {
     @State private var showingDraft = false
     /// The stack's path, so a tapped notification can push a transcript from
     /// outside the list.
-    @State private var path: [UUID] = []
+    ///
+    /// One route type, not a value destination beside a boolean one: a
+    /// `NavigationStack` given both traps inside SwiftUI the moment the value
+    /// destination pushes (`NavigationColumnState.boundPathChange`). A draft
+    /// is just another thing the stack can hold, so it belongs in the path.
+    @State private var path: [SessionsRoute] = []
+    /// Both columns, rather than `.automatic`: with an explicit binding a
+    /// `.balanced` split view starts the sidebar hidden in portrait, and a
+    /// task list you have to reveal is not the spine the IA decision settled.
+    /// Holding it as state is what lets a narrow Stage Manager window that
+    /// collapsed the sidebar show it again once the window grows.
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
         Group {
@@ -49,7 +74,25 @@ struct RootView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        // The animation stays *below* the overlay it animates. Applied above
+        // it, the implicit animation wraps the navigation stack itself and
+        // pushes stop happening at all.
         .animation(.snappy, value: attention.banner)
+        // Stage Manager and Split View cross the size-class boundary while a
+        // task is open, and the two spines hold "which task" in different
+        // places — a stack path on iPhone, a list selection on iPad. Carrying
+        // it across is what stops a resize from throwing the user back to the
+        // list. See the multitasking half of the IA decision (#10).
+        .onChange(of: sizeClass) { _, newValue in
+            if newValue == .regular {
+                selection = path.last?.sessionId ?? selection
+                showingDraft = path.contains(.draft)
+                path = []
+            } else {
+                path = selection.map { [.session($0)] } ?? (showingDraft ? [.draft] : [])
+                selection = nil
+            }
+        }
         .task(id: connection.sessions.map(ObjectIdentifier.init)) {
             attention.follow(connection.sessions)
         }
@@ -84,19 +127,29 @@ struct RootView: View {
             // iPad: two columns. The inspector and multitasking behaviour are
             // slice ③; the spine itself is here so the transcript never has to
             // be re-parented later.
-            NavigationSplitView {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
                 sessionsColumn(selectsInPlace: true)
+                    // A Stage Manager window can be narrower than two usable
+                    // columns; pinning the sidebar's range is what keeps the
+                    // transcript readable instead of squeezing both.
+                    .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 400)
             } detail: {
                 NavigationStack {
                     detailColumn
                 }
             }
+            // `.balanced` keeps the sidebar beside the transcript rather than
+            // overlaying it, which is what a resize should preserve.
             .navigationSplitViewStyle(.balanced)
         } else {
             NavigationStack(path: $path) {
                 sessionsColumn(selectsInPlace: false)
-                    .navigationDestination(for: UUID.self) { TranscriptView(sessionId: $0) }
-                    .navigationDestination(isPresented: $showingDraft) { NewTaskView() }
+                    .navigationDestination(for: SessionsRoute.self) { route in
+                        switch route {
+                        case .session(let id): TranscriptView(sessionId: id)
+                        case .draft: NewTaskView()
+                        }
+                    }
             }
         }
     }
@@ -125,7 +178,11 @@ struct RootView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     selection = nil
-                    showingDraft = true
+                    if sizeClass == .regular {
+                        showingDraft = true
+                    } else {
+                        path.append(.draft)
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -141,7 +198,7 @@ struct RootView: View {
             selection = sessionId
         } else {
             selection = nil
-            path = [sessionId]
+            path = [.session(sessionId)]
         }
     }
 
@@ -169,41 +226,11 @@ private struct SettingsStack: View {
     let presentation: Int
     let done: () -> Void
 
-    @Environment(DaemonConnection.self) private var connection
-
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    NavigationLink {
-                        DaemonSettingsView()
-                    } label: {
-                        Label("Daemon", systemImage: "desktopcomputer")
-                    }
-                }
-                Section {
-                    Link(destination: URL(string: "https://shidou.dev/privacy")!) {
-                        Label("Privacy Policy", systemImage: "hand.raised")
-                    }
-                } header: {
-                    Text("About")
-                } footer: {
-                    Text("Shidou \(appVersion) · protocol v\(ShidouWire.protocolVersion)")
-                }
-            }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", action: done)
-                }
-            }
+            SettingsView(done: done)
         }
         .id(presentation)
-    }
-
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 }
 

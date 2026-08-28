@@ -159,7 +159,12 @@ private struct ManualEntrySheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("mac.local:34123", text: $address)
+                    TextField(
+                        text: $address,
+                        prompt: Text(verbatim: "mac.local:34123")  // an example, not a sentence
+                    ) {
+                        EmptyView()
+                    }
                         .textContentType(.URL)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()

@@ -38,6 +38,7 @@ struct TranscriptView: View {
     @Environment(DaemonConnection.self) private var connection
     @Environment(AttentionCenter.self) private var attention
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var model: SessionRuntimeModel?
     @State private var loadError: String?
@@ -49,11 +50,27 @@ struct TranscriptView: View {
     @State private var currentMatch: Int?
     @State private var showingRename = false
     @State private var renameText = ""
+    /// The Surfaces Sheet's own navigation path, held here so a transcript
+    /// link can open it *already* at a file, and so the path survives the
+    /// sheet becoming an inspector when the size class changes.
+    @State private var showingSurfaces = false
+    @State private var surfacePath: [SurfaceRoute] = []
+    @State private var showingCommit = false
     @State private var now = UInt64(Date().timeIntervalSince1970)
 
     private var store: SessionStore? { connection.sessions }
 
     var body: some View {
+        // The panel wraps the *content*, not the chrome: an `.inspector`
+        // applied over `.toolbar` swallows the transcript's toolbar items on
+        // iPad, and the panel button is one of them.
+        panelPresenter(content)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbar }
+    }
+
+    private var content: some View {
         Group {
             if let model {
                 transcript(model)
@@ -70,9 +87,6 @@ struct TranscriptView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbar }
         .task { await load() }
         // Nothing about the task on screen is ever announced: the user is
         // already looking at it.
@@ -86,6 +100,49 @@ struct TranscriptView: View {
             Button("Cancel", role: .cancel) {}
             Button("Rename") { rename() }
         }
+        .sheet(isPresented: $showingCommit) {
+            if let model, let cwd = store?.cwd(for: model.session), let store {
+                CommitSheet(session: model.session, store: store, cwd: cwd)
+            }
+        }
+    }
+
+    /// The panel, in whichever container the current width calls for.
+    ///
+    /// The two are branched rather than both attached with gated bindings,
+    /// because `.inspector` on a view pushed into a `NavigationStack` stops
+    /// that stack pushing at all on iPhone — the transcript simply never
+    /// opens. Branching keeps `.inspector` out of the compact spine entirely.
+    @ViewBuilder
+    private func panelPresenter(_ content: some View) -> some View {
+        if sizeClass == .regular {
+            content.inspector(isPresented: $showingSurfaces) {
+                surfaces.inspectorColumnWidth(min: 320, ideal: 380, max: 520)
+            }
+        } else {
+            content.sheet(isPresented: $showingSurfaces) {
+                surfaces
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var surfaces: some View {
+        if let model, let store {
+            SurfacesView(
+                session: model.session, model: model, store: store, path: $surfacePath)
+        }
+    }
+
+    /// A tapped file link opens the panel at that file. A path outside the
+    /// workspace has no surface to open — the surfaces read one workspace, not
+    /// the daemon host's whole filesystem — so it opens the panel at the tree
+    /// rather than pretending.
+    private func openFileLink(_ route: TranscriptLinkRoute) {
+        surfacePath = SurfaceRoute.path(for: route) ?? [.files]
+        showingSurfaces = true
     }
 
     // MARK: - Content
@@ -190,7 +247,7 @@ struct TranscriptView: View {
                     markdown: markdown,
                     highlights: highlights,
                     workspaceCwd: store?.cwd(for: model.session),
-                    onOpenFile: { _ in }
+                    onOpenFile: openFileLink
                 )
             }
         case .changed(_, _, let checkpoint):
@@ -217,14 +274,14 @@ struct TranscriptView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
-                // Inert until the Surfaces Sheet lands in slice ③. Shown now
-                // so the header does not re-lay-out when it starts working.
+                showingSurfaces.toggle()
             } label: {
                 Image(systemName: "sidebar.right")
             }
-            .disabled(true)
+            .disabled(model.flatMap { store?.cwd(for: $0.session) } == nil)
+            .keyboardShortcut("0", modifiers: .command)
             .accessibilityLabel("Files and changes")
-            .accessibilityHint("Available in a later version")
+            .accessibilityHint("Opens files, changes, visuals and background work")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -255,6 +312,15 @@ struct TranscriptView: View {
                 UIPasteboard.general.string = transcriptPlainText(model.session)
             } label: {
                 Label("Copy transcript", systemImage: "doc.on.doc")
+            }
+            if store?.cwd(for: model.session) != nil {
+                Divider()
+                Button {
+                    showingCommit = true
+                } label: {
+                    Label("Commit…", systemImage: "arrow.up.circle")
+                }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
             }
         }
     }
@@ -315,7 +381,7 @@ private struct HeaderSubtitle: View {
             HStack(spacing: 6) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                     if index > 0 {
-                        Text("·").foregroundStyle(.quaternary).accessibilityHidden(true)
+                        Text(verbatim: "·").foregroundStyle(.quaternary).accessibilityHidden(true)
                     }
                     Text(part)
                 }

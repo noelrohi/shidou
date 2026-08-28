@@ -85,3 +85,19 @@ targets:
             CFBundleURLSchemes:
               - shidou
         ITSAppUsesNonExemptEncryption: false
+  # Navigation coverage for the surfaces, settings and iPad inspector. It runs
+  # against a local `shidou-demo` on loopback, which is the same daemon the
+  # debug build's "Try the demo" leads with — so the tests drive real protocol
+  # traffic, like every other test in this project.
+  ShidouUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - Shidou/UITests
+    dependencies:
+      - target: Shidou
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.shidou.ios.uitests
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES

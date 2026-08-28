@@ -170,12 +170,12 @@ private struct MarkdownListView: View {
                 .foregroundStyle(checked ? Color.accentColor : .secondary)
                 .accessibilityLabel(checked ? "Done" : "Not done")
         } else if let start {
-            Text("\(start + index).")
+            Text(verbatim: "\(start + index).")
                 .font(.body.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         } else {
-            Text("•")
+            Text(verbatim: "•")
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         }
@@ -316,17 +316,7 @@ private struct CodeBlockView: View {
         return out
     }
 
-    /// Colours carry emphasis, never meaning: the same code reads correctly
-    /// with every token plain, which is what an unhighlighted fence already is.
     private func color(for token: SyntaxToken) -> Color {
-        switch token {
-        case .plain: return .primary
-        case .keyword: return colorScheme == .dark ? Color(red: 0.85, green: 0.60, blue: 0.95) : Color(red: 0.50, green: 0.16, blue: 0.62)
-        case .string: return colorScheme == .dark ? Color(red: 0.62, green: 0.84, blue: 0.55) : Color(red: 0.13, green: 0.45, blue: 0.16)
-        case .number: return colorScheme == .dark ? Color(red: 0.95, green: 0.72, blue: 0.44) : Color(red: 0.63, green: 0.36, blue: 0.05)
-        case .comment: return .secondary
-        case .type: return colorScheme == .dark ? Color(red: 0.50, green: 0.78, blue: 0.95) : Color(red: 0.09, green: 0.39, blue: 0.63)
-        case .punctuation: return .secondary
-        }
+        SyntaxPalette.color(for: token, scheme: colorScheme)
     }
 }

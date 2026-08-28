@@ -194,7 +194,7 @@ private struct ActivityRow: View {
                             .foregroundStyle(.primary)
                             .multilineTextAlignment(.leading)
                         if let stats = ActivityPresentation.fileChangeStats(activity) {
-                            Text("+\(stats.additions) −\(stats.deletions)")
+                            Text(verbatim: "+\(stats.additions) −\(stats.deletions)")
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         } else if !preview.isEmpty {
@@ -311,7 +311,7 @@ struct CheckpointSummary: View {
                     .accessibilityHidden(true)
                 Text("Changed ^[\(checkpoint.files.count) file](inflect: true)")
                     .font(.caption.bold())
-                Text("+\(checkpoint.additions) −\(checkpoint.deletions)")
+                Text(verbatim: "+\(checkpoint.additions) −\(checkpoint.deletions)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -322,7 +322,7 @@ struct CheckpointSummary: View {
                         .lineLimit(1)
                         .truncationMode(.head)
                     Spacer(minLength: 4)
-                    Text("+\(file.additions) −\(file.deletions)")
+                    Text(verbatim: "+\(file.additions) −\(file.deletions)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
                 }
