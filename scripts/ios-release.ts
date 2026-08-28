@@ -194,7 +194,7 @@ async function main(): Promise<void> {
       "-allowProvisioningUpdates",
       "-authenticationKeyID",
       apiKeyId,
-      "-authenticationKeyIssuer",
+      "-authenticationKeyIssuerID",
       apiIssuer,
       "-authenticationKeyPath",
       key,
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
       `Creating the App Store Connect app record for ${appBundleId} ` +
         `("${appName}", ${primaryLocale})`,
     );
-    if (!(await asc.findBundleIdRegistration(appBundleId))) {
+    if (!(await asc.findBundleId(appBundleId))) {
       await asc.registerBundleId(appBundleId);
     }
     const created = await asc.createApp({

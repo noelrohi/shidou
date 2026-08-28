@@ -51,10 +51,21 @@ carries correct values without the script.)
 in `./private_keys/`, `~/private_keys/`, `~/.private_keys/`, or
 `~/.appstoreconnect/private_keys/`). Create the key in App Store Connect
 under **Users and Access → Integrations**, with the **App Manager** role —
-that role is what allows the app-record creation and the upload. With a
-key, xcodebuild can also create the Apple Distribution certificate it needs
-for the export; without one, an existing distribution certificate in the
-keychain is enough.
+that role is what allows the app-record creation and the upload.
+
+Two permission snags, both fixed in the dashboard, that only surface at
+export time:
+
+- **Cloud signing permission error** — ASC refuses to create the Apple
+  Distribution certificate until *Users and Access → your account →
+  Additional resources* has **Cloud-managed distribution certificates**
+  ticked (off by default, even for the Account Holder).
+- A pending **Apple Developer Program License Agreement** blocks every API
+  write; accept it when ASC prompts.
+
+With a key, xcodebuild can also create the Apple Distribution certificate
+it needs for the export; without one, an existing distribution certificate
+in the keychain is enough.
 
 ## What only the App Store Connect dashboard can do
 

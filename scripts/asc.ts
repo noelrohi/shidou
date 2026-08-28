@@ -178,7 +178,7 @@ export class AscApi {
   async findAppByBundleId(bundleId: string): Promise<{ id: string } | null> {
     const result = (await this.request(
       "GET",
-      `/v1/apps?filter[bundleId]=${encodeURIComponent(bundleId)}`,
+      "/v1/apps?filter%5BbundleId%5D=" + encodeURIComponent(bundleId),
     )) as { data?: Array<{ id: string }> };
     return result.data?.[0] ?? null;
   }
@@ -186,21 +186,23 @@ export class AscApi {
   /** The existing bundle-id registration, or null. Xcode's automatic signing
    *  registers the id on the first archive, so a miss here is rare — but a
    *  fresh key on a clean team hits it. */
-  async findBundleIdRegistration(
-    bundleId: string,
-  ): Promise<{ id: string } | null> {
+  async findBundleId(bundleId: string): Promise<{ id: string } | null> {
     const result = (await this.request(
       "GET",
-      `/v1/bundleIdRegistrations?filter[identifier]=${encodeURIComponent(bundleId)}`,
+      "/v1/bundleIds?filter%5Bidentifier%5D=" + encodeURIComponent(bundleId),
     )) as { data?: Array<{ id: string }> };
     return result.data?.[0] ?? null;
   }
 
   async registerBundleId(bundleId: string): Promise<{ id: string }> {
-    const result = (await this.request("POST", "/v1/bundleIdRegistrations", {
+    const result = (await this.request("POST", "/v1/bundleIds", {
       data: {
-        type: "bundleIdRegistrations",
-        attributes: { identifier: bundleId, platform: "IOS" },
+        type: "bundleIds",
+        attributes: {
+          name: "Shidou iOS",
+          identifier: bundleId,
+          platform: "IOS",
+        },
       },
     })) as { data: { id: string } };
     return result.data;
