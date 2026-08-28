@@ -2094,6 +2094,7 @@ mod tests {
     /// trap fill the PTY and block forever, while Alacritty waited to reap that
     /// same shell. Keep draining through the trap and bound the assertion
     /// independently of the client's normal 120-second request timeout.
+    #[cfg(unix)]
     #[test]
     fn closing_a_terminal_with_pending_output_responds_promptly() {
         let root = std::env::temp_dir().join(format!("shidou-terminal-{}", Uuid::new_v4()));
