@@ -524,4 +524,356 @@ final class WireStabilityTests: XCTestCase {
         )
         XCTAssertEqual(legacy.workspaceDefault, .local)
     }
+
+    // MARK: - Slice ③ commands
+
+    /// The read-only surfaces, settings and git commands this slice sends.
+    /// Same rule as the earlier slices: a command with a consumer and no
+    /// assertion is a command whose field names nothing is holding still.
+    func testSurfaceWorkspaceOperationsHaveStableWireKeys() throws {
+        var operation = try XCTUnwrap(try json(Command.workspace(
+            .listTree(root: "/src", expandedPaths: ["/src/app", "/src/app/ui"])
+        ))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "listTree")
+        XCTAssertEqual(operation["root"] as? String, "/src")
+        XCTAssertEqual(operation["expanded_paths"] as? [String], ["/src/app", "/src/app/ui"])
+        XCTAssertNil(operation["expandedPaths"])
+
+        operation = try XCTUnwrap(try json(Command.workspace(
+            .readTextFile(root: "/src", relativePath: "src/limiter.rs")
+        ))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "readTextFile")
+        XCTAssertEqual(operation["relative_path"] as? String, "src/limiter.rs")
+        XCTAssertNil(operation["relativePath"])
+
+        operation = try XCTUnwrap(try json(Command.workspace(
+            .collectReviewDiff(cwd: "/src", source: .uncommitted)
+        ))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "collectReviewDiff")
+        XCTAssertEqual(operation["source"] as? String, "uncommitted")
+
+        let turnId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000b1"))
+        operation = try XCTUnwrap(try json(Command.workspace(.collectReviewDiff(
+            cwd: "/src", source: .lastTurn(sessionId: .zero, turnId: turnId, turnCount: 3)
+        )))["operation"] as? [String: Any])
+        let source = try XCTUnwrap(operation["source"] as? [String: Any])
+        let lastTurn = try XCTUnwrap(source["lastTurn"] as? [String: Any])
+        // `rename_all` on `ReviewDiffSource` renames variants, not fields.
+        XCTAssertEqual(lastTurn["turn_count"] as? Int, 3)
+        XCTAssertEqual(lastTurn["turn_id"] as? String, "00000000-0000-0000-0000-0000000000b1")
+        XCTAssertNil(lastTurn["turnCount"])
+
+        operation = try XCTUnwrap(try json(Command.workspace(.push(cwd: "/src")))["operation"]
+            as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "push")
+        XCTAssertEqual(operation["cwd"] as? String, "/src")
+
+        operation = try XCTUnwrap(try json(Command.workspace(.generateCommitMessage(
+            cwd: "/src",
+            includeUnstaged: true,
+            conventionalCommits: true,
+            invocation: AgentInvocation(
+                provider: .claude, binary: "/opt/claude", model: "sonnet", reasoningEffort: "medium"
+            )
+        )))["operation"] as? [String: Any])
+        XCTAssertEqual(operation["type"] as? String, "generateCommitMessage")
+        XCTAssertEqual(operation["include_unstaged"] as? Bool, true)
+        XCTAssertEqual(operation["conventional_commits"] as? Bool, true)
+        XCTAssertNil(operation["conventionalCommits"])
+        let invocation = try XCTUnwrap(operation["invocation"] as? [String: Any])
+        XCTAssertEqual(invocation["provider"] as? String, "claude")
+        XCTAssertEqual(invocation["binary"] as? String, "/opt/claude")
+        XCTAssertEqual(invocation["reasoning_effort"] as? String, "medium")
+        XCTAssertNil(invocation["reasoningEffort"])
+    }
+
+    func testSurfaceWorkspaceResultsDecode() throws {
+        var result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"workingTree","entries":[{"relativePath":"src/limiter.rs",\
+                "absolutePath":"/src/src/limiter.rs","name":"limiter.rs","isDir":false,\
+                "expanded":false,"depth":1,"status":"modified"}]}
+                """.utf8
+            )
+        )
+        guard case .workingTree(let entries) = result else {
+            return XCTFail("expected a workingTree result")
+        }
+        XCTAssertEqual(entries.first?.relativePath, "src/limiter.rs")
+        XCTAssertEqual(entries.first?.status, .modified)
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(#"{"type":"textFile","content":"fn main() {}\n"}"#.utf8)
+        )
+        guard case .textFile(let content) = result else {
+            return XCTFail("expected a textFile result")
+        }
+        XCTAssertEqual(content, "fn main() {}\n")
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(#"{"type":"commitMessage","message":"fix(limiter): refill continuously"}"#.utf8)
+        )
+        guard case .commitMessage(let message) = result else {
+            return XCTFail("expected a commitMessage result")
+        }
+        XCTAssertEqual(message, "fix(limiter): refill continuously")
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"reviewDiff","data":{"source":"uncommitted","numstat":"1\\t0\\ta.rs",\
+                "patch":"diff --git a/a.rs b/a.rs\\n","completeContext":true}}
+                """.utf8
+            )
+        )
+        guard case .reviewDiff(let data) = result else {
+            return XCTFail("expected a reviewDiff result")
+        }
+        // `ReviewDiffData` is a struct with `rename_all`, so this one is camel.
+        XCTAssertTrue(data.completeContext)
+        XCTAssertEqual(data.source, .uncommitted)
+
+        result = try JSONDecoder().decode(
+            WorkspaceResult.self,
+            from: Data(
+                """
+                {"type":"commitSnapshot","snapshot":{"branch":"demo/rate-limiter","additions":11,\
+                "deletions":6,"staged_additions":0,"staged_deletions":0,"has_staged":false,\
+                "has_unstaged":true,"can_push":true}}
+                """.utf8
+            )
+        )
+        guard case .commitSnapshot(let snapshot) = result else {
+            return XCTFail("expected a commitSnapshot result")
+        }
+        XCTAssertTrue(snapshot.canPush)
+        XCTAssertTrue(snapshot.hasUnstaged)
+    }
+
+    func testSettingsSkillsAndUsageCommandsHaveStableWireKeys() throws {
+        XCTAssertEqual(
+            try json(Command.refreshBackgroundWork)["type"] as? String, "refreshBackgroundWork")
+
+        var object = try json(Command.stopBackgroundWork(
+            key: BackgroundWorkKey(kind: .process, providerId: "bash-7"), controlId: "7"
+        ))
+        XCTAssertEqual(object["type"] as? String, "stopBackgroundWork")
+        XCTAssertEqual(object["controlId"] as? String, "7")
+        let key = try XCTUnwrap(object["key"] as? [String: Any])
+        XCTAssertEqual(key["kind"] as? String, "process")
+        XCTAssertEqual(key["providerId"] as? String, "bash-7")
+
+        object = try json(Command.loadUsageHistory(
+            window: .trailingDays(30), projectRoots: ["/src/shidou"]))
+        XCTAssertEqual(object["type"] as? String, "loadUsageHistory")
+        XCTAssertEqual(object["projectRoots"] as? [String], ["/src/shidou"])
+        let window = try XCTUnwrap(object["window"] as? [String: Any])
+        XCTAssertEqual(window["trailingDays"] as? UInt32, 30)
+
+        object = try json(Command.loadUsageHistory(window: .thisMonth, projectRoots: []))
+        XCTAssertEqual(object["window"] as? String, "thisMonth")
+
+        object = try json(Command.loadSkills(projects: [
+            SkillProjectRoot(name: "shidou", root: "/src/shidou")
+        ]))
+        XCTAssertEqual(object["type"] as? String, "loadSkills")
+        // A Rust tuple is a two-element array, not an object.
+        XCTAssertEqual(object["projects"] as? [[String]], [["shidou", "/src/shidou"]])
+
+        object = try json(Command.setSkillsEnabled(dirs: ["/skills/tdd"], enabled: false))
+        XCTAssertEqual(object["type"] as? String, "setSkillsEnabled")
+        XCTAssertEqual(object["dirs"] as? [String], ["/skills/tdd"])
+        XCTAssertEqual(object["enabled"] as? Bool, false)
+
+        object = try json(Command.trashSkills(dirs: ["/skills/tdd"]))
+        XCTAssertEqual(object["type"] as? String, "trashSkills")
+        XCTAssertEqual(object["dirs"] as? [String], ["/skills/tdd"])
+    }
+
+    /// The settings file is shared with the Mac app and the web client, so
+    /// what the phone sends back has to carry the keys it never showed. A
+    /// round trip that dropped `computer_use_allowed_apps` would let a toggle
+    /// on the phone erase a grant made on the desktop.
+    func testUpdateSettingsPreservesKeysThePhoneNeverShows() throws {
+        let settings = try JSONDecoder().decode(
+            DaemonSettings.self,
+            from: Data(
+                """
+                {"computer_use_enabled":true,"computer_use_allowed_apps":[{"bundle_id":"com.apple.Safari"}],\
+                "conventional_commit_messages":false,"disabled_providers":["codex"],\
+                "provider_binary_overrides":{"claude":"/opt/claude"},"someFutureKey":42}
+                """.utf8
+            )
+        )
+        XCTAssertTrue(settings.computerUseEnabled)
+        XCTAssertFalse(settings.isEnabled(.codex))
+        XCTAssertEqual(settings.binaryOverride(for: .claude), "/opt/claude")
+
+        var edited = settings
+        edited.conventionalCommitMessages = true
+        edited.setEnabled(true, for: .codex)
+        edited.setBinaryOverride(nil, for: .claude)
+
+        let object = try XCTUnwrap(
+            try json(Command.updateSettings(edited))["settings"] as? [String: Any])
+        XCTAssertEqual(object["conventional_commit_messages"] as? Bool, true)
+        XCTAssertEqual(object["disabled_providers"] as? [String], [])
+        XCTAssertEqual((object["provider_binary_overrides"] as? [String: String])?.isEmpty, true)
+        XCTAssertEqual(object["someFutureKey"] as? Int, 42)
+        XCTAssertNotNil(object["computer_use_allowed_apps"], "a desktop-only grant survives")
+    }
+
+    func testSkillsCatalogDecodes() throws {
+        let payload = try JSONDecoder().decode(
+            ResponsePayload.self,
+            from: Data(
+                """
+                {"type":"skillsCatalog","catalog":{"skills":[{"name":"tdd",\
+                "description":"Test first","scope":"user","project":null,\
+                "installs":[{"source":"shared","dir":"/skills/tdd",\
+                "skillFile":"/skills/tdd/SKILL.md","enabled":true},\
+                {"source":{"provider":"claude"},"dir":"/claude/skills/tdd",\
+                "skillFile":"/claude/skills/tdd/SKILL.md","enabled":false}],\
+                "enabled":true,"allowedTools":null,"body":"# TDD","supportingFiles":2,\
+                "totalBytes":4096,"modifiedAt":1700000000,"duplicates":0,"rowKey":17}]}}
+                """.utf8
+            )
+        )
+        guard case .skillsCatalog(let catalog) = payload else {
+            return XCTFail("expected a skills catalog")
+        }
+        let skill = try XCTUnwrap(catalog.skills.first)
+        XCTAssertEqual(skill.scope, .user)
+        XCTAssertEqual(skill.supportingFiles, 2)
+        XCTAssertEqual(skill.installs.first?.source, .shared)
+        XCTAssertEqual(skill.installs.last?.source, .provider(.claude))
+        XCTAssertEqual(skill.dirs, ["/skills/tdd", "/claude/skills/tdd"])
+        XCTAssertEqual(catalog.disabledCount, 0)
+    }
+
+    func testUsageHistoryDecodes() throws {
+        let payload = try JSONDecoder().decode(
+            ResponsePayload.self,
+            from: Data(
+                """
+                {"type":"usageHistory","history":{"window":{"trailingDays":7},\
+                "sinceDay":"2026-08-22","untilDay":"2026-08-28",\
+                "totals":{"uncachedInput":10,"cachedInput":20,"cacheCreation":5,"output":30,\
+                "reasoning":4},"totalTokens":65,"costUsd":1.25,"records":9,"sessions":3,\
+                "providers":[{"provider":"claude","costUsd":1.0,"totalTokens":50,\
+                "costShare":0.8,"tokenShare":0.77}],\
+                "models":[{"provider":"claude","model":"sonnet","costUsd":1.0,\
+                "totalTokens":50,"costShare":0.8}],\
+                "daily":[{"day":"2026-08-28","costUsd":0.5,"totalTokens":20,\
+                "byProvider":[{"costUsd":0.5,"totalTokens":20},{"costUsd":0.0,"totalTokens":0}]}],\
+                "months":[{"firstDay":"2026-08-01","costUsd":1.25,"totalTokens":65,\
+                "byProvider":[{"costUsd":1.0,"totalTokens":50},{"costUsd":0.25,"totalTokens":15}],\
+                "sessions":3,"activeDays":4,"topModels":[["sonnet",1.0]]}],\
+                "projects":[{"path":"/src/shidou","costUsd":1.25,"totalTokens":65,\
+                "byProvider":[{"costUsd":1.0,"totalTokens":50},{"costUsd":0.25,"totalTokens":15}],\
+                "sessions":3,"costShare":1.0,"lastDay":"2026-08-28","topModels":[["sonnet",1.0]]}],\
+                "quality":{"providerReportedShare":0.5,"modelPricedShare":0.5,\
+                "unpricedShare":0.0,"cacheSavingsUsd":0.1},"pricing":"fresh",\
+                "scannedFiles":12,"skippedFiles":0,"errors":[],\
+                "scanDuration":{"secs":0,"nanos":12000}}}
+                """.utf8
+            )
+        )
+        guard case .usageHistory(let history) = payload else {
+            return XCTFail("expected a usage history")
+        }
+        XCTAssertEqual(history.window, .trailingDays(7))
+        XCTAssertEqual(history.sinceDay, CalendarDay(year: 2026, month: 8, day: 22))
+        XCTAssertEqual(history.totals.total, 65)
+        XCTAssertEqual(history.daily.first?.provider(.claude)?.totalTokens, 20)
+        XCTAssertEqual(history.daily.first?.provider(.codex)?.totalTokens, 0)
+        // A `Vec<(String, f64)>` is an array of pairs, not an object.
+        XCTAssertEqual(history.months.first?.topModels.first?.model, "sonnet")
+        XCTAssertEqual(history.projects.first?.name, "shidou")
+        XCTAssertEqual(history.pricing, .fresh)
+    }
+
+    /// `BackgroundWorkEvent` is internally tagged, so `upsert` and
+    /// `stopRequested` carry their payload's fields beside `type` rather than
+    /// nesting them — the one shape a hand-written decoder gets wrong.
+    func testBackgroundWorkEventsDecode() throws {
+        var event = DriverEvent(wire: try JSONDecoder().decode(
+            WireDriverEvent.self,
+            from: Data(
+                """
+                {"kind":"backgroundWork","payload":{"type":"upsert",\
+                "key":{"kind":"process","providerId":"bash-7"},"title":"cargo watch",\
+                "detail":"running tests","command":"cargo watch -x test","cwd":"/src",\
+                "output":"ok","outputTruncated":false,"startedAtMs":1000,"updatedAtMs":2000,\
+                "durationMs":1000,"exitCode":null,"background":true,"canStop":true,\
+                "controlId":"7","originActivityId":null,"role":null,"model":null,\
+                "parentId":null,"status":"running"}}
+                """.utf8
+            )
+        ))
+        guard case .backgroundWork(.upsert(let item)) = event else {
+            return XCTFail("expected an upsert")
+        }
+        XCTAssertEqual(item.key.providerId, "bash-7")
+        XCTAssertEqual(item.title, "cargo watch")
+        XCTAssertTrue(item.canStop)
+        XCTAssertTrue(item.status.isStoppable)
+
+        event = DriverEvent(wire: try JSONDecoder().decode(
+            WireDriverEvent.self,
+            from: Data(
+                """
+                {"kind":"backgroundWork","payload":{"type":"stopRequested",\
+                "kind":"subagent","providerId":"reviewer-1"}}
+                """.utf8
+            )
+        ))
+        guard case .backgroundWork(.stopRequested(let key)) = event else {
+            return XCTFail("expected a stopRequested")
+        }
+        XCTAssertEqual(key.kind, .subagent)
+        XCTAssertEqual(key.providerId, "reviewer-1")
+
+        event = DriverEvent(wire: try JSONDecoder().decode(
+            WireDriverEvent.self,
+            from: Data(
+                """
+                {"kind":"backgroundWork","payload":{"type":"reconcileLive","items":[]}}
+                """.utf8
+            )
+        ))
+        guard case .backgroundWork(.reconcileLive(let items)) = event else {
+            return XCTFail("expected a reconcileLive")
+        }
+        XCTAssertTrue(items.isEmpty)
+
+        event = DriverEvent(wire: try JSONDecoder().decode(
+            WireDriverEvent.self,
+            from: Data(
+                """
+                {"kind":"backgroundWork","payload":{"type":"outputDelta",\
+                "key":{"kind":"process","providerId":"bash-7"},"delta":"more\\n"}}
+                """.utf8
+            )
+        ))
+        guard case .backgroundWork(.outputDelta(_, let delta)) = event else {
+            return XCTFail("expected an outputDelta")
+        }
+        XCTAssertEqual(delta, "more\n")
+
+        // A variant a newer daemon adds must not throw the whole event away.
+        event = DriverEvent(wire: try JSONDecoder().decode(
+            WireDriverEvent.self,
+            from: Data(#"{"kind":"backgroundWork","payload":{"type":"somethingNew"}}"#.utf8)
+        ))
+        guard case .backgroundWork(.unknown(let type)) = event else {
+            return XCTFail("expected an unknown background-work variant")
+        }
+        XCTAssertEqual(type, "somethingNew")
+    }
 }

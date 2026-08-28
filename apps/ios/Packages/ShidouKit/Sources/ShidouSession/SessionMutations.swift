@@ -128,6 +128,8 @@ public enum ShidouSessionError: Error, LocalizedError, Sendable {
     case daemonDisconnected
     case noLiveRuntime
     case attachmentTooLarge(String)
+    case patchTooLarge
+    case noProviderForCommitMessage
 
     public var errorDescription: String? {
         switch self {
@@ -145,6 +147,10 @@ public enum ShidouSessionError: Error, LocalizedError, Sendable {
             return "This task has no running agent"
         case .attachmentTooLarge(let name):
             return "\(name) is too large to send to the daemon"
+        case .patchTooLarge:
+            return "This change is too large to show on the phone"
+        case .noProviderForCommitMessage:
+            return "No installed provider can write a commit message"
         }
     }
 }

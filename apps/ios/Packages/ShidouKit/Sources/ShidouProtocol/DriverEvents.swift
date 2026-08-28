@@ -13,6 +13,8 @@ public enum DriverEvent: Sendable {
     case reasoningDelta(String)
     case activity(id: String?, kind: ActivityKind, title: String, detail: String?, complete: Bool)
     case richActivity(ActivityItem)
+    /// Session-level work that outlives the turn which started it.
+    case backgroundWork(BackgroundWorkEvent)
     case permission(requestId: String, title: String, detail: String, options: [PermissionOption])
     case userInputRequested(requestId: String, questions: [UserInputQuestion])
     case interactionResolved(requestId: String)
@@ -23,14 +25,14 @@ public enum DriverEvent: Sendable {
     case error(String)
     case processExited
     /// A kind this client recognizes but deliberately does not handle
-    /// (backgroundWork, computerUseUpdated, planUsageUpdated, …).
+    /// (agentPresetSelected, computerUseUpdated, planUsageUpdated, …).
     case ignored(kind: String)
     case unknown(kind: String)
 }
 
 extension DriverEvent {
     private static let ignoredKinds: Set<String> = [
-        "agentPresetSelected", "backgroundWork", "computerUseUpdated", "planUsageUpdated",
+        "agentPresetSelected", "computerUseUpdated", "planUsageUpdated",
     ]
 
     /// Decodes a wire event. Payload shapes that fail to decode degrade to
@@ -69,6 +71,8 @@ extension DriverEvent {
             )
         case "richActivity":
             return .richActivity(try payload.decode(as: ActivityItem.self))
+        case "backgroundWork":
+            return .backgroundWork(try payload.decode(as: BackgroundWorkEvent.self))
         case "permission":
             return .permission(
                 requestId: payload["requestId"]?.stringValue ?? "",

@@ -358,3 +358,34 @@ public actor SyntaxHighlighter {
         return spans
     }
 }
+
+extension SyntaxHighlight {
+    /// Split whole-file spans into one array per line, dropping the newlines.
+    ///
+    /// A file reader renders one row per line so a long file can be
+    /// virtualized, but the lexer works on the whole text — a string or a
+    /// block comment that spans lines only lexes correctly when it is seen
+    /// whole. Splitting afterwards is what lets both be true.
+    public static func spansByLine(_ spans: [HighlightedSpan]) -> [[HighlightedSpan]] {
+        var lines: [[HighlightedSpan]] = []
+        var current: [HighlightedSpan] = []
+        for span in spans {
+            var remainder = Substring(span.text)
+            while let newline = remainder.firstIndex(of: "\n") {
+                let head = remainder[remainder.startIndex..<newline]
+                if !head.isEmpty {
+                    current.append(HighlightedSpan(text: String(head), token: span.token))
+                }
+                lines.append(current)
+                current = []
+                remainder = remainder[remainder.index(after: newline)...]
+            }
+            if !remainder.isEmpty {
+                current.append(HighlightedSpan(text: String(remainder), token: span.token))
+            }
+        }
+        // A trailing newline ends the last line rather than starting a new one.
+        if !current.isEmpty || lines.isEmpty { lines.append(current) }
+        return lines
+    }
+}

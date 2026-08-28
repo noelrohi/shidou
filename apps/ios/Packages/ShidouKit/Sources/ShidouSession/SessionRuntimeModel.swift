@@ -18,6 +18,12 @@ public final class SessionRuntimeModel {
     /// Set while a reconnect replay or hydration is in flight so views can
     /// show a catch-up treatment instead of a half-applied transcript.
     public private(set) var isCatchingUp = false
+    /// Detached processes, monitors and subagents for this session. Kept off
+    /// the projection on purpose: this work outlives the turn that started it,
+    /// so folding it in would make a finished turn look like finished work.
+    /// Never persisted — `refreshBackgroundWork` is how a fresh screen learns
+    /// what is still running.
+    public private(set) var backgroundWork = BackgroundWorkLedger()
 
     @ObservationIgnored var lastDriverError: String?
     @ObservationIgnored private var projection: AgentSession
@@ -45,7 +51,28 @@ public final class SessionRuntimeModel {
     public func clearRuntime() {
         runtimeId = nil
         supportsSteer = false
+        // Whatever was still running belonged to a runtime that is gone. A
+        // spinner against work nobody can reach is worse than saying so.
+        backgroundWork.markLost(now: nowMillis())
     }
+
+    /// Local echo for a stop the user just asked for, so the row changes on
+    /// the tap rather than on the daemon's reply.
+    public func markBackgroundWorkStopping(_ key: BackgroundWorkKey) {
+        backgroundWork.markStopping(key, now: nowMillis())
+    }
+
+    public func markBackgroundWorkLost() {
+        backgroundWork.markLost(now: nowMillis())
+    }
+
+    /// The stop never reached the daemon, so the work is still running. Same
+    /// shape as the daemon's own `stopFailed`, because it means the same thing.
+    public func backgroundWorkStopFailed(_ key: BackgroundWorkKey, message: String) {
+        backgroundWork.apply(.stopFailed(key: key, message: message), now: nowMillis())
+    }
+
+    private func nowMillis() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
 
     /// Replaces the whole projection (hydration, fork/rewind responses,
     /// local mutations like `beginTurn`). Publishes immediately.
@@ -72,6 +99,17 @@ public final class SessionRuntimeModel {
     @discardableResult
     public func apply(_ event: SequencedEvent, clock: ReducerClock = .live) -> RuntimeEventResult? {
         guard !runtimeEventAlreadyApplied(session: projection, event: event) else { return nil }
+        // The kind check comes first so a streaming text delta does not pay a
+        // whole `DriverEvent` decode just to be told it is not background
+        // work; the reducer below reads `kind` and `payload` directly.
+        if event.event.kind == "backgroundWork",
+            case .backgroundWork(let work) = DriverEvent(wire: event.event)
+        {
+            // Background work is not part of the projection, so it never
+            // reaches the reducer — but the cursor still has to advance, which
+            // the reducer below does for every event including this one.
+            backgroundWork.apply(work, clock: clock)
+        }
         var result = reduceRuntimeEvent(
             projection, event, clock: clock, processExitError: lastDriverError
         )

@@ -29,6 +29,139 @@ public struct CreatedWorktree: Codable, Hashable, Sendable {
     public var branch: String
 }
 
+/// How the daemon should invoke a provider for a one-shot job — today only
+/// commit-message generation. Encode-only: the client picks the provider.
+public struct AgentInvocation: Encodable, Sendable {
+    public var provider: ProviderKind
+    public var binary: String
+    public var model: String?
+    public var reasoningEffort: String?
+
+    enum CodingKeys: String, CodingKey {
+        case provider, binary, model
+        case reasoningEffort = "reasoning_effort"
+    }
+
+    public init(
+        provider: ProviderKind,
+        binary: String,
+        model: String? = nil,
+        reasoningEffort: String? = nil
+    ) {
+        self.provider = provider
+        self.binary = binary
+        self.model = model
+        self.reasoningEffort = reasoningEffort
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(binary, forKey: .binary)
+        try container.encode(model, forKey: .model)
+        try container.encode(reasoningEffort, forKey: .reasoningEffort)
+    }
+}
+
+/// Which range of work a review diff covers. Externally tagged, and its
+/// `rename_all` renames only the variants — `lastTurn`'s own fields stay
+/// snake_case, like everything else in this module.
+public enum ReviewDiffSource: Codable, Hashable, Sendable {
+    case lastTurn(sessionId: UUID, turnId: UUID, turnCount: Int)
+    case uncommitted
+    case unstaged
+    case staged
+    case committed
+    case branch
+
+    private enum CodingKeys: String, CodingKey {
+        case lastTurn
+    }
+
+    private struct LastTurn: Codable {
+        var sessionId: UUID
+        var turnId: UUID
+        var turnCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case sessionId = "session_id"
+            case turnId = "turn_id"
+            case turnCount = "turn_count"
+        }
+
+        init(sessionId: UUID, turnId: UUID, turnCount: Int) {
+            self.sessionId = sessionId
+            self.turnId = turnId
+            self.turnCount = turnCount
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            sessionId = try container.decode(UUID.self, forKey: .sessionId)
+            turnId = try container.decode(UUID.self, forKey: .turnId)
+            turnCount = try container.decode(Int.self, forKey: .turnCount)
+        }
+
+        // Lowercase, like every other id this client puts on the wire.
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(sessionId.wireString, forKey: .sessionId)
+            try container.encode(turnId.wireString, forKey: .turnId)
+            try container.encode(turnCount, forKey: .turnCount)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        if let raw = try? decoder.singleValueContainer().decode(String.self) {
+            switch raw {
+            case "unstaged": self = .unstaged
+            case "staged": self = .staged
+            case "committed": self = .committed
+            case "branch": self = .branch
+            default: self = .uncommitted
+            }
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let turn = try container.decode(LastTurn.self, forKey: .lastTurn)
+        self = .lastTurn(sessionId: turn.sessionId, turnId: turn.turnId, turnCount: turn.turnCount)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .lastTurn(let sessionId, let turnId, let turnCount):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(
+                LastTurn(sessionId: sessionId, turnId: turnId, turnCount: turnCount),
+                forKey: .lastTurn
+            )
+        case .uncommitted, .unstaged, .staged, .committed, .branch:
+            var container = encoder.singleValueContainer()
+            try container.encode(bareName)
+        }
+    }
+
+    private var bareName: String {
+        switch self {
+        case .lastTurn: return "lastTurn"
+        case .uncommitted: return "uncommitted"
+        case .unstaged: return "unstaged"
+        case .staged: return "staged"
+        case .committed: return "committed"
+        case .branch: return "branch"
+        }
+    }
+}
+
+/// NOTE: `ReviewDiffData` is a struct with `rename_all = "camelCase"`, so its
+/// fields really are camelCase — unlike the operations that produce it.
+public struct ReviewDiffData: Codable, Hashable, Sendable {
+    public var source: ReviewDiffSource
+    public var numstat: String
+    public var patch: String
+    public var completeContext: Bool
+}
+
 /// Working-copy state of a tree entry relative to the Git index. A directory
 /// carries the strongest status found among its descendants.
 public enum WorkingTreeStatus: String, WireStringEnum {
@@ -75,7 +208,9 @@ public struct DaemonDirectory: Sendable {
 
 /// The v1 subset of `WorkspaceOperation`. Encode-only.
 public enum WorkspaceOperation: Sendable {
+    case listTree(root: String, expandedPaths: [String])
     case browseDirectory(path: String?)
+    case readTextFile(root: String, relativePath: String)
     case listProjectFiles(root: String, cap: Int)
     case discoverSlashCommands(provider: ProviderKind, projectRoot: String)
     case inspectBranches(cwd: String)
@@ -89,6 +224,12 @@ public enum WorkspaceOperation: Sendable {
         baseBranch: String?
     )
     case inspectCommit(cwd: String)
+    case generateCommitMessage(
+        cwd: String,
+        includeUnstaged: Bool,
+        conventionalCommits: Bool,
+        invocation: AgentInvocation
+    )
     case commit(cwd: String, message: String, includeUnstaged: Bool, push: Bool)
     case push(cwd: String)
     case captureTurnStart(cwd: String, sessionId: UUID, turnCount: Int)
@@ -96,11 +237,16 @@ public enum WorkspaceOperation: Sendable {
     case captureRef(cwd: String, gitRef: String)
     case restoreRef(cwd: String, gitRef: String)
     case hasRef(cwd: String, gitRef: String)
+    case collectReviewDiff(cwd: String, source: ReviewDiffSource)
 }
 
 extension WorkspaceOperation: Encodable {
     enum CodingKeys: String, CodingKey {
         case type, prompt, cwd, message, push, path, root, cap, provider, branch, create
+        case source, invocation
+        case expandedPaths = "expanded_paths"
+        case relativePath = "relative_path"
+        case conventionalCommits = "conventional_commits"
         case projectPath = "project_path"
         case projectId = "project_id"
         case sessionId = "session_id"
@@ -114,6 +260,24 @@ extension WorkspaceOperation: Encodable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .listTree(let root, let expandedPaths):
+            try container.encode("listTree", forKey: .type)
+            try container.encode(root, forKey: .root)
+            try container.encode(expandedPaths, forKey: .expandedPaths)
+        case .readTextFile(let root, let relativePath):
+            try container.encode("readTextFile", forKey: .type)
+            try container.encode(root, forKey: .root)
+            try container.encode(relativePath, forKey: .relativePath)
+        case .collectReviewDiff(let cwd, let source):
+            try container.encode("collectReviewDiff", forKey: .type)
+            try container.encode(cwd, forKey: .cwd)
+            try container.encode(source, forKey: .source)
+        case .generateCommitMessage(let cwd, let includeUnstaged, let conventionalCommits, let invocation):
+            try container.encode("generateCommitMessage", forKey: .type)
+            try container.encode(cwd, forKey: .cwd)
+            try container.encode(includeUnstaged, forKey: .includeUnstaged)
+            try container.encode(conventionalCommits, forKey: .conventionalCommits)
+            try container.encode(invocation, forKey: .invocation)
         case .browseDirectory(let path):
             try container.encode("browseDirectory", forKey: .type)
             try container.encode(path, forKey: .path)
@@ -185,7 +349,9 @@ extension WorkspaceOperation: Encodable {
 /// daemon cannot break decoding of an unrelated response.
 public enum WorkspaceResult: Sendable {
     case ack
+    case workingTree([WorkingTreeEntry])
     case directory(DaemonDirectory)
+    case textFile(String)
     case projectFiles([FileEntry])
     case slashCommands([SlashCommand])
     case branches(BranchSnapshot?)
@@ -193,6 +359,8 @@ public enum WorkspaceResult: Sendable {
     case projectlessWorkspace(cwd: String)
     case worktreeCreated(CreatedWorktree)
     case commitSnapshot(CommitSnapshot)
+    case commitMessage(String)
+    case reviewDiff(ReviewDiffData)
     case checkpoint(Checkpoint)
     case bool(Bool)
     case unknown(type: String)
@@ -200,7 +368,7 @@ public enum WorkspaceResult: Sendable {
 
 extension WorkspaceResult: Decodable {
     enum CodingKeys: String, CodingKey {
-        case type, cwd, worktree, snapshot, checkpoint, value
+        case type, cwd, worktree, snapshot, checkpoint, value, content, message, data
         case path, parent, home, entries, commands
         case filesystemRoot = "filesystem_root"
     }
@@ -211,6 +379,14 @@ extension WorkspaceResult: Decodable {
         switch type {
         case "ack":
             self = .ack
+        case "workingTree":
+            self = .workingTree(try container.decode([WorkingTreeEntry].self, forKey: .entries))
+        case "textFile":
+            self = .textFile(try container.decode(String.self, forKey: .content))
+        case "commitMessage":
+            self = .commitMessage(try container.decode(String.self, forKey: .message))
+        case "reviewDiff":
+            self = .reviewDiff(try container.decode(ReviewDiffData.self, forKey: .data))
         case "directory":
             self = .directory(DaemonDirectory(
                 path: try container.decode(String.self, forKey: .path),

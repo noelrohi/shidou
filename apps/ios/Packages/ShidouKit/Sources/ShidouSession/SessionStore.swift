@@ -95,6 +95,9 @@ public final class SessionStore {
     /// Rejects a catalog load that a newer one has already superseded.
     @ObservationIgnored private var catalogGeneration = 0
     @ObservationIgnored private var workspaceProbes: Set<String> = []
+    /// One surfaces model per workspace directory, so the sheet and the iPad
+    /// inspector read the same tree instead of each fetching their own.
+    @ObservationIgnored var workspaceSurfaces: [String: WorkspaceSurfaces] = [:]
 
     // MARK: Composer wiring
 
@@ -146,6 +149,7 @@ public final class SessionStore {
         buffered.removeAll()
         workspaces.removeAll()
         workspaceProbes.removeAll()
+        workspaceSurfaces.removeAll()
         branches.removeAll()
         projectFiles.removeAll()
         slashCommands.removeAll()

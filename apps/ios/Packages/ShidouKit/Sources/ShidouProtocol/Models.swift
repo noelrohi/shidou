@@ -883,13 +883,23 @@ public struct ProviderProbe: Codable, Sendable {
     }
 }
 
-/// Daemon settings; iOS only reads the fields it needs and never writes
-/// settings back, so unknown fields are simply ignored on decode.
+/// Daemon settings.
+///
+/// The phone reads a handful of fields and writes two of them back, but the
+/// daemon's settings file is shared with the Mac app and the web client and
+/// carries keys this build has never heard of — `computer_use_allowed_apps`,
+/// and whatever `#[serde(flatten)] extra` is holding this week. So the whole
+/// decoded object is kept and re-emitted with only the known fields
+/// overwritten: a phone must not be able to delete a desktop-only setting by
+/// toggling a switch.
 public struct DaemonSettings: Codable, Sendable {
     public var computerUseEnabled: Bool
     public var conventionalCommitMessages: Bool
     public var disabledProviders: [ProviderKind]
     public var providerBinaryOverrides: [String: String]
+
+    /// Everything the daemon sent, exactly as it sent it.
+    private var raw: [String: JSONValue]
 
     enum CodingKeys: String, CodingKey {
         case computerUseEnabled = "computer_use_enabled"
@@ -906,10 +916,40 @@ public struct DaemonSettings: Codable, Sendable {
         disabledProviders = try container.decodeIfPresent([ProviderKind].self, forKey: .disabledProviders) ?? []
         providerBinaryOverrides =
             try container.decodeIfPresent([String: String].self, forKey: .providerBinaryOverrides) ?? [:]
+        let object = try? decoder.singleValueContainer().decode(JSONValue.self)
+        raw = object?.objectValue ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var merged = raw
+        merged["computer_use_enabled"] = .bool(computerUseEnabled)
+        merged["conventional_commit_messages"] = .bool(conventionalCommitMessages)
+        merged["disabled_providers"] = .array(disabledProviders.map { .string($0.rawValue) })
+        merged["provider_binary_overrides"] = .object(providerBinaryOverrides.mapValues(JSONValue.string))
+        var container = encoder.singleValueContainer()
+        try container.encode(JSONValue.object(merged))
     }
 
     public func binaryOverride(for provider: ProviderKind) -> String? {
         providerBinaryOverrides[provider.rawValue]
+    }
+
+    public func isEnabled(_ provider: ProviderKind) -> Bool {
+        !disabledProviders.contains(provider)
+    }
+
+    public mutating func setEnabled(_ enabled: Bool, for provider: ProviderKind) {
+        disabledProviders.removeAll { $0 == provider }
+        if !enabled { disabledProviders.append(provider) }
+    }
+
+    public mutating func setBinaryOverride(_ path: String?, for provider: ProviderKind) {
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            providerBinaryOverrides.removeValue(forKey: provider.rawValue)
+        } else {
+            providerBinaryOverrides[provider.rawValue] = trimmed
+        }
     }
 }
 

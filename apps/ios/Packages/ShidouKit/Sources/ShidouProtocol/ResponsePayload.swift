@@ -18,6 +18,8 @@ public enum ResponsePayload: Sendable {
     case session(AgentSession?)
     case optionsApplied(Bool)
     case planUsage(PlanUsage?)
+    case usageHistory(UsageHistory)
+    case skillsCatalog(SkillsCatalog)
     case composerDrafts(ComposerDrafts)
     case blobStored(reference: String, path: String)
     case attachmentStored(StoredAttachment)
@@ -33,7 +35,7 @@ extension ResponsePayload: Decodable {
         case type, runtimeId, supportsSteer, settings, probe, version
         case projects, sessions, defaultCwd, projectlessRoot, session, bytes
         case checkpointWarning, cleanupWarning, result
-        case applied, drafts, reference, path, attachment, usage
+        case applied, drafts, reference, path, attachment, usage, history, catalog
     }
 
     public init(from decoder: Decoder) throws {
@@ -69,6 +71,10 @@ extension ResponsePayload: Decodable {
             self = .session(try container.decodeIfPresent(AgentSession.self, forKey: .session))
         case "planUsage":
             self = .planUsage(try container.decodeIfPresent(PlanUsage.self, forKey: .usage))
+        case "usageHistory":
+            self = .usageHistory(try container.decode(UsageHistory.self, forKey: .history))
+        case "skillsCatalog":
+            self = .skillsCatalog(try container.decode(SkillsCatalog.self, forKey: .catalog))
         case "optionsApplied":
             self = .optionsApplied(try container.decode(Bool.self, forKey: .applied))
         case "composerDrafts":

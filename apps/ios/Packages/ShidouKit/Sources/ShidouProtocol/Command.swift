@@ -118,6 +118,24 @@ public struct SessionOptions: Encodable, Sendable {
     }
 }
 
+/// One `(name, root)` pair for `loadSkills`. Rust models it as a tuple, so
+/// the wire shape is a two-element array rather than an object.
+public struct SkillProjectRoot: Encodable, Hashable, Sendable {
+    public var name: String
+    public var root: String
+
+    public init(name: String, root: String) {
+        self.name = name
+        self.root = root
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(name)
+        try container.encode(root)
+    }
+}
+
 /// The v1 subset of the daemon's `Command` enum. Encode-only: clients never
 /// decode commands. Tag and fields are camelCase.
 public enum Command: Sendable {
@@ -130,6 +148,15 @@ public enum Command: Sendable {
     case respondUserInput(requestId: String, answers: [UserInputAnswer])
     case applyOptions(SessionOptions)
     case getSettings
+    case updateSettings(DaemonSettings)
+    case refreshBackgroundWork
+    case stopBackgroundWork(key: BackgroundWorkKey, controlId: String)
+    case loadUsageHistory(window: UsageWindow, projectRoots: [String])
+    /// `projects` are `(name, root)` pairs; the daemon serializes them as
+    /// two-element arrays because the Rust side is a `Vec<(String, PathBuf)>`.
+    case loadSkills(projects: [SkillProjectRoot])
+    case setSkillsEnabled(dirs: [String], enabled: Bool)
+    case trashSkills(dirs: [String])
     case probeProvider(
         provider: ProviderKind,
         binaryOverride: String?,
@@ -160,7 +187,8 @@ extension Command: Encodable {
         case type, options, prompt, requestId, optionId, answers, provider
         case binaryOverride, discoverModels, probeVersion
         case projects, liveSessionIds, sessions, sessionId, reference, path
-        case turnCount, operation
+        case turnCount, operation, settings, key, controlId, window, projectRoots
+        case dirs, enabled
         case drafts, generation, changes, mimeType, bytes, name, upload
         case cliVersion
     }
@@ -194,6 +222,29 @@ extension Command: Encodable {
             try container.encode(options, forKey: .options)
         case .getSettings:
             try container.encode("getSettings", forKey: .type)
+        case .updateSettings(let settings):
+            try container.encode("updateSettings", forKey: .type)
+            try container.encode(settings, forKey: .settings)
+        case .refreshBackgroundWork:
+            try container.encode("refreshBackgroundWork", forKey: .type)
+        case .stopBackgroundWork(let key, let controlId):
+            try container.encode("stopBackgroundWork", forKey: .type)
+            try container.encode(key, forKey: .key)
+            try container.encode(controlId, forKey: .controlId)
+        case .loadUsageHistory(let window, let projectRoots):
+            try container.encode("loadUsageHistory", forKey: .type)
+            try container.encode(window, forKey: .window)
+            try container.encode(projectRoots, forKey: .projectRoots)
+        case .loadSkills(let projects):
+            try container.encode("loadSkills", forKey: .type)
+            try container.encode(projects, forKey: .projects)
+        case .setSkillsEnabled(let dirs, let enabled):
+            try container.encode("setSkillsEnabled", forKey: .type)
+            try container.encode(dirs, forKey: .dirs)
+            try container.encode(enabled, forKey: .enabled)
+        case .trashSkills(let dirs):
+            try container.encode("trashSkills", forKey: .type)
+            try container.encode(dirs, forKey: .dirs)
         case .probeProvider(let provider, let binaryOverride, let discoverModels, let probeVersion):
             try container.encode("probeProvider", forKey: .type)
             try container.encode(provider, forKey: .provider)

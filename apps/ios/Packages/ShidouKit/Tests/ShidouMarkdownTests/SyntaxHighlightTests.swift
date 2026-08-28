@@ -89,3 +89,41 @@ final class SyntaxHighlightTests: XCTestCase {
         XCTAssertEqual(plain.map(\.token), [.plain])
     }
 }
+
+/// The file reader renders one row per line but the lexer has to see the whole
+/// file, so the split happens after highlighting — including through a span
+/// that itself crosses lines, which is the case a per-line lexer gets wrong.
+final class SpansByLineTests: XCTestCase {
+    func testSplitsSpansThatCrossLines() {
+        let lines = SyntaxHighlight.spansByLine([
+            HighlightedSpan(text: "let a = ", token: .plain),
+            HighlightedSpan(text: "\"one\ntwo\"", token: .string),
+            HighlightedSpan(text: "\n", token: .plain),
+            HighlightedSpan(text: "end", token: .plain),
+        ])
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(lines[0].map(\.text), ["let a = ", "\"one"])
+        XCTAssertEqual(lines[0].last?.token, .string)
+        XCTAssertEqual(lines[1].map(\.text), ["two\""])
+        XCTAssertEqual(lines[2].map(\.text), ["end"])
+    }
+
+    func testABlankLineIsALineOfItsOwn() {
+        let lines = SyntaxHighlight.spansByLine([
+            HighlightedSpan(text: "a\n\nb", token: .plain)
+        ])
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[1].isEmpty)
+    }
+
+    func testTheWholeFileHighlightsLineByLine() {
+        let lines = SyntaxHighlight.spansByLine(
+            SyntaxHighlight.spans(of: "// note\nlet x = 1\n", language: "swift"))
+        XCTAssertEqual(lines.count, 2, "a trailing newline ends the last line")
+        XCTAssertEqual(lines[0].first?.token, .comment)
+    }
+
+    func testEmptyInputIsOneEmptyLine() {
+        XCTAssertEqual(SyntaxHighlight.spansByLine([]).count, 1)
+    }
+}
