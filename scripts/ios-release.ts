@@ -62,6 +62,12 @@ Options:
   --api-key-path <path>  Path to the AuthKey_<id>.p8 file (or
                          SHIDOU_ASC_API_KEY_PATH); copied into ./private_keys,
                          where altool looks for it
+  --profile <name>       Export with manual signing against this provisioning
+                         profile (App Store type). Needed when cloud signing is
+                         unavailable — Apple does not serve profile content to
+                         API keys, so the profile must be installed locally by
+                         Xcode (Settings → Accounts → team → Download Manual
+                         Profiles).
   --help                 Show this help
 
 Environment:
@@ -69,20 +75,27 @@ Environment:
   SHIDOU_BUILD_NUMBER
 `;
 
-/** ExportOptions.plist for the IPA export. Pure, and exported for tests. */
-export function exportOptionsPlist(options: { teamId: string }): string {
+/** ExportOptions.plist for the IPA export. Pure, and exported for tests.
+ *  `manual` switches to a named App Store profile — the escape hatch when
+ *  cloud signing is unavailable (Apple does not serve profile content to
+ *  API keys, so the profile must be installed locally by Xcode). */
+export function exportOptionsPlist(options: {
+  teamId: string;
+  manual?: { profile: string };
+}): string {
+  const manualKeys = options.manual
+    ? `\t<key>signingStyle</key>\n\t<string>manual</string>\n\t<key>signingCertificate</key>\n\t<string>Apple Distribution</string>\n\t<key>provisioningProfiles</key>\n\t<dict>\n\t\t<key>dev.shidou.ios</key>\n\t\t<string>${options.manual.profile}</string>\n\t</dict>\n`
+    : `\t<key>signingStyle</key>\n\t<string>automatic</string>\n`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>method</key>
-	<string>app-store-connect</string>
-	<key>teamID</key>
-	<string>${options.teamId}</string>
-	<key>signingStyle</key>
-	<string>automatic</string>
-	<key>stripSwiftSymbols</key>
-	<true/>
+\t<key>method</key>
+\t<string>app-store-connect</string>
+\t<key>teamID</key>
+\t<string>${options.teamId}</string>
+${manualKeys}\t<key>stripSwiftSymbols</key>
+\t<true/>
 </dict>
 </plist>
 `;
@@ -125,6 +138,7 @@ async function main(): Promise<void> {
       help: { type: "boolean", short: "h" },
       output: { type: "string" },
       "primary-locale": { type: "string" },
+      profile: { type: "string" },
       upload: { type: "boolean" },
     },
     strict: true,
@@ -146,8 +160,13 @@ async function main(): Promise<void> {
   const apiKeyId = values["api-key-id"] ?? process.env.SHIDOU_ASC_API_KEY_ID;
   const apiIssuer =
     values["api-issuer"] ?? process.env.SHIDOU_ASC_API_ISSUER_ID;
-  const apiKeyPath =
+  const apiKeyPathRaw =
     values["api-key-path"] ?? process.env.SHIDOU_ASC_API_KEY_PATH;
+  // Wizards and shells love to hand us a literal `~`, which existsSync and
+  // copyFile will never expand.
+  const apiKeyPath = apiKeyPathRaw?.startsWith("~/")
+    ? join(homedir(), apiKeyPathRaw.slice(2))
+    : apiKeyPathRaw;
 
   if (ensureAppRecord && (!apiKeyId || !apiIssuer)) {
     throw new Error(
@@ -231,12 +250,27 @@ async function main(): Promise<void> {
     if (!(await asc.findBundleId(appBundleId))) {
       await asc.registerBundleId(appBundleId);
     }
-    const created = await asc.createApp({
-      name: appName,
-      sku: appBundleId,
-      primaryLocale,
-      bundleId: appBundleId,
-    });
+    let created: { id: string };
+    try {
+      created = await asc.createApp({
+        name: appName,
+        sku: appBundleId,
+        primaryLocale,
+        bundleId: appBundleId,
+      });
+    } catch (error) {
+      // App Manager keys can manage but not create apps; only Admin and
+      // Account Holder keys get CREATE on 'apps'.
+      if (/does not allow 'CREATE'/i.test(String(error))) {
+        throw new Error(
+          `This API key's role cannot create apps. Either create the record ` +
+            `by hand (App Store Connect → Apps → + → New App: iOS, name ` +
+            `"${appName}", bundle ${appBundleId}, English (U.S.)) or raise ` +
+            `the key to Admin, then re-run.`,
+        );
+      }
+      throw error;
+    }
     console.log(`  ok   App record created (${created.id}).`);
   }
 
@@ -318,7 +352,12 @@ async function main(): Promise<void> {
 
   logStep("Exporting the IPA");
   const exportOptionsPath = join(outputDir, "ExportOptions.plist");
-  await Bun.write(exportOptionsPath, exportOptionsPlist({ teamId }));
+  await Bun.write(
+    exportOptionsPath,
+    values.profile
+      ? exportOptionsPlist({ teamId, manual: { profile: values.profile } })
+      : exportOptionsPlist({ teamId }),
+  );
   await $`xcodebuild -exportArchive -archivePath ${archivePath} -exportOptionsPlist ${exportOptionsPath} -exportPath ${outputDir} ${xcodebuildAuth()}`;
 
   if (!uploading) {

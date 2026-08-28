@@ -18,6 +18,18 @@ describe("exportOptionsPlist", () => {
     const b = exportOptionsPlist({ teamId: "2Z79866758" });
     expect(a).toBe(b);
   });
+
+  test("manual mode pins the named profile and the distribution cert", () => {
+    const plist = exportOptionsPlist({
+      teamId: "2Z79866758",
+      manual: { profile: "Shidou App Store" },
+    });
+    expect(plist).toContain("<string>manual</string>");
+    expect(plist).toContain("<string>Apple Distribution</string>");
+    expect(plist).toContain("<key>dev.shidou.ios</key>");
+    expect(plist).toContain("<string>Shidou App Store</string>");
+    expect(plist).not.toContain("automatic");
+  });
 });
 
 describe("uploadKeyPaths", () => {
