@@ -181,23 +181,12 @@ struct ComposerView: View {
         .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.separator) }
     }
 
-    /// Model, traits, agent preset, access and mode scroll; attach and send
-    /// stay pinned, because they are the two controls that must never be
-    /// scrolled off.
+    /// The pill itself: text on top, attach and stop/send pinned at the
+    /// trailing edge — the two controls that must never be scrolled off or
+    /// moved. Everything configurable lives in the badge row below.
     private var turnControls: some View {
         HStack(spacing: 8) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    modelChip
-                    traitsChip
-                    agentPresetChip
-                    accessChip
-                    interactionModeChip
-                }
-                .padding(.vertical, 1)
-            }
-            .scrollIndicators(.hidden)
-
+            Spacer(minLength: 0)
             Menu {
                 attachmentMenuItems
             } label: {
@@ -209,17 +198,32 @@ struct ComposerView: View {
             .disabled(uploading)
             .accessibilityLabel("Attach")
 
-            if busy {
-                Button(action: stop) {
-                    Image(systemName: "stop.fill")
-                        .frame(width: 36, height: 36)
-                        .background(.quaternary, in: Circle())
-                        .contentShape(Circle())
+            primaryButton
+                .contextMenu {
+                    if busy && hasContent {
+                        Button(canSteer ? "Queue instead" : "Steer current turn") {
+                            if canSteer { sendOrQueue() } else { steerTurn() }
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stop")
-            }
+        }
+    }
 
+    /// One button, three states — the web composer's contract: typing with a
+    /// turn running steers or queues it, and an empty composer while busy
+    /// offers the stop. A second button would just be a second thing to read.
+    @ViewBuilder
+    private var primaryButton: some View {
+        if busy && !hasContent {
+            Button(action: stop) {
+                Image(systemName: "stop.fill")
+                    .frame(width: 36, height: 36)
+                    .background(.quaternary, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop")
+        } else {
             Button(action: primaryAction) {
                 Image(systemName: primaryIcon)
                     .fontWeight(.semibold)
@@ -232,13 +236,6 @@ struct ComposerView: View {
             .disabled(!primaryEnabled)
             .keyboardShortcut(.return, modifiers: .command)
             .accessibilityLabel(primaryLabel)
-            .contextMenu {
-                if busy {
-                    Button(canSteer ? "Queue instead" : "Steer current turn") {
-                        if canSteer { sendOrQueue() } else { steerTurn() }
-                    }
-                }
-            }
         }
     }
 
@@ -333,61 +330,71 @@ struct ComposerView: View {
 
     // MARK: - Workspace controls
 
+    /// The toolbar row: every configurable badge — model, traits, agent
+    /// preset, access, mode, project, workspace, branch — scrolls in one slim
+    /// line under the pill, with the context gauge pinned at the trailing
+    /// edge so it stays readable while the badges travel.
     private var workspaceControls: some View {
         let locked = busy || started
-        return ScrollView(.horizontal) {
-            HStack(spacing: 6) {
-                ControlChip(systemImage: "folder", action: { sheet = .project }) {
-                    Text(
-                        project.map { $0.isProjectless ? String(localized: "No project") : $0.name }
-                            ?? String(localized: "Choose a project"))
-                }
-                .disabled(locked)
-
-                ControlChip(
-                    systemImage: session.workspace.isLocal
-                        ? "laptopcomputer" : "arrow.triangle.branch",
-                    action: { sheet = .workspace }
-                ) {
-                    Text(workspaceLabel)
-                }
-                .disabled(locked)
-
-                if project?.isProjectless == false, store.branchSnapshot(for: session) != nil {
-                    ControlChip(systemImage: "arrow.triangle.branch", action: { sheet = .branch }) {
+        return HStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    modelChip
+                    traitsChip
+                    agentPresetChip
+                    accessChip
+                    interactionModeChip
+                    ControlChip(systemImage: "folder", action: { sheet = .project }) {
                         Text(
-                            store.branchSnapshot(for: session)?.displayBranch
-                                ?? String(localized: "Detached HEAD"))
+                            project.map { $0.isProjectless ? String(localized: "No project") : $0.name }
+                                ?? String(localized: "Choose a project"))
                     }
-                    .disabled(busy)
-                }
+                    .disabled(locked)
 
-                if store.starting.contains(session.id) {
-                    Text("Starting agent…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    ControlChip(
+                        systemImage: session.workspace.isLocal
+                            ? "laptopcomputer" : "arrow.triangle.branch",
+                        action: { sheet = .workspace }
+                    ) {
+                        Text(workspaceLabel)
+                    }
+                    .disabled(locked)
 
-                Spacer(minLength: 0)
-
-                Button { sheet = .usage } label: {
-                    HStack(spacing: 5) {
-                        ContextGauge(percent: ContextUsagePresentation.percent(session))
-                        if let remaining = ContextUsagePresentation.remaining(session) {
-                            Text("\(Int(remaining.rounded()))% left")
+                    if project?.isProjectless == false, store.branchSnapshot(for: session) != nil {
+                        ControlChip(systemImage: "arrow.triangle.branch", action: { sheet = .branch }) {
+                            Text(
+                                store.branchSnapshot(for: session)?.displayBranch
+                                    ?? String(localized: "Detached HEAD"))
                         }
+                        .disabled(busy)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
+
+                    if store.starting.contains(session.id) {
+                        Text("Starting agent…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(usageLabel)
+                .padding(.vertical, 1)
             }
+            .scrollIndicators(.hidden)
+
+            Button { sheet = .usage } label: {
+                HStack(spacing: 5) {
+                    ContextGauge(percent: ContextUsagePresentation.percent(session))
+                    if let remaining = ContextUsagePresentation.remaining(session) {
+                        Text("\(Int(remaining.rounded()))% left")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(usageLabel)
         }
-        .scrollIndicators(.hidden)
     }
 
     private var workspaceLabel: String {
@@ -598,7 +605,6 @@ struct ComposerView: View {
             ? String(localized: "Steer current turn")
             : String(localized: "Queue a follow-up")
     }
-
     private func primaryAction() {
         if busy && canSteer { steerTurn() } else { sendOrQueue() }
     }

@@ -93,20 +93,6 @@ struct ComposerTextView: UIViewRepresentable {
                 lessThanOrEqualTo: view.trailingAnchor),
         ])
         context.coordinator.placeholderLabel = placeholderLabel
-
-        // The keyboard's own Done key. Scrolling and tapping the transcript
-        // both dismiss, but a composer with the keyboard covering half the
-        // screen needs an affordance that needs no discovery.
-        let accessory = UIToolbar()
-        accessory.items = [
-            UIBarButtonItem(systemItem: .flexibleSpace),
-            UIBarButtonItem(
-                title: String(localized: "Done"), style: .done,
-                target: context.coordinator,
-                action: #selector(Coordinator.putKeyboardAway)),
-        ]
-        accessory.sizeToFit()
-        view.inputAccessoryView = accessory
         return view
     }
 
@@ -170,14 +156,6 @@ struct ComposerTextView: UIViewRepresentable {
 
         func textViewDidEndEditing(_ view: UITextView) {
             if parent.focused { parent.focused = false }
-        }
-
-        /// The accessory bar's Done. Resigns through the responder chain so it
-        /// stays correct even if the first responder has already moved.
-        @objc func putKeyboardAway() {
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder), to: nil, from: nil,
-                for: nil)
         }
 
         private func publishSelection(_ view: UITextView) {

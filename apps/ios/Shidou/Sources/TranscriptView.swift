@@ -65,8 +65,6 @@ struct TranscriptView: View {
         // applied over `.toolbar` swallows the transcript's toolbar items on
         // iPad, and the panel button is one of them.
         panelPresenter(content)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
     }
 
@@ -153,7 +151,6 @@ struct TranscriptView: View {
             ? TranscriptFind.matches(in: rows, query: query)
             : TranscriptFind.Result(matches: [], limited: false)
         return VStack(spacing: 0) {
-            HeaderSubtitle(session: model.session, store: store)
             if isFinding {
                 FindBar(
                     query: $query,
@@ -262,15 +259,6 @@ struct TranscriptView: View {
 
     // MARK: - Chrome
 
-    private var title: String {
-        if case .draft = source, model?.session.hasStarted != true {
-            return String(localized: "New task")
-        }
-        return model.map { displayTitle($0.session) }
-            ?? store?.sessions.first { $0.id == sessionId }.map(displayTitle)
-            ?? String(localized: "Task")
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -367,43 +355,6 @@ struct TranscriptView: View {
         session.messages
             .map { "\($0.role == .user ? "You" : "Agent"): \($0.visibleContent)" }
             .joined(separator: "\n\n")
-    }
-}
-
-/// Project, branch and diff stat under the title. Read straight from the
-/// store: a miss means the background probe has not landed yet, and the
-/// header simply shows less rather than blocking a frame on `git`.
-private struct HeaderSubtitle: View {
-    let session: AgentSession
-    let store: SessionStore?
-
-    var body: some View {
-        if !parts.isEmpty {
-            HStack(spacing: 6) {
-                ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
-                    if index > 0 {
-                        Text(verbatim: "·").foregroundStyle(.quaternary).accessibilityHidden(true)
-                    }
-                    Text(part)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
-        }
-    }
-
-    private var parts: [String] {
-        var parts: [String] = []
-        if let project = store?.project(for: session) { parts.append(project.name) }
-        guard let snapshot = store?.workspace(for: session) else { return parts }
-        parts.append(snapshot.branch)
-        if snapshot.additions > 0 || snapshot.deletions > 0 {
-            parts.append("+\(snapshot.additions) −\(snapshot.deletions)")
-        }
-        return parts
     }
 }
 
