@@ -173,6 +173,124 @@ final class TranscriptPresentationTests: XCTestCase {
         ))
         XCTAssertEqual(Set(rows.map(\.id)).count, rows.count)
     }
+
+    // MARK: - Fork and rewind
+
+    private func historySession(
+        status: SessionStatus = .idle,
+        providerCursor: JSONValue? = .object(["provider": .string("claude")]),
+        turns: [AgentTurn],
+        messages: [Message]
+    ) -> AgentSession {
+        AgentSession(
+            projectId: UUID(),
+            provider: .claude,
+            status: status,
+            createdAt: 0,
+            updatedAt: 0,
+            providerCursor: providerCursor,
+            messages: messages,
+            turns: turns
+        )
+    }
+
+    func testForkIsOfferedOnASettledAnswerWithAProviderCursor() {
+        let turn = AgentTurn(
+            id: turnId, turnCount: 2, status: .completed, providerTurnStarted: true, startedAt: 1
+        )
+        let message = Message(turnId: turnId, role: .assistant, content: "done", createdAt: 2)
+        let session = historySession(turns: [turn], messages: [message])
+        XCTAssertEqual(
+            TranscriptPresentation.responseForkTurnCount(session, message: message, turn: turn), 2
+        )
+    }
+
+    /// A cursor belonging to a provider the task no longer runs cannot be
+    /// replayed, so the fork is not offered rather than offered and broken.
+    func testForkIsWithheldWhenTheCursorBelongsToAnotherProvider() {
+        let turn = AgentTurn(
+            id: turnId, turnCount: 2, status: .completed, providerTurnStarted: true, startedAt: 1
+        )
+        let message = Message(turnId: turnId, role: .assistant, content: "done", createdAt: 2)
+        let session = historySession(
+            providerCursor: .object(["provider": .string("codex")]),
+            turns: [turn],
+            messages: [message]
+        )
+        XCTAssertNil(
+            TranscriptPresentation.responseForkTurnCount(session, message: message, turn: turn)
+        )
+    }
+
+    func testForkIsWithheldWhileTheTaskIsStillWorking() {
+        let turn = AgentTurn(
+            id: turnId, turnCount: 2, status: .completed, providerTurnStarted: true, startedAt: 1
+        )
+        let message = Message(turnId: turnId, role: .assistant, content: "done", createdAt: 2)
+        let session = historySession(status: .working, turns: [turn], messages: [message])
+        XCTAssertNil(
+            TranscriptPresentation.responseForkTurnCount(session, message: message, turn: turn)
+        )
+    }
+
+    func testRewindNeedsTheCheckpointTakenBeforeThatPrompt() {
+        let turn = AgentTurn(
+            id: turnId, turnCount: 1, status: .completed, providerTurnStarted: true, startedAt: 1
+        )
+        let message = Message(turnId: turnId, role: .user, content: "do it", createdAt: 1)
+        let session = historySession(turns: [turn], messages: [message])
+        XCTAssertEqual(
+            TranscriptPresentation.userMessageRewindTurnCount(
+                session, message: message, retainedTurnCounts: [0]
+            ),
+            1
+        )
+        XCTAssertNil(
+            TranscriptPresentation.userMessageRewindTurnCount(
+                session, message: message, retainedTurnCounts: []
+            ),
+            "no ref means nothing to restore"
+        )
+    }
+
+    /// Rolling back turns the provider already ran needs a cursor to resume
+    /// from; without one the transcript would move and the provider's own
+    /// history would not.
+    func testRewindIsWithheldWhenStartedTurnsCannotBeRolledBack() {
+        let turn = AgentTurn(
+            id: turnId, turnCount: 1, status: .completed, providerTurnStarted: true, startedAt: 1
+        )
+        let message = Message(turnId: turnId, role: .user, content: "do it", createdAt: 1)
+        let session = historySession(providerCursor: nil, turns: [turn], messages: [message])
+        XCTAssertNil(
+            TranscriptPresentation.userMessageRewindTurnCount(
+                session, message: message, retainedTurnCounts: [0]
+            )
+        )
+    }
+
+    func testRowsCarryForkAndRewindCounts() {
+        let turn = AgentTurn(
+            id: turnId, turnCount: 1, status: .completed, providerTurnStarted: true, startedAt: 1
+        )
+        let messages = [
+            Message(turnId: turnId, role: .user, content: "do it", createdAt: 1),
+            Message(turnId: turnId, role: .assistant, content: "done", createdAt: 2),
+        ]
+        let rows = TranscriptPresentation.rows(
+            historySession(turns: [turn], messages: messages),
+            retainedTurnCounts: [0]
+        )
+        let messageRows: [MessageRow] = rows.compactMap { row in
+            if case .message(_, let messageRow) = row { return messageRow }
+            return nil
+        }
+        XCTAssertEqual(messageRows.first?.rewindTurnCount, 1)
+        XCTAssertNil(messageRows.first?.forkTurnCount, "a prompt is not forkable")
+        XCTAssertEqual(messageRows.last?.forkTurnCount, 1)
+        XCTAssertNil(messageRows.last?.rewindTurnCount, "an answer is not rewindable")
+    }
+
 }
 
 final class TranscriptLinksTests: XCTestCase {

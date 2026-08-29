@@ -60,6 +60,10 @@ public struct MessageRow: Sendable {
     public var footer: AssistantResponseFooter?
     /// A ready checkpoint that belongs under this message's answer.
     public var checkpoint: Checkpoint?
+    /// The turn a fork would keep, when this answer can be forked from.
+    public var forkTurnCount: Int?
+    /// The turn a rewind would rewrite, when this prompt can be sent again.
+    public var rewindTurnCount: Int?
 }
 
 public struct AssistantResponseFooter: Hashable, Sendable {
@@ -72,9 +76,13 @@ public enum TranscriptPresentation {
     ///
     /// This is the whole-session pass: it runs once when the projection
     /// publishes, never inside a row builder.
+    /// `retainedTurnCounts` are the turns the daemon still holds a checkpoint
+    /// ref for; without them no rewind is offered, because a rewind with
+    /// nothing to restore is a promise the workspace cannot keep.
     public static func rows(
         _ session: AgentSession,
-        expandedTurns: Set<UUID> = []
+        expandedTurns: Set<UUID> = [],
+        retainedTurnCounts: Set<Int> = []
     ) -> [TranscriptRow] {
         let turnsById = Dictionary(session.turns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let raw = rawRows(session)
@@ -106,13 +114,21 @@ public enum TranscriptPresentation {
             case .message(let message, let index):
                 let startsFollowUp = message.role == .user && seenUserMessage
                 if message.role == .user { seenUserMessage = true }
+                let turn = message.turnId.flatMap { turnsById[$0] }
+                let footer = footers[index]
                 rows.append(.message(key: row.key, MessageRow(
                     message: message,
                     index: index,
                     isFirst: index == 0,
                     startsFollowUp: startsFollowUp,
-                    footer: footers[index],
-                    checkpoint: inlineCheckpoints[index]
+                    footer: footer,
+                    checkpoint: inlineCheckpoints[index],
+                    forkTurnCount: footer == nil
+                        ? nil
+                        : responseForkTurnCount(session, message: message, turn: turn),
+                    rewindTurnCount: userMessageRewindTurnCount(
+                        session, message: message, retainedTurnCounts: retainedTurnCounts
+                    )
                 )))
             }
         }
@@ -202,6 +218,52 @@ public enum TranscriptPresentation {
         guard let lastText = rows.lastIndex(where: isAnswerText) else { return rows.count }
         let lastNonText = rows[..<lastText].lastIndex(where: { !isAnswerText($0) })
         return lastNonText.map { $0 + 1 } ?? 0
+    }
+
+    // MARK: - Fork and rewind
+
+    /// The turn a fork would keep, or `nil` where forking would mislead.
+    ///
+    /// A fork replays the kept turns into a new session through the provider's
+    /// own resume, so it needs a cursor that belongs to the provider still
+    /// selected, a turn the provider actually started, and a session that has
+    /// stopped moving. Any of those missing and the answer is no.
+    public static func responseForkTurnCount(
+        _ session: AgentSession,
+        message: Message,
+        turn: AgentTurn?
+    ) -> Int? {
+        guard message.role == .assistant,
+            session.status == .idle || session.status == .failed,
+            let cursor = session.providerCursor,
+            cursor["provider"]?.stringValue == session.provider.rawValue,
+            let turn, turn.providerTurnStarted
+        else { return nil }
+        return turn.turnCount
+    }
+
+    /// The turn a rewind would rewrite, or `nil` where the workspace could not
+    /// be put back.
+    ///
+    /// Rewinding restores the checkpoint taken before this prompt, so the ref
+    /// has to still exist. Rolling back turns the provider has already run
+    /// also needs a cursor to resume from; without one the transcript would
+    /// move and the provider's own history would not.
+    public static func userMessageRewindTurnCount(
+        _ session: AgentSession,
+        message: Message,
+        retainedTurnCounts: Set<Int>
+    ) -> Int? {
+        guard message.role == .user,
+            session.status == .idle || session.status == .failed,
+            let turnId = message.turnId,
+            let turn = session.turns.first(where: { $0.id == turnId })
+        else { return nil }
+        let retained = max(0, turn.turnCount - 1)
+        guard retainedTurnCounts.contains(retained) else { return nil }
+        let rollbackTurns = session.turns.dropFirst(retained).filter(\.providerTurnStarted).count
+        if rollbackTurns > 0 && session.providerCursor == nil { return nil }
+        return turn.turnCount
     }
 
     // MARK: - Footers

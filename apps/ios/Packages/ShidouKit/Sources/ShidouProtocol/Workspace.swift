@@ -232,6 +232,9 @@ public enum WorkspaceOperation: Sendable {
     )
     case commit(cwd: String, message: String, includeUnstaged: Bool, push: Bool)
     case push(cwd: String)
+    /// Which turn checkpoints this session still has refs for. A rewind is
+    /// only offered where one exists, so the client asks before it offers.
+    case sessionTurnRefs(cwd: String, sessionId: UUID)
     case captureTurnStart(cwd: String, sessionId: UUID, turnCount: Int)
     case captureTurn(cwd: String, sessionId: UUID, turnCount: Int)
     case captureRef(cwd: String, gitRef: String)
@@ -319,6 +322,10 @@ extension WorkspaceOperation: Encodable {
         case .push(let cwd):
             try container.encode("push", forKey: .type)
             try container.encode(cwd, forKey: .cwd)
+        case .sessionTurnRefs(let cwd, let sessionId):
+            try container.encode("sessionTurnRefs", forKey: .type)
+            try container.encode(cwd, forKey: .cwd)
+            try container.encode(sessionId.wireString, forKey: .sessionId)
         case .captureTurnStart(let cwd, let sessionId, let turnCount):
             try container.encode("captureTurnStart", forKey: .type)
             try container.encode(cwd, forKey: .cwd)
@@ -362,6 +369,7 @@ public enum WorkspaceResult: Sendable {
     case commitMessage(String)
     case reviewDiff(ReviewDiffData)
     case checkpoint(Checkpoint)
+    case turnRefs([Int])
     case bool(Bool)
     case unknown(type: String)
 }
@@ -370,6 +378,7 @@ extension WorkspaceResult: Decodable {
     enum CodingKeys: String, CodingKey {
         case type, cwd, worktree, snapshot, checkpoint, value, content, message, data
         case path, parent, home, entries, commands
+        case turnCounts = "turn_counts"
         case filesystemRoot = "filesystem_root"
     }
 
@@ -411,6 +420,8 @@ extension WorkspaceResult: Decodable {
             self = .commitSnapshot(try container.decode(CommitSnapshot.self, forKey: .snapshot))
         case "checkpoint":
             self = .checkpoint(try container.decode(Checkpoint.self, forKey: .checkpoint))
+        case "turnRefs":
+            self = .turnRefs(try container.decode([Int].self, forKey: .turnCounts))
         case "bool":
             self = .bool(try container.decode(Bool.self, forKey: .value))
         default:

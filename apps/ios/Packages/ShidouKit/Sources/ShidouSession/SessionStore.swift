@@ -60,6 +60,16 @@ public final class SessionStore {
     /// from the store on every frame — a miss means "not known yet".
     public private(set) var workspaces: [String: CommitSnapshot] = [:]
 
+    /// Turn checkpoints the daemon still holds a ref for, per session. The
+    /// transcript reads this every frame to decide which prompts can be sent
+    /// again, so it is resolved once per session in the background and a miss
+    /// means "not known yet" — never "no rewind".
+    public internal(set) var turnRefs: [UUID: Set<Int>] = [:]
+    /// The fork in flight for a session, so a second tap cannot open two.
+    public internal(set) var forking: Set<UUID> = []
+    /// The turn a rewind in flight is rewriting, per session.
+    public internal(set) var rewinding: [UUID: Int] = [:]
+
     // MARK: Composer sources
 
     /// Daemon settings, needed before a provider can be probed or started.
@@ -95,6 +105,9 @@ public final class SessionStore {
     /// Rejects a catalog load that a newer one has already superseded.
     @ObservationIgnored private var catalogGeneration = 0
     @ObservationIgnored private var workspaceProbes: Set<String> = []
+    /// Turn-ref loads in flight, so a republished projection cannot queue one
+    /// request per frame.
+    @ObservationIgnored var turnRefLoads: Set<UUID> = []
     /// One surfaces model per workspace directory, so the sheet and the iPad
     /// inspector read the same tree instead of each fetching their own.
     @ObservationIgnored var workspaceSurfaces: [String: WorkspaceSurfaces] = [:]

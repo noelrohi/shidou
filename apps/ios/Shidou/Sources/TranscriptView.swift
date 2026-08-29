@@ -63,6 +63,20 @@ struct TranscriptView: View {
     @State private var surfacePath: [SurfaceRoute] = []
     @State private var showingCommit = false
     @State private var now = UInt64(Date().timeIntervalSince1970)
+    @State private var images = TranscriptImageStore()
+    /// The prompt being edited, and the turn sending it would rewind to.
+    @State private var editing: MessageEdit?
+    /// A fork or rewind the daemon completed with a complaint, or one that
+    /// failed outright. Either way the user asked for it and deserves to hear.
+    @State private var historyNotice: String?
+    /// Text the transcript has handed the composer to quote.
+    @State private var quoted: String?
+
+    private struct MessageEdit: Equatable {
+        var messageId: UUID
+        var turnCount: Int
+        var content: String
+    }
 
     private var store: SessionStore? { connection.sessions }
 
@@ -103,6 +117,17 @@ struct TranscriptView: View {
             TextField("Title", text: $renameText)
             Button("Cancel", role: .cancel) {}
             Button("Rename") { rename() }
+        }
+        .alert(
+            "Task history",
+            isPresented: Binding(
+                get: { historyNotice != nil },
+                set: { if !$0 { historyNotice = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { historyNotice = nil }
+        } message: {
+            Text(historyNotice ?? "")
         }
         .sheet(isPresented: $showingCommit) {
             if let model, let cwd = store?.cwd(for: model.session), let store {
@@ -152,7 +177,11 @@ struct TranscriptView: View {
     // MARK: - Content
 
     private func transcript(_ model: SessionRuntimeModel) -> some View {
-        let rows = TranscriptPresentation.rows(model.session, expandedTurns: expandedTurns)
+        let rows = TranscriptPresentation.rows(
+            model.session,
+            expandedTurns: expandedTurns,
+            retainedTurnCounts: store?.retainedTurnCounts(for: model.session.id) ?? []
+        )
         let matches = isFinding
             ? TranscriptFind.matches(in: rows, query: query)
             : TranscriptFind.Result(matches: [], limited: false)
@@ -195,10 +224,33 @@ struct TranscriptView: View {
             .floatingBottomBar {
                 if let store {
                     ComposerView(
-                        model: model, store: store, daemonAddress: connection.preferenceKey)
+                        model: model,
+                        store: store,
+                        daemonAddress: connection.preferenceKey,
+                        quoted: $quoted
+                    )
                 }
             }
         }
+        // Markdown images resolve against the workspace this transcript reads,
+        // and the recursive block views take it from here rather than each
+        // forwarding three more parameters.
+        .environment(\.transcriptImages, TranscriptImageContext(
+            images: images,
+            store: store,
+            workspaceCwd: store?.cwd(for: model.session)
+        ))
+        // Which prompts can be sent again changes when a turn settles, and
+        // never mid-turn. Asking once per settle keeps `git` off every frame.
+        .task(id: settledTurnCount(model)) {
+            store?.refreshTurnRefs(for: model.session, force: true)
+        }
+    }
+
+    /// How many turns have finished. The identity of the turn-refs refresh:
+    /// it moves exactly when a new checkpoint could exist.
+    private func settledTurnCount(_ model: SessionRuntimeModel) -> Int {
+        model.session.turns.filter { $0.status != .running }.count
     }
 
     /// The virtualized transcript itself, exactly as the rendering decision
@@ -251,26 +303,121 @@ struct TranscriptView: View {
                 }
             }
         case .activities(_, let block, let isLive):
-            ActivityGroupRow(block: block, isLive: isLive)
+            ActivityGroupRow(
+                block: block,
+                isLive: isLive,
+                backgroundWork: model.backgroundWork,
+                images: images,
+                store: store,
+                onOpenBackgroundWork: { key in
+                    surfacePath = [.work(key: key)]
+                    showingSurfaces = true
+                }
+            )
         case .message(_, let messageRow):
             if messageRow.message.role == .user {
-                UserMessageRow(message: messageRow.message)
+                if let editing, editing.messageId == messageRow.message.id {
+                    MessageEditBubble(
+                        initialContent: editing.content,
+                        pending: store?.rewinding[model.session.id] != nil,
+                        onCancel: { self.editing = nil },
+                        onSubmit: { text in rewind(model, turnCount: editing.turnCount, prompt: text) }
+                    )
+                } else {
+                    UserMessageRow(
+                        message: messageRow.message,
+                        images: images,
+                        store: store,
+                        rewindTurnCount: messageRow.rewindTurnCount,
+                        isRewinding: store?.rewinding[model.session.id] != nil,
+                        onEdit: { turnCount in
+                            editing = MessageEdit(
+                                messageId: messageRow.message.id,
+                                turnCount: turnCount,
+                                content: messageRow.message.visibleContent
+                            )
+                        },
+                        onQuote: { quoted = $0 }
+                    )
+                }
             } else {
                 AssistantMessageRow(
                     row: messageRow,
                     markdown: markdown,
                     highlights: highlights,
                     workspaceCwd: store?.cwd(for: model.session),
-                    onOpenFile: openFileLink
+                    onOpenFile: openFileLink,
+                    isForking: store?.forking.contains(model.session.id) ?? false,
+                    onFork: { turnCount in fork(model, turnCount: turnCount) },
+                    onQuote: { quoted = $0 },
+                    onReviewChanges: messageRow.message.turnId.map { turnId in
+                        { reviewChanges(model, turnId: turnId) }
+                    }
                 )
             }
-        case .changed(_, _, let checkpoint):
-            CheckpointSummary(checkpoint: checkpoint)
+        case .changed(_, let turnId, let checkpoint):
+            CheckpointSummary(checkpoint: checkpoint) {
+                reviewChanges(model, turnId: turnId)
+            }
         case .working(let startedAt):
             WorkingRow(
                 startedAt: startedAt, now: now, isWaiting: model.session.status == .waiting
             )
         }
+    }
+
+    // MARK: - History
+
+    /// Starts a new task from this answer and opens it. The daemon builds the
+    /// session; the phone's part is to go there, because a fork nobody is
+    /// looking at is indistinguishable from nothing happening.
+    private func fork(_ model: SessionRuntimeModel, turnCount: Int) {
+        guard let store else { return }
+        Task {
+            do {
+                let forked = try await store.forkFromResponse(model, turnCount: turnCount)
+                if let warning = forked.checkpointWarning {
+                    historyNotice = String(
+                        localized: "Forked, but the workspace checkpoint could not be restored: \(warning)"
+                    )
+                }
+                attention.openSessionId = forked.session.id
+            } catch {
+                historyNotice = error.localizedDescription
+            }
+        }
+    }
+
+    /// Rewinds to a prompt and sends it again. The edit bubble closes only on
+    /// success: a rewind that failed leaves the text where the user can try
+    /// again rather than losing it.
+    private func rewind(_ model: SessionRuntimeModel, turnCount: Int, prompt: String) {
+        guard let store else { return }
+        Task {
+            do {
+                let warning = try await store.rewindToMessage(
+                    model, turnCount: turnCount, prompt: prompt
+                )
+                editing = nil
+                if let warning {
+                    historyNotice = String(
+                        localized: "Rewound, but some checkpoints could not be cleaned up: \(warning)"
+                    )
+                }
+            } catch {
+                historyNotice = error.localizedDescription
+            }
+        }
+    }
+
+    /// Opens this turn's diff in the changes surface.
+    private func reviewChanges(_ model: SessionRuntimeModel, turnId: UUID) {
+        guard let turn = model.session.turns.first(where: { $0.id == turnId }) else { return }
+        surfacePath = [.changes]
+        store?.surfaces(for: model.session)?.selectDiffSource(.lastTurn(
+            sessionId: model.session.id, turnId: turn.id, turnCount: turn.turnCount
+        ))
+        showingSurfaces = true
     }
 
     // MARK: - Chrome

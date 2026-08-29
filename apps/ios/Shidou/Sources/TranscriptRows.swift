@@ -8,20 +8,205 @@ import SwiftUI
 
 struct UserMessageRow: View {
     let message: Message
+    var images: TranscriptImageStore?
+    var store: SessionStore?
+    /// The turn a rewind would rewrite, when this prompt can be sent again.
+    var rewindTurnCount: Int?
+    var isRewinding = false
+    var onEdit: ((Int) -> Void)?
+    var onQuote: ((String) -> Void)?
 
     var body: some View {
-        HStack(alignment: .top) {
-            Spacer(minLength: 44)
-            Text(message.visibleContent)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18)
+        VStack(alignment: .trailing, spacing: 6) {
+            if let images, !message.attachments.isEmpty {
+                MessageAttachmentsRow(
+                    attachments: message.attachments, images: images, store: store
                 )
+                .padding(.leading, 44)
+            }
+            HStack(alignment: .top) {
+                Spacer(minLength: 44)
+                Text(message.visibleContent)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18)
+                    )
+            }
+            // The same actions as the long press, as controls: a context menu
+            // is unreachable from a keyboard, and rewind cannot live only
+            // there.
+            UserMessageFooter(
+                content: message.visibleContent,
+                rewindTurnCount: rewindTurnCount,
+                isRewinding: isRewinding,
+                onEdit: onEdit
+            )
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("You said: \(message.visibleContent)")
+        // Touch has no right-click, so the long press carries what the web
+        // hover row does: copy, quote, and send this prompt again.
+        .contextMenu {
+            MessageActionsMenu(
+                content: message.visibleContent,
+                onQuote: onQuote,
+                editAction: rewindTurnCount.flatMap { count in
+                    onEdit.map { edit in { edit(count) } }
+                }
+            )
+        }
+    }
+}
+
+/// A prompt's actions, right-aligned under its bubble. Icon-only for the same
+/// reason the answer's are: this row sits under every message forever.
+private struct UserMessageFooter: View {
+    let content: String
+    var rewindTurnCount: Int?
+    var isRewinding = false
+    var onEdit: ((Int) -> Void)?
+
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Button {
+                UIPasteboard.general.string = content
+                withAnimation(.snappy(duration: 0.2)) { copied = true }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.footnote)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(copied ? Color.green : Color.secondary)
+            .accessibilityLabel(copied ? "Message copied" : "Copy message")
+            if let rewindTurnCount, let onEdit {
+                Button {
+                    onEdit(rewindTurnCount)
+                } label: {
+                    Group {
+                        if isRewinding {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.footnote)
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(isRewinding)
+                .accessibilityLabel(isRewinding ? "Rewinding task" : "Edit and send again")
+                .accessibilityHint("Rewinds the task to this prompt")
+            }
+        }
+        .padding(.trailing, -9)
+        .padding(.top, -7)
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.2)) { copied = false }
+        }
+    }
+}
+
+/// The actions a message offers, as menu items. One list, so a long press on
+/// a prompt and a long press on an answer never disagree about what "copy"
+/// means or where it sits.
+struct MessageActionsMenu: View {
+    let content: String
+    var onQuote: ((String) -> Void)?
+    var editAction: (() -> Void)?
+    var forkAction: (() -> Void)?
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = content
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }
+        if let onQuote, !content.isEmpty {
+            Button {
+                onQuote(content)
+            } label: {
+                Label("Quote in composer", systemImage: "text.quote")
+            }
+        }
+        if let editAction {
+            Button(action: editAction) {
+                Label("Edit and send again", systemImage: "arrow.uturn.backward")
+            }
+        }
+        if let forkAction {
+            Button(action: forkAction) {
+                Label("Fork task from here", systemImage: "arrow.triangle.branch")
+            }
+        }
+    }
+}
+
+/// A prompt being rewritten. Submitting it rewinds the task to this turn and
+/// sends the edited text, which is why the button says so rather than "Save".
+struct MessageEditBubble: View {
+    let initialContent: String
+    let pending: Bool
+    let onCancel: () -> Void
+    let onSubmit: (String) -> Void
+
+    @State private var content: String
+    @FocusState private var focused: Bool
+
+    init(
+        initialContent: String,
+        pending: Bool,
+        onCancel: @escaping () -> Void,
+        onSubmit: @escaping (String) -> Void
+    ) {
+        self.initialContent = initialContent
+        self.pending = pending
+        self.onCancel = onCancel
+        self.onSubmit = onSubmit
+        _content = State(initialValue: initialContent)
+    }
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            TextField("Message", text: $content, axis: .vertical)
+                .lineLimit(1...8)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .disabled(pending)
+            HStack(spacing: 12) {
+                Button("Cancel", role: .cancel, action: onCancel)
+                    .disabled(pending)
+                Button {
+                    onSubmit(content)
+                } label: {
+                    if pending {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Rewind and send")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(pending || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .font(.callout)
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+        .padding(.leading, 32)
+        .onAppear { focused = true }
+        .accessibilityHint("Sending rewinds the task to this prompt")
     }
 }
 
@@ -31,6 +216,10 @@ struct AssistantMessageRow: View {
     let highlights: HighlightStore
     let workspaceCwd: String?
     let onOpenFile: (TranscriptLinkRoute) -> Void
+    var isForking = false
+    var onFork: ((Int) -> Void)?
+    var onQuote: ((String) -> Void)?
+    var onReviewChanges: (() -> Void)?
 
     @Environment(\.openURL) private var openURL
 
@@ -46,13 +235,27 @@ struct AssistantMessageRow: View {
                 onOpenLink: open
             )
             if let checkpoint = row.checkpoint {
-                CheckpointSummary(checkpoint: checkpoint)
+                CheckpointSummary(checkpoint: checkpoint, onReview: onReviewChanges)
             }
             if let footer = row.footer {
-                AssistantFooter(footer: footer)
+                AssistantFooter(
+                    footer: footer,
+                    forkTurnCount: row.forkTurnCount,
+                    isForking: isForking,
+                    onFork: onFork
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            MessageActionsMenu(
+                content: row.footer?.content ?? row.message.visibleContent,
+                onQuote: onQuote,
+                forkAction: row.forkTurnCount.flatMap { count in
+                    onFork.map { fork in { fork(count) } }
+                }
+            )
+        }
     }
 
     private func open(_ target: String) {
@@ -66,29 +269,70 @@ struct AssistantMessageRow: View {
     }
 }
 
+/// The answer's one action. Touch has no hover to hide a toolbar behind, so
+/// whatever sits here sits under every answer forever: an icon earns that
+/// place, a word and a clock do not. The completion time is still spoken, it
+/// just stopped being a second line of furniture.
 private struct AssistantFooter: View {
     let footer: AssistantResponseFooter
+    var forkTurnCount: Int?
+    var isForking = false
+    var onFork: ((Int) -> Void)?
 
     @State private var copied = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(footer.timestamp.messageTimeLabel)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+        HStack(spacing: 0) {
             Button {
                 UIPasteboard.general.string = footer.content
-                copied = true
+                withAnimation(.snappy(duration: 0.2)) { copied = true }
             } label: {
-                Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                    .font(.caption2)
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.footnote)
+                    .contentTransition(.symbolEffect(.replace))
+                    // The glyph is small; the target is not. Hit area grows
+                    // around it rather than the icon growing to meet it.
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .frame(minHeight: 32)
-            .contentShape(Rectangle())
+            .foregroundStyle(copied ? Color.green : Color.secondary)
             .accessibilityLabel(copied ? "Response copied" : "Copy response")
+            .accessibilityValue(footer.timestamp.messageTimeLabel)
+            // Forking is offered only where the daemon can actually replay the
+            // kept turns, so the absence of this button is an answer too.
+            if let forkTurnCount, let onFork {
+                Button {
+                    onFork(forkTurnCount)
+                } label: {
+                    Group {
+                        if isForking {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.footnote)
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(isForking)
+                .accessibilityLabel(isForking ? "Forking task" : "Fork task from this answer")
+                .accessibilityHint("Starts a new task from the work up to this answer")
+            }
             Spacer(minLength: 0)
+        }
+        // Optically align the glyph with the answer's text, and take back the
+        // padding the 34pt target adds above it.
+        .padding(.leading, -9)
+        .padding(.top, -7)
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.2)) { copied = false }
         }
     }
 }
@@ -155,6 +399,10 @@ struct TurnFoldRow: View {
 struct ActivityGroupRow: View {
     let block: TranscriptBlock
     let isLive: Bool
+    var backgroundWork: BackgroundWorkLedger = BackgroundWorkLedger()
+    var images: TranscriptImageStore?
+    var store: SessionStore?
+    var onOpenBackgroundWork: ((BackgroundWorkKey) -> Void)?
 
     @State private var expandedActivities: Set<UUID> = []
 
@@ -163,6 +411,10 @@ struct ActivityGroupRow: View {
             ForEach(block.activities) { activity in
                 ActivityRow(
                     activity: activity,
+                    work: backgroundWork.item(startedBy: activity.sourceId),
+                    images: images,
+                    store: store,
+                    onOpenBackgroundWork: onOpenBackgroundWork,
                     expanded: expandedActivities.contains(activity.id),
                     toggle: {
                         if expandedActivities.contains(activity.id) {
@@ -190,6 +442,11 @@ struct ActivityGroupRow: View {
 
 private struct ActivityRow: View {
     let activity: ActivityItem
+    /// The detached process this activity started, when it started one.
+    var work: BackgroundWorkItem?
+    var images: TranscriptImageStore?
+    var store: SessionStore?
+    var onOpenBackgroundWork: ((BackgroundWorkKey) -> Void)?
     let expanded: Bool
     let toggle: () -> Void
 
@@ -201,7 +458,7 @@ private struct ActivityRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: toggle) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    statusGlyph
+                    kindGlyph
                     VStack(alignment: .leading, spacing: 2) {
                         // One line, always. A row is an index of the turn's
                         // work, and a wrapped shell command turns six of them
@@ -224,6 +481,7 @@ private struct ActivityRow: View {
                         }
                     }
                     Spacer(minLength: 4)
+                    statusGlyph
                     if !sections.isEmpty {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
                             .font(.caption2)
@@ -238,9 +496,23 @@ private struct ActivityRow: View {
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(sections.isEmpty ? "" : (expanded ? "Hides the details" : "Shows the details"))
 
+            if let work, let onOpenBackgroundWork {
+                BackgroundWorkChip(work: work) { onOpenBackgroundWork(work.key) }
+            }
+
             if expanded {
                 ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
                     ActivityDisclosure(section: section)
+                }
+                if let images {
+                    ForEach(Array(activity.imageUrls.enumerated()), id: \.offset) { _, url in
+                        TranscriptImageView(
+                            source: TranscriptImageSource.activityOutput(url),
+                            alt: "",
+                            images: images,
+                            store: store
+                        )
+                    }
                 }
             }
             if activity.kind == .reasoning, let reasoning = activity.reasoning, expanded || !activity.complete {
@@ -252,15 +524,49 @@ private struct ActivityRow: View {
         }
     }
 
-    /// Status is a glyph as well as a colour, so it survives both a
-    /// colour-blind reader and a screenshot in grayscale.
-    private var statusGlyph: some View {
-        Image(systemName: activity.failed
-            ? "exclamationmark.triangle.fill"
-            : activity.complete ? "checkmark.circle" : "circle.dotted")
+    /// What the row did, not that it finished. A column of identical check
+    /// circles says nothing a settled transcript does not already say; the
+    /// kind is the thing a reader scans for, so the kind gets the glyph.
+    private var kindGlyph: some View {
+        Image(systemName: ActivityRow.symbol(for: activity))
             .font(.caption)
-            .foregroundStyle(activity.failed ? Color.orange : activity.complete ? Color.green : .secondary)
+            .foregroundStyle(.secondary)
+            // A fixed box keeps every title on the same left edge, whether the
+            // glyph above it is a folder or a magnifying glass.
+            .frame(width: 16)
             .accessibilityHidden(true)
+    }
+
+    /// Status only where status is news: still running, or failed. Both are a
+    /// glyph as well as a colour, so they survive a colour-blind reader and a
+    /// screenshot in grayscale, and the spoken label carries them regardless.
+    @ViewBuilder
+    private var statusGlyph: some View {
+        if activity.failed {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(Color.orange)
+                .accessibilityHidden(true)
+        } else if !activity.complete {
+            Image(systemName: "circle.dotted")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// The desktop's activity icons, in SF Symbols.
+    static func symbol(for activity: ActivityItem) -> String {
+        if activity.reasoning != nil || activity.kind == .reasoning { return "brain" }
+        switch activity.kind {
+        case .command: return "terminal"
+        case .search, .fileSearch: return "magnifyingglass"
+        case .fileRead: return "doc.text"
+        case .fileChange: return "pencil"
+        case .fileList: return "folder"
+        case .plan: return "list.bullet"
+        case .reasoning, .tool, .unknown: return "wrench.and.screwdriver"
+        }
     }
 
     private var preview: String { ActivityPresentation.preview(activity) }
@@ -278,6 +584,31 @@ private struct ActivityRow: View {
     }
 }
 
+/// The detached process an activity started, as a chip on its row. It is a
+/// control, not a badge: the panel it opens is where the output lives.
+private struct BackgroundWorkChip: View {
+    let work: BackgroundWorkItem
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 4) {
+                Image(systemName: BackgroundWorkPresentation.statusSymbol(work.status))
+                Text(BackgroundWorkPresentation.label(work.status))
+            }
+            .font(.caption2)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 28)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(BackgroundWorkPresentation.tint(work.status))
+        .accessibilityLabel("Background work: \(work.title)")
+        .accessibilityHint("Opens this process")
+    }
+}
+
 private struct ActivityDisclosure: View {
     let section: ActivityPresentation.DisclosureSection
 
@@ -289,6 +620,8 @@ private struct ActivityDisclosure: View {
                     .foregroundStyle(.tertiary)
             }
             if section.content.isEmpty {
+                // The image itself follows the sections; this is only the
+                // label for an output that had nothing else in it.
                 Text("Image output")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -316,10 +649,12 @@ private struct ActivityDisclosure: View {
     }
 }
 
-/// A turn's checkpoint, display-only. Restoring one is deferred past v1, so
-/// the row states what changed and offers nothing it cannot do.
+/// A turn's checkpoint: what changed, and the way into the diff. Restoring one
+/// is still deferred, so the row offers review rather than pretending it can
+/// put the workspace back.
 struct CheckpointSummary: View {
     let checkpoint: Checkpoint
+    var onReview: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -333,6 +668,20 @@ struct CheckpointSummary: View {
                 Text(verbatim: "+\(checkpoint.additions) −\(checkpoint.deletions)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+                if let onReview {
+                    Spacer(minLength: 8)
+                    Button(action: onReview) {
+                        Label("Review", systemImage: "chevron.right")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption)
+                            .frame(minHeight: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .accessibilityLabel("Review these changes")
+                    .accessibilityHint("Opens this turn's diff")
+                }
             }
             ForEach(checkpoint.files, id: \.path) { file in
                 HStack(spacing: 6) {
@@ -350,7 +699,7 @@ struct CheckpointSummary: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

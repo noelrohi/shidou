@@ -16,6 +16,9 @@ struct ComposerView: View {
     /// The daemon this composer's preferences belong to; models installed on
     /// one Mac say nothing about another's.
     let daemonAddress: String
+    /// Text the transcript wants in the box — quoting a message. Cleared as
+    /// soon as it lands, so the same quote can be sent twice.
+    var quoted: Binding<String?> = .constant(nil)
 
     @Environment(AttentionCenter.self) private var attention
 
@@ -102,6 +105,10 @@ struct ComposerView: View {
         .padding(.bottom, 6)
         .floatingBarBackdrop()
         .task(id: draftKeyIdentity) { loadDraft() }
+        .onChange(of: quoted.wrappedValue) { _, text in
+            guard let text, !text.isEmpty else { return }
+            acceptQuote(text)
+        }
         .task(id: session.id) { preferences = ComposerPreferenceStore().preferences(for: daemonAddress) }
         .task(id: composerSourcesKey) { store.refreshComposerSources(for: session) }
         .onChange(of: suggestionKey) { _, _ in highlight = 0 }
@@ -668,6 +675,16 @@ struct ComposerView: View {
 
     private var composerSourcesKey: String {
         "\(session.provider.rawValue):\(cwd ?? "")"
+    }
+
+    /// Puts a quoted message in the box, replacing whatever was there, and
+    /// opens the keyboard on it — the same contract as the web prefill.
+    private func acceptQuote(_ text: String) {
+        prompt = text
+        cursor = text.count
+        focused = true
+        saveDraft()
+        quoted.wrappedValue = nil
     }
 
     private func loadDraft() {

@@ -39,6 +39,14 @@ public struct BackgroundWorkLedger: Sendable, Equatable {
         items.first { $0.key == key }
     }
 
+    /// The work an activity started, if any. The transcript asks this per
+    /// activity row, so it stays a scan of a list that holds a handful of
+    /// items rather than anything that needs an index.
+    public func item(startedBy activityId: String?) -> BackgroundWorkItem? {
+        guard let activityId else { return nil }
+        return items.first { $0.originActivityId == activityId }
+    }
+
     public mutating func apply(_ event: BackgroundWorkEvent, clock: ReducerClock) {
         apply(event, now: clock.nowMillis())
     }

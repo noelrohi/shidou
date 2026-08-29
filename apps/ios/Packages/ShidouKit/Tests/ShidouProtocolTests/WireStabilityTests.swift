@@ -77,6 +77,25 @@ final class WireStabilityTests: XCTestCase {
         let hasRef = try json(Command.workspace(.hasRef(cwd: "/tmp/repo", gitRef: "refs/shidou/x")))
         let refOperation = try XCTUnwrap(hasRef["operation"] as? [String: Any])
         XCTAssertEqual(refOperation["git_ref"] as? String, "refs/shidou/x")
+
+        let sessionId = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-00000000002a"))
+        let turnRefs = try json(Command.workspace(
+            .sessionTurnRefs(cwd: "/tmp/repo", sessionId: sessionId)
+        ))
+        let turnRefsOperation = try XCTUnwrap(turnRefs["operation"] as? [String: Any])
+        XCTAssertEqual(turnRefsOperation["type"] as? String, "sessionTurnRefs")
+        XCTAssertEqual(turnRefsOperation["session_id"] as? String, sessionId.wireString)
+    }
+
+    /// The rewind offer is built from this response, so its one field is
+    /// exactly as load-bearing as the command that asks for it.
+    func testTurnRefsResultDecodes() throws {
+        let data = Data(#"{"type":"turnRefs","turn_counts":[0,1,3]}"#.utf8)
+        let result = try JSONDecoder().decode(WorkspaceResult.self, from: data)
+        guard case .turnRefs(let counts) = result else {
+            return XCTFail("expected turnRefs, got \(result)")
+        }
+        XCTAssertEqual(counts, [0, 1, 3])
     }
 
     /// The commands this slice sends. The wire tests are hand-mirrored rather

@@ -130,6 +130,7 @@ public enum ShidouSessionError: Error, LocalizedError, Sendable {
     case attachmentTooLarge(String)
     case patchTooLarge
     case noProviderForCommitMessage
+    case alreadyRewritingHistory
 
     public var errorDescription: String? {
         switch self {
@@ -145,6 +146,8 @@ public enum ShidouSessionError: Error, LocalizedError, Sendable {
             return "The daemon is not connected"
         case .noLiveRuntime:
             return "This task has no running agent"
+        case .alreadyRewritingHistory:
+            return "This task is already forking or rewinding"
         case .attachmentTooLarge(let name):
             return "\(name) is too large to send to the daemon"
         case .patchTooLarge:
