@@ -71,6 +71,18 @@ struct TranscriptView: View {
     @State private var historyNotice: String?
     /// Text the transcript has handed the composer to quote.
     @State private var quoted: String?
+    /// A send waits for the store to publish its new user row, then anchors
+    /// that row at the viewport top like the desktop transcript.
+    @State private var pendingSubmissionAnchor: PendingSubmissionAnchor?
+    @State private var submittedMessageAnchor: String?
+    /// Heights only for rows in the submitted turn. Keeping them per row lets
+    /// the outer LazyVStack stay virtualized even when one turn is very long.
+    @State private var anchoredRowHeights: [String: CGFloat] = [:]
+
+    private struct PendingSubmissionAnchor: Equatable {
+        let token = UUID()
+        let previousMessageId: UUID?
+    }
 
     private struct MessageEdit: Equatable {
         var messageId: UUID
@@ -227,7 +239,11 @@ struct TranscriptView: View {
                         model: model,
                         store: store,
                         daemonAddress: connection.preferenceKey,
-                        quoted: $quoted
+                        quoted: $quoted,
+                        onTurnSubmitted: {
+                            pendingSubmissionAnchor = PendingSubmissionAnchor(
+                                previousMessageId: latestUserMessageId(in: model.session))
+                        }
                     )
                 }
             }
@@ -261,34 +277,120 @@ struct TranscriptView: View {
         matches: TranscriptFind.Result,
         model: SessionRuntimeModel
     ) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(rows) { row in
-                        rowView(row, model: model)
-                            .id(row.id)
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        transcriptRows(
+                            rows,
+                            model: model,
+                            viewportHeight: viewport.size.height
+                        )
                     }
-                    // Keeps the last row clear of the composer's top edge.
-                    Color.clear.frame(height: 8).id("transcript-tail")
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .dismissesKeyboardOnTap()
-            .onChange(of: currentMatch) { _, index in
-                guard let index, index < matches.matches.count else { return }
-                let key = matches.matches[index].rowKey
-                // Scrolling to a match is navigation, but animating the
-                // journey is decoration, and Reduce Motion asks for none.
-                if reduceMotion {
-                    proxy.scrollTo(key, anchor: .center)
-                } else {
-                    withAnimation { proxy.scrollTo(key, anchor: .center) }
+                .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
+                .dismissesKeyboardOnTap()
+                .onAppear { anchorSubmittedMessage(in: rows, with: proxy) }
+                .onChange(of: latestUserMessageId(in: model.session)) {
+                    anchorSubmittedMessage(in: rows, with: proxy)
+                }
+                .onChange(of: currentMatch) { _, index in
+                    guard let index, index < matches.matches.count else { return }
+                    let key = matches.matches[index].rowKey
+                    // Scrolling to a match is navigation, but animating the
+                    // journey is decoration, and Reduce Motion asks for none.
+                    if reduceMotion {
+                        proxy.scrollTo(key, anchor: .center)
+                    } else {
+                        withAnimation { proxy.scrollTo(key, anchor: .center) }
+                    }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func transcriptRows(
+        _ rows: [TranscriptRow],
+        model: SessionRuntimeModel,
+        viewportHeight: CGFloat
+    ) -> some View {
+        if let submittedMessageAnchor,
+            let anchorIndex = rows.firstIndex(where: { $0.id == submittedMessageAnchor })
+        {
+            ForEach(rows[..<anchorIndex]) { row in
+                rowView(row, model: model)
+                    .id(row.id)
+            }
+            ForEach(rows[anchorIndex...]) { row in
+                rowView(row, model: model)
+                    .id(row.id)
+                    .onGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.size.height
+                    } action: { height in
+                        anchoredRowHeights[row.id] = height
+                    }
+            }
+            // A short response needs room below it or ScrollView clamps the
+            // new prompt back to the bottom. This reservation shrinks as the
+            // visible rows of the active turn fill the viewport.
+            Color.clear
+                .frame(height: anchorEndSpace(
+                    for: rows[anchorIndex...], viewportHeight: viewportHeight))
+                .id("transcript-tail")
+        } else {
+            ForEach(rows) { row in
+                rowView(row, model: model)
+                    .id(row.id)
+            }
+            // Keeps the last row clear of the composer's top edge.
+            Color.clear.frame(height: 8).id("transcript-tail")
+        }
+    }
+
+    private func anchorSubmittedMessage(
+        in rows: [TranscriptRow],
+        with proxy: ScrollViewProxy
+    ) {
+        guard let pendingSubmissionAnchor,
+            let latest = latestUserMessage(in: rows),
+            latest.messageId != pendingSubmissionAnchor.previousMessageId
+        else { return }
+
+        self.pendingSubmissionAnchor = nil
+        submittedMessageAnchor = latest.rowId
+        anchoredRowHeights = [:]
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo(latest.rowId, anchor: .top)
+        }
+    }
+
+    private func anchorEndSpace(
+        for rows: ArraySlice<TranscriptRow>,
+        viewportHeight: CGFloat
+    ) -> CGFloat {
+        let measuredHeight = rows.reduce(CGFloat(8)) { height, row in
+            height + (anchoredRowHeights[row.id] ?? 0)
+        }
+        let spacing = CGFloat(max(0, rows.count - 1)) * 16
+        return max(0, viewportHeight - measuredHeight - spacing)
+    }
+
+    private func latestUserMessage(in rows: [TranscriptRow]) -> (rowId: String, messageId: UUID)? {
+        rows.reversed().compactMap { row in
+            guard case .message(let key, let messageRow) = row,
+                messageRow.message.role == .user
+            else { return nil }
+            return (key, messageRow.message.id)
+        }.first
+    }
+
+    private func latestUserMessageId(in session: AgentSession) -> UUID? {
+        session.messages.last { $0.role == .user }?.id
     }
 
     @ViewBuilder

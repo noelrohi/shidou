@@ -19,6 +19,9 @@ struct ComposerView: View {
     /// Text the transcript wants in the box — quoting a message. Cleared as
     /// soon as it lands, so the same quote can be sent twice.
     var quoted: Binding<String?> = .constant(nil)
+    /// A new turn was accepted from this composer. The transcript uses this
+    /// moment to place the sent message at the top of the viewport.
+    var onTurnSubmitted: () -> Void = {}
 
     @Environment(AttentionCenter.self) private var attention
 
@@ -403,13 +406,15 @@ struct ComposerView: View {
                             "folder",
                             project.map {
                                 $0.isProjectless ? String(localized: "No project") : $0.name
-                            } ?? String(localized: "Choose a project")
+                            } ?? String(localized: "Choose a project"),
+                            showsDisclosure: !locked
                         ) { sheet = .project }
                         .disabled(locked)
 
                         ghostButton(
                             session.workspace.isLocal ? "laptopcomputer" : "arrow.triangle.branch",
-                            workspaceLabel
+                            workspaceLabel,
+                            showsDisclosure: !locked
                         ) { sheet = .workspace }
                         .disabled(locked)
 
@@ -419,7 +424,8 @@ struct ComposerView: View {
                             ghostButton(
                                 "arrow.triangle.branch",
                                 store.branchSnapshot(for: session)?.displayBranch
-                                    ?? String(localized: "Detached HEAD")
+                                    ?? String(localized: "Detached HEAD"),
+                                showsDisclosure: !busy
                             ) { sheet = .branch }
                             .disabled(busy)
                         }
@@ -466,12 +472,13 @@ struct ComposerView: View {
         .accessibilityLabel(usageLabel)
     }
 
-    /// A workspace entry: small icon, caption label, dropdown chevron, on its
-    /// own glass pill. The row says where you are rather than shouting, so the
-    /// glyph and text stay secondary — the pill is what makes it a target.
+    /// A workspace entry on its own glass pill. The disclosure disappears
+    /// when the value is locked, so settled context does not pretend to be a
+    /// dropdown.
     private func ghostButton(
         _ icon: String,
         _ label: String,
+        showsDisclosure: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -482,9 +489,11 @@ struct ComposerView: View {
                 Text(label)
                     .font(.caption)
                     .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .accessibilityHidden(true)
+                if showsDisclosure {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, 9)
@@ -753,6 +762,7 @@ struct ComposerView: View {
         dismissedSuggestion = nil
         saveDraft()
         submitting = true
+        if !busy { onTurnSubmitted() }
         Task {
             defer { submitting = false }
             do {
