@@ -27,10 +27,28 @@ final class SurfacesNavigationUITests: XCTestCase {
         if tryTheDemo.waitForExistence(timeout: 10) {
             tryTheDemo.tap()
         }
+        reachSessionList(in: app)
+    }
+
+    /// The spine opens the most recent task on its own now, so the session
+    /// list is one drawer away. "Tasks" is an accessibility label, not a
+    /// localized string, so it matches in every locale.
+    private func reachSessionList(in application: XCUIApplication) {
+        let tasks = application.buttons["Tasks"]
+        if tasks.waitForExistence(timeout: 15) {
+            tasks.tap()
+        }
+        let row = self.taskRow(in: application)
         XCTAssertTrue(
-            taskRow().waitForExistence(timeout: 30),
-            "the demo daemon's session list should arrive — is `shidou-demo` listening on 127.0.0.1:8787?"
+            row.waitForExistence(timeout: 30),
+            "the session list should arrive — is `shidou-demo` listening on 127.0.0.1:8787?"
         )
+        // The drawer is still sliding in when the row first exists; a tap
+        // lands on nothing until it settles.
+        for _ in 0..<50 where !row.isHittable {
+            usleep(100_000)
+        }
+        XCTAssertTrue(row.isHittable, "the drawer should settle with the rows hittable")
     }
 
     /// The list row is one accessibility button whose label folds in the
@@ -43,10 +61,14 @@ final class SurfacesNavigationUITests: XCTestCase {
     /// On iPhone a row is a `NavigationLink` and reads as a button; on iPad the
     /// same row is a selectable `List` cell and reads as a cell. Both fold the
     /// project and the timestamp into one label, so both are matched by prefix.
-    private func taskRow(_ title: String = "Rate limiting in the public API") -> XCUIElement {
+    private func taskRow(
+        _ title: String = "Rate limiting in the public API",
+        in application: XCUIApplication? = nil
+    ) -> XCUIElement {
+        let target: XCUIApplication = application ?? app
         let predicate = NSPredicate(format: "label BEGINSWITH %@", title)
-        let button = app.buttons.matching(predicate).firstMatch
-        return button.exists ? button : app.cells.containing(predicate).firstMatch
+        let button = target.buttons.matching(predicate).firstMatch
+        return button.exists ? button : target.cells.containing(predicate).firstMatch
     }
 
     /// A section row folds its trailing stat into one accessibility label
@@ -57,6 +79,25 @@ final class SurfacesNavigationUITests: XCTestCase {
         let predicate = NSPredicate(
             format: "label == %@ OR label BEGINSWITH %@", name, name + ",")
         return app.buttons.matching(predicate).firstMatch
+    }
+
+    /// The drawer keeps an offscreen copy of its toolbar controls in the
+    /// accessibility tree, so a plain label query can return a ghost that
+    /// cannot be tapped. The hittable one is the real control.
+    private func hittableButton(
+        _ label: String,
+        in application: XCUIApplication? = nil
+    ) -> XCUIElement {
+        let target: XCUIApplication = application ?? app
+        let buttons = target.buttons.matching(NSPredicate(format: "label == %@", label))
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if let hit = buttons.allElementsBoundByIndex.first(where: { $0.isHittable }) {
+                return hit
+            }
+            usleep(100_000)
+        }
+        return buttons.firstMatch
     }
 
     private func openPanel() {
@@ -125,7 +166,7 @@ final class SurfacesNavigationUITests: XCTestCase {
     }
 
     func testEverySettingsPageIsNavigable() {
-        app.buttons["Settings"].tap()
+        hittableButton("Settings").tap()
         for page in ["General", "Appearance", "Providers", "Skills", "Usage", "Daemon", "About"] {
             XCTAssertTrue(
                 app.buttons[page].waitForExistence(timeout: 10), "\(page) should be a settings row")
@@ -139,7 +180,7 @@ final class SurfacesNavigationUITests: XCTestCase {
     }
 
     func testUsageRendersItsChartAndBreakdowns() {
-        app.buttons["Settings"].tap()
+        hittableButton("Settings").tap()
         app.buttons["Usage"].tap()
         XCTAssertTrue(app.staticTexts["Cost"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["By day"].exists)
@@ -148,7 +189,7 @@ final class SurfacesNavigationUITests: XCTestCase {
     }
 
     func testSkillsListsTheDemoCatalog() {
-        app.buttons["Settings"].tap()
+        hittableButton("Settings").tap()
         app.buttons["Skills"].tap()
         XCTAssertTrue(app.staticTexts["tdd"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["release-notes"].exists)
@@ -208,13 +249,13 @@ final class SurfacesNavigationUITests: XCTestCase {
 
             let tryTheDemo = localized.buttons[localization.tryTheDemo]
             if tryTheDemo.waitForExistence(timeout: 10) { tryTheDemo.tap() }
+            reachSessionList(in: localized)
             XCTAssertTrue(
-                localized.staticTexts["Rate limiting in the public API"]
-                    .waitForExistence(timeout: 30),
+                localized.staticTexts["Rate limiting in the public API"].exists,
                 "\(localization.identifier): the session list should arrive"
             )
 
-            localized.buttons[localization.settings].tap()
+            hittableButton(localization.settings, in: localized).tap()
             let general = localized.buttons[localization.general]
             XCTAssertTrue(
                 general.waitForExistence(timeout: 10),
@@ -266,9 +307,8 @@ final class SurfacesNavigationUITests: XCTestCase {
         app.terminate()
         app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]
         app.launch()
-        XCTAssertTrue(
-            taskRow().waitForExistence(timeout: 30))
-        app.buttons["Settings"].tap()
+        reachSessionList(in: app)
+        hittableButton("Settings").tap()
         for page in ["General", "Appearance", "Providers"] {
             XCTAssertTrue(app.buttons[page].waitForExistence(timeout: 10))
             app.buttons[page].tap()
