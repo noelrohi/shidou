@@ -15,10 +15,10 @@ struct SessionsDrawer: View {
     @Binding var selection: UUID?
     @Binding var showingDraft: Bool
     @Binding var isPresented: Bool
-    let onSettings: () -> Void
     let onNewTask: () -> Void
 
     @Environment(DaemonConnection.self) private var connection
+    @State private var showingSettings = false
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -34,13 +34,13 @@ struct SessionsDrawer: View {
                         dismiss()
                     }
                 }
+            footer
         }
         .background {
             Rectangle()
                 .fill(.background)
                 .ignoresSafeArea(.container, edges: .vertical)
         }
-        .overlay(alignment: .bottom) { footer }
         // An explicit rule rather than `Divider()`, which draws horizontally
         // outside an `HStack` and would lay a line across the list instead of
         // along its edge.
@@ -49,6 +49,11 @@ struct SessionsDrawer: View {
                 .fill(.separator)
                 .frame(width: 1 / displayScale)
                 .ignoresSafeArea(.container, edges: .vertical)
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                SettingsView(done: { showingSettings = false })
+            }
         }
     }
 
@@ -74,13 +79,12 @@ struct SessionsDrawer: View {
         .padding(.bottom, 12)
     }
 
-    /// Settings and New Task float over the list rather than sitting in a
-    /// footer that costs a strip of height: the list is the drawer, and the
-    /// two controls are always in the same place under the thumb.
+    /// Settings and New Task sit outside the list's UIKit scroll surface so
+    /// the controls own their whole hit regions.
     private var footer: some View {
         GlassGroup(spacing: 10) {
             HStack(spacing: 10) {
-                Button(action: onSettings) {
+                Button(action: { showingSettings = true }) {
                     Image(systemName: "gearshape")
                         .font(.body)
                         .foregroundStyle(.secondary)

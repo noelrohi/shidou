@@ -168,9 +168,10 @@ final class SurfacesNavigationUITests: XCTestCase {
     func testEverySettingsPageIsNavigable() {
         hittableButton("Settings").tap()
         for page in ["General", "Appearance", "Providers", "Skills", "Usage", "Daemon", "About"] {
+            let row = hittableButton(page)
             XCTAssertTrue(
-                app.buttons[page].waitForExistence(timeout: 10), "\(page) should be a settings row")
-            app.buttons[page].tap()
+                row.waitForExistence(timeout: 10), "\(page) should be a settings row")
+            row.tap()
             XCTAssertTrue(
                 app.navigationBars[page].waitForExistence(timeout: 20),
                 "\(page) should push its own screen")
@@ -181,7 +182,7 @@ final class SurfacesNavigationUITests: XCTestCase {
 
     func testUsageRendersItsChartAndBreakdowns() {
         hittableButton("Settings").tap()
-        app.buttons["Usage"].tap()
+        hittableButton("Usage").tap()
         XCTAssertTrue(app.staticTexts["Cost"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["By day"].exists)
         XCTAssertTrue(app.staticTexts["By agent"].exists)
@@ -190,7 +191,7 @@ final class SurfacesNavigationUITests: XCTestCase {
 
     func testSkillsListsTheDemoCatalog() {
         hittableButton("Settings").tap()
-        app.buttons["Skills"].tap()
+        hittableButton("Skills").tap()
         XCTAssertTrue(app.staticTexts["tdd"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["release-notes"].exists)
         app.staticTexts["tdd"].tap()

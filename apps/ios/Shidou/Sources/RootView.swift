@@ -149,10 +149,6 @@ struct RootView: View {
                 selection: $selection,
                 showingDraft: $showingDraft,
                 isPresented: $showingDrawer,
-                onSettings: {
-                    settingsPresentation += 1
-                    showingSettings = true
-                },
                 onNewTask: startNewTask
             )
         } content: {
