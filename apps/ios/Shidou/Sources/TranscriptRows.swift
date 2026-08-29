@@ -111,13 +111,20 @@ struct TurnFoldRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                // The rules give way, not the label: this is a divider, and a
+                // divider whose caption wraps to three lines has stopped
+                // dividing anything.
+                .fixedSize()
                 line
             }
             .frame(minHeight: 34)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        // VoiceOver gets the spelled-out duration. "1m 33s" is a compression
+        // for a row that has one line to spend; speech has no such limit, and
+        // read aloud the abbreviations are worse than the words.
+        .accessibilityLabel(spokenLabel)
         .accessibilityHint(expanded ? "Hides this turn's work" : "Shows this turn's work")
         .accessibilityAddTraits(expanded ? [.isButton, .isSelected] : .isButton)
     }
@@ -126,13 +133,20 @@ struct TurnFoldRow: View {
         Rectangle().fill(.quaternary).frame(height: 1)
     }
 
-    private var label: String {
+    private var label: String { label(seconds.durationShortLabel) }
+
+    private var spokenLabel: String { label(seconds.durationLabel) }
+
+    private var seconds: Int {
         let end = turn.completedAt ?? UInt64(Date().timeIntervalSince1970)
-        let seconds = Int(max(1, end > turn.startedAt ? end - turn.startedAt : 1))
+        return Int(max(1, end > turn.startedAt ? end - turn.startedAt : 1))
+    }
+
+    private func label(_ duration: String) -> String {
         if turn.status == .interrupted {
-            return String(localized: "You stopped after \(seconds.durationLabel)")
+            return String(localized: "You stopped after \(duration)")
         }
-        return String(localized: "Worked for \(seconds.durationLabel)")
+        return String(localized: "Worked for \(duration)")
     }
 }
 
@@ -475,7 +489,10 @@ extension Int {
         )
     }
 
-    /// "2m 3s" — for a row that has to stay on one line.
+    /// "2m 3s" — for a row that has to stay on one line. Two units at most,
+    /// because the second one is already a rounding detail and the third is
+    /// noise: an agent that ran for a day and two hours is not more legible
+    /// for also being told the seconds.
     var durationShortLabel: String {
         if self < 60 { return "\(self)s" }
         if self < 3_600 {
@@ -483,9 +500,14 @@ extension Int {
             let seconds = self % 60
             return seconds > 0 ? "\(minutes)m \(seconds)s" : "\(minutes)m"
         }
-        let hours = self / 3_600
-        let minutes = (self % 3_600) / 60
-        return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        if self < 86_400 {
+            let hours = self / 3_600
+            let minutes = (self % 3_600) / 60
+            return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+        }
+        let days = self / 86_400
+        let hours = (self % 86_400) / 3_600
+        return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
     }
 }
 

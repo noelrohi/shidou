@@ -60,9 +60,10 @@ struct GlassGroup<Content: View>: View {
 /// safe area so the home-indicator strip belongs to the same surface.
 ///
 /// The bar draws this itself on every system. iOS 26's scroll edge effect does
-/// not render under custom bar content, and below 26 there is no such effect at
-/// all, so one hand-drawn backdrop is what keeps the composer looking the same
-/// on both.
+/// not render under custom bar content — verified in the simulator, and the
+/// same thing FB18350439 reports — and below 26 there is no such effect at all,
+/// so one hand-drawn backdrop is what keeps the composer looking the same on
+/// both.
 private struct BarBlurBackdrop: View {
     /// How far the material takes to disappear. Fixed rather than a fraction of
     /// the bar: the bar grows when a permission panel or queued messages
@@ -82,34 +83,38 @@ private struct BarBlurBackdrop: View {
                     Rectangle()
                 }
             }
-            .ignoresSafeArea(edges: .bottom)
             .allowsHitTesting(false)
     }
 }
 
 extension View {
-    /// The backdrop a floating bottom bar needs. Glass surfaces inside the bar
-    /// still float — glass samples the material behind it, which is what makes
-    /// the composer read as sitting on the bar rather than in it.
-    func floatingBarBackdrop() -> some View {
-        background { BarBlurBackdrop() }
-    }
-
     /// Hangs `content` off the bottom edge as a bar the scroll view knows
     /// about, so the transcript keeps scrolling underneath it and comes to rest
     /// above it. `safeAreaBar` is how iOS 26 says "this is a bar"; below it the
-    /// same room comes from a plain safe-area inset. The system's own scroll
-    /// edge effect is turned off rather than layered under the bar's backdrop,
-    /// which would blur the same pixels twice.
+    /// same room comes from a plain safe-area inset.
     @ViewBuilder
     func floatingBottomBar<Content: View>(
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         if #available(iOS 26, *) {
             safeAreaBar(edge: .bottom, spacing: 0, content: content)
-                .scrollEdgeEffectHidden(true, for: .bottom)
         } else {
             safeAreaInset(edge: .bottom, spacing: 0, content: content)
+        }
+    }
+
+    /// What the bar's content rests on.
+    ///
+    /// On iOS 26 that is nothing: the composer's own glass floats over the
+    /// transcript the way the system's bars do, and a material slab under it
+    /// would be glass sitting on a tray rather than on the content. Below 26
+    /// there is no glass, so the material is what separates the two.
+    @ViewBuilder
+    func floatingBarBackdrop() -> some View {
+        if #available(iOS 26, *) {
+            self
+        } else {
+            background { BarBlurBackdrop() }
         }
     }
 
