@@ -309,7 +309,7 @@ struct TranscriptView: View {
                     }
                     .font(.footnote.monospacedDigit())
                 }
-                .accessibilityLabel("Changes")
+                .accessibilityLabel("Diff stat")
                 .accessibilityValue(
                     "\(snapshot.additions) added, \(snapshot.deletions) removed")
             }
