@@ -17,24 +17,21 @@ struct PairingView: View {
         // screen and the ScrollView takes over.
         GeometryReader { proxy in
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 24)
                     header
-                    if let failure { failureNote(failure) }
-                    if connection.showsLocalNetworkHint { LocalNetworkHint() }
+                    Spacer(minLength: 28)
+                    notes
                     actions
-                    Text(
-                        "Open Shidou on your Mac, then Settings → Daemon to show its pairing code."
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-
+                    Spacer(minLength: 28)
                     demo
                 }
-                .padding(24)
-                .frame(maxWidth: 480)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 24)
+                .frame(maxWidth: 420)
                 .frame(maxWidth: .infinity, minHeight: proxy.size.height)
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
         .sheet(isPresented: $isScanning) {
             PairingScanSheet { payload in
@@ -58,44 +55,74 @@ struct PairingView: View {
         }
     }
 
+    /// The pairing this screen is asking for, said as a picture before it is
+    /// said in words: the two machines, on the tinted tile the system uses for
+    /// a first-run glyph.
     private var header: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-                .font(.system(size: 44))
+        VStack(spacing: 14) {
+            Image(systemName: "macbook.and.iphone")
+                .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.tint)
+                .frame(width: 76, height: 76)
+                .background(
+                    .tint.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                )
                 .accessibilityHidden(true)
-            Text("Connect to your Mac")
-                .font(.title2.bold())
-            Text("Shidou runs on your own computer. Pair this phone with its daemon to see your sessions.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            VStack(spacing: 8) {
+                Text("Connect to your Mac")
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+                Text("Shidou runs on your own computer. Pair this phone with its daemon to see your sessions.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 
+    /// Everything conditional, in one stack that costs no space when nothing
+    /// has gone wrong — the screen a first-time user sees is the header and
+    /// the two buttons, and nothing else.
+    @ViewBuilder
+    private var notes: some View {
+        VStack(spacing: 12) {
+            if let failure { failureNote(failure) }
+            if connection.showsLocalNetworkHint { LocalNetworkHint() }
+        }
+        .padding(.bottom, failure == nil && !connection.showsLocalNetworkHint ? 0 : 20)
+    }
+
     private func failureNote(_ failure: ConnectionFailure) -> some View {
-        Label(failure.message, systemImage: "exclamationmark.triangle.fill")
-            .font(.footnote)
-            .foregroundStyle(.primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.yellow.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+        NoteCard(systemImage: "exclamationmark.triangle.fill", tint: .orange) {
+            Text(failure.message)
+                .font(.footnote)
+        }
     }
 
     private var actions: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Button {
                 isScanning = true
             } label: {
                 Label("Scan pairing code", systemImage: "qrcode.viewfinder")
+                    .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
             }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
 
+            // Plain, not bordered: two filled buttons stacked read as a pair of
+            // equals, and scanning is the path almost everyone takes.
             Button("Enter address manually") { isEnteringManually = true }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
+                .font(.subheadline.weight(.medium))
+
+            Text("Open Shidou on your Mac, then Settings → Daemon to show its pairing code.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 2)
         }
     }
 
@@ -103,14 +130,15 @@ struct PairingView: View {
     /// takes. It is a real connection to a real server rather than an in-app
     /// demo mode, which is what keeps it out of the "needs prior Apple
     /// approval" branch of guideline 2.1.
+    ///
+    /// It sits at the foot of the screen, quiet: an aside, not a third way to
+    /// connect competing with the two that reach the user's own Mac.
     private var demo: some View {
         VStack(spacing: 6) {
-            Divider().padding(.vertical, 4)
             Button("Try the demo") { connection.startDemo() }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
+                .font(.subheadline.weight(.medium))
             Text("Connects to Shidou's public demo server with a scripted session. Nothing in it runs on your computer.")
-                .font(.footnote)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
@@ -130,20 +158,41 @@ struct PairingView: View {
 /// user guessing at a dead connection.
 private struct LocalNetworkHint: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Local Network access may be off", systemImage: "wifi.exclamationmark")
-                .font(.footnote.bold())
-            Text("Shidou needs it to reach a Mac on the same Wi-Fi. Check Settings → Privacy & Security → Local Network, or connect over Tailscale instead.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                Link("Open Settings", destination: url)
+        NoteCard(systemImage: "wifi.exclamationmark", tint: .accentColor) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Local Network access may be off")
+                    .font(.footnote.weight(.semibold))
+                Text("Shidou needs it to reach a Mac on the same Wi-Fi. Check Settings → Privacy & Security → Local Network, or connect over Tailscale instead.")
                     .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    Link("Open Settings", destination: url)
+                        .font(.footnote.weight(.medium))
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One shape for everything this screen has to say beyond its two buttons.
+/// A single card treatment is what keeps a warning and a hint from reading as
+/// two unrelated pieces of chrome stacked on the same screen.
+private struct NoteCard<Content: View>: View {
+    let systemImage: String
+    let tint: Color
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.footnote)
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
         .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
