@@ -178,20 +178,21 @@ struct TranscriptView: View {
             if model.isCatchingUp { CatchingUpBar() }
             Group {
                 if rows.isEmpty && !model.session.hasStarted {
-                    // A draft has no transcript to scroll. Saying what to do
+                    // A draft has no transcript to scroll. Asking the question
                     // reads better than an empty scroll view, and it leaves the
                     // composer the rest of the screen.
-                    EmptyDraftPrompt()
+                    NewTaskCanvas(
+                        project: store?.projects.first { $0.id == model.session.projectId })
                 } else {
                     scroller(rows: rows, matches: matches, model: model)
                 }
             }
-            // The composer is a bottom bar, not the last row of a stack: as an
-            // inset the transcript keeps scrolling underneath it and the system
-            // blurs and fades what passes behind, the same way the navigation
-            // bar treats the top of the screen. Stacked, it would sit on an
-            // opaque slab and the transcript would simply stop above it.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // The composer is a bottom bar, not the last row of a stack: as a
+            // bar the transcript keeps scrolling underneath it and the bar's
+            // blur fades what passes behind, the same way the navigation bar
+            // treats the top of the screen. Stacked, it would sit on an opaque
+            // slab and the transcript would simply stop above it.
+            .floatingBottomBar {
                 if let store {
                     ComposerView(
                         model: model, store: store, daemonAddress: connection.preferenceKey)
@@ -279,7 +280,10 @@ struct TranscriptView: View {
         if let opensDrawer {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: opensDrawer) {
-                    Image(systemName: "sidebar.leading")
+                    // A hamburger, not a sidebar glyph: on iPhone this opens a
+                    // drawer over the task rather than revealing a column
+                    // beside it, and the sidebar symbol promises the latter.
+                    Image(systemName: "line.3.horizontal")
                 }
                 .keyboardShortcut("s", modifiers: [.command, .control])
                 .accessibilityLabel("Tasks")
@@ -467,24 +471,45 @@ extension View {
     }
 }
 
-/// A task with nothing in it yet. It says what to do rather than showing an
-/// empty scroll view, and it leaves the composer the whole rest of the screen.
-private struct EmptyDraftPrompt: View {
+/// What a new task looks like before it is one: the web app's question, asked
+/// where its transcript will be.
+///
+/// The web names the project inside the sentence and makes it the picker. Here
+/// the sentence only says it — the composer's project chip is directly below,
+/// and two controls for one choice, a thumb's width apart, is the worse phone
+/// screen.
+private struct NewTaskCanvas: View {
+    let project: Project?
+
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "square.and.pencil")
-                .font(.largeTitle)
-                .foregroundStyle(.tertiary)
-            Text("Start a new task")
-                .font(.headline)
-            Text("Describe what you want built. Attach files with @, run a command with /.")
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            Text(question)
+                .font(.title3.weight(.medium))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Attach files with @, run a command with /.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(24)
+        .padding(.horizontal, 32)
+        .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
+    }
+
+    /// No project is a real state — the scratch workspace, or a catalog that
+    /// has not landed yet — and "build in nothing" is not a question, so it
+    /// drops the clause rather than naming a placeholder.
+    private var question: String {
+        guard let project, !project.isProjectless else {
+            return String(localized: "What should we build?")
+        }
+        return String(localized: "What should we build in \(project.name)?")
     }
 }

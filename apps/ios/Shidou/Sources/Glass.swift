@@ -52,17 +52,64 @@ struct GlassGroup<Content: View>: View {
     }
 }
 
+/// The blur a floating bottom bar rests on.
+///
+/// This is the material a system toolbar uses, so the transcript passing under
+/// the composer is blurred rather than covered. It fades out over a short band
+/// at its top instead of ending on a ruled line, and it reaches past the bottom
+/// safe area so the home-indicator strip belongs to the same surface.
+///
+/// The bar draws this itself on every system. iOS 26's scroll edge effect does
+/// not render under custom bar content, and below 26 there is no such effect at
+/// all, so one hand-drawn backdrop is what keeps the composer looking the same
+/// on both.
+private struct BarBlurBackdrop: View {
+    /// How far the material takes to disappear. Fixed rather than a fraction of
+    /// the bar: the bar grows when a permission panel or queued messages
+    /// appear, and a proportional fade would haze more of the transcript every
+    /// time it did.
+    private let fade: CGFloat = 28
+
+    var body: some View {
+        Rectangle()
+            .fill(.bar)
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [.clear, .black], startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: fade)
+                    Rectangle()
+                }
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+    }
+}
+
 extension View {
-    /// The backdrop a floating bottom bar needs on a system without Liquid
-    /// Glass. Under iOS 26 the glass surfaces float over the transcript and
-    /// the scroll edge effect keeps them legible; below it, a bar material is
-    /// what separates the composer from the text scrolling beneath it.
-    @ViewBuilder
+    /// The backdrop a floating bottom bar needs. Glass surfaces inside the bar
+    /// still float — glass samples the material behind it, which is what makes
+    /// the composer read as sitting on the bar rather than in it.
     func floatingBarBackdrop() -> some View {
+        background { BarBlurBackdrop() }
+    }
+
+    /// Hangs `content` off the bottom edge as a bar the scroll view knows
+    /// about, so the transcript keeps scrolling underneath it and comes to rest
+    /// above it. `safeAreaBar` is how iOS 26 says "this is a bar"; below it the
+    /// same room comes from a plain safe-area inset. The system's own scroll
+    /// edge effect is turned off rather than layered under the bar's backdrop,
+    /// which would blur the same pixels twice.
+    @ViewBuilder
+    func floatingBottomBar<Content: View>(
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
         if #available(iOS 26, *) {
-            self
+            safeAreaBar(edge: .bottom, spacing: 0, content: content)
+                .scrollEdgeEffectHidden(true, for: .bottom)
         } else {
-            background(.bar)
+            safeAreaInset(edge: .bottom, spacing: 0, content: content)
         }
     }
 
