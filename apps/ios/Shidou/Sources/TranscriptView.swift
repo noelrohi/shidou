@@ -289,11 +289,36 @@ struct TranscriptView: View {
                 .accessibilityLabel("Tasks")
             }
         }
+        if let model, let snapshot = store?.branchSnapshot(for: model.session),
+            snapshot.additions > 0 || snapshot.deletions > 0
+        {
+            // Keep the diffstat out of the hamburger's glass group so each
+            // reads as its own control, like the web header's loose pair.
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showingSurfaces.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(verbatim: "+\(snapshot.additions)")
+                            .foregroundStyle(.green)
+                        Text(verbatim: "−\(snapshot.deletions)")
+                            .foregroundStyle(.red)
+                    }
+                    .font(.footnote.monospacedDigit())
+                }
+                .accessibilityLabel("Changes")
+                .accessibilityValue(
+                    "\(snapshot.additions) added, \(snapshot.deletions) removed")
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 showingSurfaces.toggle()
             } label: {
-                Image(systemName: "sidebar.right")
+                Image(systemName: "info.circle")
             }
             .disabled(model.flatMap { store?.cwd(for: $0.session) } == nil)
             .keyboardShortcut("0", modifiers: .command)
