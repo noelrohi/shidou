@@ -403,52 +403,44 @@ private struct GroupHeader: View {
     }
 }
 
-/// One task in one compact line: title, provider, then state and time.
+/// One task in one compact line: agent and state, title, then right-aligned time.
 struct SessionRow: View {
     let item: SessionListItem
     let now: UInt64
 
     var body: some View {
         HStack(spacing: 7) {
+            providerImage
+                .frame(width: 11, height: 11)
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+
+            if showsStatusDot {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
+            }
+
             Text(displayTitle(item.session))
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .layoutPriority(1)
 
-            providerLabel
+            Spacer(minLength: 0)
 
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 6, height: 6)
-                    .accessibilityHidden(true)
-
-                if !timeLabel.isEmpty {
-                    Text(timeLabel)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
+            if !timeLabel.isEmpty {
+                Text(timeLabel)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var providerLabel: some View {
-        HStack(spacing: 4) {
-            providerImage
-                .frame(width: 11, height: 11)
-                .accessibilityHidden(true)
-            Text(item.session.provider.sidebarName)
-                .lineLimit(1)
-        }
-        .font(.caption2.weight(.medium))
-        .foregroundStyle(.tertiary)
-        .fixedSize(horizontal: true, vertical: false)
     }
 
     @ViewBuilder
@@ -462,6 +454,13 @@ struct SessionRow: View {
             Image(systemName: "terminal")
                 .resizable()
                 .scaledToFit()
+        }
+    }
+
+    private var showsStatusDot: Bool {
+        switch item.session.status {
+        case .idle, .unknown: false
+        case .connecting, .working, .waiting, .failed: true
         }
     }
 
@@ -508,18 +507,6 @@ struct SessionRow: View {
 }
 
 private extension ProviderKind {
-    var sidebarName: String {
-        switch self {
-        case .claude: "Claude Code"
-        case .codex: "Codex"
-        case .deepSeek: "DeepSeek"
-        case .openCode: "OpenCode"
-        case .ohMyPi: "Oh My Pi"
-        case .unknown: "Agent"
-        default: displayName
-        }
-    }
-
     var assetName: String? {
         switch self {
         case .amp: "ProviderAmp"

@@ -476,17 +476,21 @@ private struct AttachmentPreviewSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView([.horizontal, .vertical]) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .frame(maxWidth: .infinity)
-                    .gesture(
-                        MagnifyGesture()
-                            .onChanged { scale = max(1, min(6, $0.magnification)) }
-                    )
-                    .accessibilityLabel(name)
+            GeometryReader { viewport in
+                ScrollView([.horizontal, .vertical]) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(
+                            width: viewport.size.width * scale,
+                            height: viewport.size.height * scale
+                        )
+                        .gesture(
+                            MagnifyGesture()
+                                .onChanged { scale = max(1, min(6, $0.magnification)) }
+                        )
+                        .accessibilityLabel(name)
+                }
             }
             .navigationTitle(name)
             .navigationBarTitleDisplayMode(.inline)

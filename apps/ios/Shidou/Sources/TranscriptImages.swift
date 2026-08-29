@@ -236,11 +236,13 @@ private struct TranscriptImagePreview: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView([.horizontal, .vertical]) {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            GeometryReader { viewport in
+                ScrollView([.horizontal, .vertical]) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: viewport.size.width, height: viewport.size.height)
+                }
             }
             .background(Color.black.opacity(0.92))
             .navigationTitle(title.isEmpty ? "Image" : title)
