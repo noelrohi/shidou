@@ -306,7 +306,7 @@ struct ComposerView: View {
     // MARK: - Chips
 
     private var modelChip: some View {
-        ControlChip(systemImage: "cpu", action: { sheet = .model }) {
+        ControlChip(action: { sheet = .model }) {
             Text(selectedModel?.name ?? session.model ?? session.provider.displayName)
         }
         .disabled(session.status != .idle)
@@ -318,7 +318,6 @@ struct ComposerView: View {
         if let model = selectedModel, ComposerTraits.hasAny(model) {
             let fast = ComposerTraits.isFast(session, model)
             ControlChip(
-                systemImage: fast ? "bolt.fill" : "gauge.with.dots.needle.33percent",
                 tint: fast ? .yellow : nil,
                 action: { sheet = .traits }
             ) {

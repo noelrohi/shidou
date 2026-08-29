@@ -11,7 +11,10 @@ import SwiftUI
 /// A control-row chip. It scales with Dynamic Type and keeps a full-height hit
 /// region, so the row grows rather than the target shrinking.
 struct ControlChip<Label: View>: View {
-    let systemImage: String
+    /// Optional: the chips whose written label already says everything —
+    /// model and traits — carry no glyph, so the strip reads as words rather
+    /// than a row of competing symbols.
+    let systemImage: String?
     let tint: Color?
     /// Drops the written label and keeps the glyph. Reserved for the two
     /// controls whose state a single symbol says completely — access and
@@ -28,7 +31,7 @@ struct ControlChip<Label: View>: View {
     @ScaledMetric(relativeTo: .footnote) private var glyphWidth: CGFloat = 17
 
     init(
-        systemImage: String,
+        systemImage: String? = nil,
         tint: Color? = nil,
         iconOnly: Bool = false,
         action: @escaping () -> Void,
@@ -44,11 +47,13 @@ struct ControlChip<Label: View>: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(iconOnly ? .footnote : .caption2)
-                    .foregroundStyle(tint ?? .secondary)
-                    .frame(minWidth: iconOnly ? glyphWidth : nil)
-                    .accessibilityHidden(true)
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(iconOnly ? .footnote : .caption2)
+                        .foregroundStyle(tint ?? .secondary)
+                        .frame(minWidth: iconOnly ? glyphWidth : nil)
+                        .accessibilityHidden(true)
+                }
                 if !iconOnly {
                     label()
                         .font(.footnote)

@@ -203,10 +203,15 @@ private struct ActivityRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     statusGlyph
                     VStack(alignment: .leading, spacing: 2) {
+                        // One line, always. A row is an index of the turn's
+                        // work, and a wrapped shell command turns six of them
+                        // into a screenful; the whole command is one tap away
+                        // in the disclosure below.
                         Text(title)
                             .font(.callout)
                             .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if let stats = ActivityPresentation.fileChangeStats(activity) {
                             Text(verbatim: "+\(stats.additions) −\(stats.deletions)")
                                 .font(.caption2.monospacedDigit())
@@ -262,7 +267,7 @@ private struct ActivityRow: View {
 
     private var title: String {
         let label = ActivityPresentation.label(for: activity)
-        return ActivityCopy.sentence(label)
+        return ActivityCopy.sentence(label).oneLine
     }
 
     private var accessibilityLabel: String {
@@ -519,5 +524,17 @@ extension UInt64 {
         formatter.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+extension String {
+    /// Flattens a value onto one line. A multi-line command would otherwise
+    /// truncate at its first newline, hiding the rest behind no ellipsis at
+    /// all — the break is invisible, so the row looks complete when it is not.
+    var oneLine: String {
+        split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }

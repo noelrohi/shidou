@@ -290,6 +290,13 @@ struct ComposerSuggestions: View {
     let highlight: Int
     let accept: (ComposerAutocompleteRow) -> Void
 
+    /// The list is as tall as its rows, up to a cap. It starts at the cap so
+    /// the lazy stack has room to build the rows it then gets measured by;
+    /// a panel that opened at zero height would have nothing to measure.
+    @State private var contentHeight: CGFloat = maxPanelHeight
+
+    private static let maxPanelHeight: CGFloat = 210
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -311,13 +318,21 @@ struct ComposerSuggestions: View {
                         Divider().padding(.leading, 12)
                     }
                 }
+                .background {
+                    GeometryReader { content in
+                        Color.clear
+                            .onChange(of: content.size.height, initial: true) { _, height in
+                                contentHeight = height
+                            }
+                    }
+                }
             }
             .onChange(of: highlight) { _, index in
                 guard index < rows.count else { return }
                 proxy.scrollTo(rows[index].id, anchor: .center)
             }
         }
-        .frame(maxHeight: 210)
+        .frame(height: min(contentHeight, Self.maxPanelHeight))
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.separator) }
         .accessibilityLabel("Suggestions")
@@ -382,37 +397,47 @@ struct ComposerSuggestions: View {
 }
 
 /// One staged attachment. Images show their bytes once the daemon has handed
-/// them over; everything else shows its name.
+/// them over; everything else shows its name. A 64pt thumbnail is too small to
+/// check what you actually attached, so tapping one opens it full size.
 struct AttachmentTile: View {
     let attachment: MessageAttachment
     let store: SessionStore
     let remove: () -> Void
 
     @State private var image: UIImage?
+    @State private var previewing = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    VStack(spacing: 4) {
-                        Image(systemName: attachment.isDir ? "folder" : "doc")
-                            .foregroundStyle(.secondary)
-                        Text(attachment.name)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .padding(.horizontal, 4)
+            Button {
+                previewing = true
+            } label: {
+                Group {
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        VStack(spacing: 4) {
+                            Image(systemName: attachment.isDir ? "folder" : "doc")
+                                .foregroundStyle(.secondary)
+                            Text(attachment.name)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .padding(.horizontal, 4)
+                        }
                     }
                 }
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.separator) }
+                .contentShape(RoundedRectangle(cornerRadius: 10))
             }
-            .frame(width: 64, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.separator) }
+            .buttonStyle(.plain)
+            .disabled(image == nil)
+            .accessibilityHint(image == nil ? "" : String(localized: "Shows this image full size"))
 
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
@@ -426,11 +451,82 @@ struct AttachmentTile: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(attachment.name)
+        .sheet(isPresented: $previewing) {
+            if let image {
+                AttachmentPreviewSheet(name: attachment.name, image: image)
+            }
+        }
         .task(id: attachment.blobReference) {
             guard attachment.isImage, let data = try? await store.attachmentData(attachment) else {
                 return
             }
             image = UIImage(data: data)
         }
+    }
+}
+
+/// A staged image at full size. The same 1–6 zoom range as the Visuals
+/// detail view, so a picture behaves the same wherever the app shows one.
+private struct AttachmentPreviewSheet: View {
+    let name: String
+    let image: UIImage
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+
+    var body: some View {
+        NavigationStack {
+            ScrollView([.horizontal, .vertical]) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .frame(maxWidth: .infinity)
+                    .gesture(
+                        MagnifyGesture()
+                            .onChanged { scale = max(1, min(6, $0.magnification)) }
+                    )
+                    .accessibilityLabel(name)
+            }
+            .navigationTitle(name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+                // Pinching is the only way to zoom with a finger, so the same
+                // range needs keys behind it.
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button {
+                            zoom(by: 1.25)
+                        } label: {
+                            Label("Zoom in", systemImage: "plus.magnifyingglass")
+                        }
+                        .keyboardShortcut("+", modifiers: .command)
+                        Button {
+                            zoom(by: 0.8)
+                        } label: {
+                            Label("Zoom out", systemImage: "minus.magnifyingglass")
+                        }
+                        .keyboardShortcut("-", modifiers: .command)
+                        Button {
+                            scale = 1
+                        } label: {
+                            Label("Reset zoom", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                        }
+                        .disabled(scale == 1)
+                        .keyboardShortcut("0", modifiers: .command)
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                    }
+                    .accessibilityLabel("Zoom")
+                }
+            }
+        }
+    }
+
+    private func zoom(by factor: CGFloat) {
+        scale = max(1, min(6, scale * factor))
     }
 }
