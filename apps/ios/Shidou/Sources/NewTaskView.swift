@@ -9,9 +9,18 @@ import SwiftUI
 /// they started a task with, because reconfiguring the same model on every new
 /// task is the tax a phone can least afford.
 struct NewTaskView: View {
+    /// The task that was open when New Task was chosen. Its project and
+    /// composer setup seed this draft without coupling the new transcript to
+    /// the old task's history or worktree.
+    let sourceSessionId: UUID?
     /// Passed through to the transcript, whose toolbar hosts the drawer
     /// button on iPhone.
     var opensDrawer: (() -> Void)?
+
+    init(sourceSessionId: UUID? = nil, opensDrawer: (() -> Void)? = nil) {
+        self.sourceSessionId = sourceSessionId
+        self.opensDrawer = opensDrawer
+    }
 
     @Environment(DaemonConnection.self) private var connection
 
@@ -57,24 +66,51 @@ struct NewTaskView: View {
     }
 
     private func makeDraft() {
-        guard draft == nil, let store, let project = preferredProject(in: store) else { return }
+        guard draft == nil, let store else { return }
+        let source = sourceSession(in: store)
+        guard let project = preferredProject(in: store, source: source) else { return }
+
         let preferences = ComposerPreferenceStore().preferences(for: connection.preferenceKey)
+        // Unknown providers can survive in an older catalog, but cannot seed a
+        // runnable task in this build.
+        let template = source?.provider == .unknown ? nil : source
         var session = newSession(
             projectId: project.id,
-            provider: preferences.lastProvider,
+            provider: template?.provider ?? preferences.lastProvider,
             isolated: project.workspaceDefault == .newWorktree
         )
-        session.model = preferences.lastModel
-        session.reasoningEffort = preferences.lastReasoningEffort
-        session.serviceTier = preferences.lastServiceTier
-        session.contextWindow = preferences.lastContextWindow
+        if let template {
+            session.model = template.model
+            session.reasoningEffort = template.reasoningEffort
+            session.serviceTier = template.serviceTier
+            session.contextWindow = template.contextWindow
+            session.runtimeMode = template.runtimeMode
+            session.interactionMode = template.interactionMode
+            session.agentPreset = template.agentPreset
+        } else {
+            session.model = preferences.lastModel
+            session.reasoningEffort = preferences.lastReasoningEffort
+            session.serviceTier = preferences.lastServiceTier
+            session.contextWindow = preferences.lastContextWindow
+        }
         draft = session
         store.adopt(session)
     }
 
-    /// The project the last task ran in, so ＋ opens where work was left. The
-    /// scratch workspace is never the default — it is something you ask for.
-    private func preferredProject(in store: SessionStore) -> Project? {
+    private func sourceSession(in store: SessionStore) -> AgentSession? {
+        guard let sourceSessionId else { return nil }
+        return store.open[sourceSessionId]?.currentProjection
+            ?? store.sessions.first { $0.id == sourceSessionId }
+    }
+
+    /// Prefer the task the user came from. A fresh task follows the project's
+    /// workspace default; it never reuses the source task's worktree.
+    private func preferredProject(in store: SessionStore, source: AgentSession?) -> Project? {
+        let sourceProject = source.flatMap { session in
+            store.projects.first { $0.id == session.projectId }
+        }
+        if let sourceProject { return sourceProject }
+
         let recent = store.sessions.first.flatMap { session in
             store.projects.first { $0.id == session.projectId }
         }

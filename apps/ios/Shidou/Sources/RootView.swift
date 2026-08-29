@@ -23,6 +23,9 @@ struct RootView: View {
     @State private var settingsPresentation = 0
     @State private var selection: UUID?
     @State private var showingDraft = false
+    /// The task New Task was opened from. Kept separately because presenting
+    /// the draft clears `selection`.
+    @State private var draftSourceSessionId: UUID?
     /// iPhone only: the drawer over the task screen.
     @State private var showingDrawer = false
     /// Both columns, rather than `.automatic`: with an explicit binding a
@@ -149,7 +152,8 @@ struct RootView: View {
                 onSettings: {
                     settingsPresentation += 1
                     showingSettings = true
-                }
+                },
+                onNewTask: startNewTask
             )
         } content: {
             ZStack(alignment: .top) {
@@ -169,7 +173,7 @@ struct RootView: View {
     @ViewBuilder
     private var compactRoot: some View {
         if showingDraft, selection == nil {
-            NewTaskView(opensDrawer: openDrawer)
+            NewTaskView(sourceSessionId: draftSourceSessionId, opensDrawer: openDrawer)
         } else if let selection {
             TranscriptView(sessionId: selection, opensDrawer: openDrawer)
                 .id(selection)
@@ -210,8 +214,7 @@ struct RootView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    selection = nil
-                    showingDraft = true
+                    startNewTask()
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -238,16 +241,23 @@ struct RootView: View {
     /// read the same state, so this is the whole story again.
     private func open(_ sessionId: UUID) {
         showingDraft = false
+        draftSourceSessionId = nil
         selection = sessionId
         withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.86)) {
             showingDrawer = false
         }
     }
 
+    private func startNewTask() {
+        draftSourceSessionId = selection
+        selection = nil
+        showingDraft = true
+    }
+
     @ViewBuilder
     private var detailColumn: some View {
         if showingDraft, selection == nil {
-            NewTaskView()
+            NewTaskView(sourceSessionId: draftSourceSessionId)
         } else if let selection {
             TranscriptView(sessionId: selection)
                 .id(selection)

@@ -16,6 +16,7 @@ struct SessionsDrawer: View {
     @Binding var showingDraft: Bool
     @Binding var isPresented: Bool
     let onSettings: () -> Void
+    let onNewTask: () -> Void
 
     @Environment(DaemonConnection.self) private var connection
     @Environment(\.displayScale) private var displayScale
@@ -120,8 +121,7 @@ struct SessionsDrawer: View {
     }
 
     private func newTask() {
-        selection = nil
-        showingDraft = true
+        onNewTask()
         dismiss()
     }
 
