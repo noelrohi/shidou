@@ -49,9 +49,11 @@ carries correct values without the script.)
 `--upload` needs an App Store Connect API key (`--api-key-id` +
 `--api-issuer`, plus `--api-key-path` unless `AuthKey_<id>.p8` already sits
 in `./private_keys/`, `~/private_keys/`, `~/.private_keys/`, or
-`~/.appstoreconnect/private_keys/`). Create the key in App Store Connect
-under **Users and Access → Integrations**, with the **App Manager** role —
-that role is what allows the app-record creation and the upload.
+`~/.appstoreconnect/private_keys/`). Prefer the last, user-level location and
+set `SHIDOU_ASC_API_KEY_PATH` in `.env`; the release script points altool at
+that directory without copying the key into the checkout. Create the key in
+App Store Connect under **Users and Access → Integrations**, with the **App
+Manager** role — that role allows app-record creation and upload.
 
 Two permission snags, both fixed in the dashboard, that only surface at
 export time:

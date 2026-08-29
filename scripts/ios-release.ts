@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun";
-import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { derivedBuildNumber, findPackageVersion, parseVersion } from "./version";
 import { AscApi } from "./asc";
@@ -60,8 +60,7 @@ Options:
   --api-key-id <id>      ASC API key id (or SHIDOU_ASC_API_KEY_ID)
   --api-issuer <id>      ASC API issuer id (or SHIDOU_ASC_API_ISSUER_ID)
   --api-key-path <path>  Path to the AuthKey_<id>.p8 file (or
-                         SHIDOU_ASC_API_KEY_PATH); copied into ./private_keys,
-                         where altool looks for it
+                         SHIDOU_ASC_API_KEY_PATH); altool reads it in place
   --profile <name>       Export with manual signing against this provisioning
                          profile (App Store type). Needed when cloud signing is
                          unavailable — Apple does not serve profile content to
@@ -101,12 +100,11 @@ ${manualKeys}\t<key>stripSwiftSymbols</key>
 `;
 }
 
-/** The paths altool searches for `AuthKey_<id>.p8`, cwd-relative first. */
+/** The standard directories altool searches for `AuthKey_<id>.p8`. */
 export function uploadKeyPaths(keyId: string): string[] {
   const home = homedir();
   const name = `AuthKey_${keyId}.p8`;
   return [
-    name,
     join("private_keys", name),
     join(home, "private_keys", name),
     join(home, ".private_keys", name),
@@ -177,9 +175,15 @@ async function main(): Promise<void> {
     );
   }
   if (apiKeyPath && !apiKeyId) {
+    throw new Error("--api-key-path needs --api-key-id.");
+  }
+  if (
+    apiKeyPath &&
+    apiKeyId &&
+    basename(apiKeyPath) !== `AuthKey_${apiKeyId}.p8`
+  ) {
     throw new Error(
-      "--api-key-path needs --api-key-id so the key can be filed under its " +
-        "AuthKey_<id>.p8 name.",
+      `--api-key-path must point to AuthKey_${apiKeyId}.p8 so altool can find it.`,
     );
   }
   if (explicitBuildNumber && !/^\d+(?:\.\d+){0,2}$/.test(explicitBuildNumber)) {
@@ -195,12 +199,7 @@ async function main(): Promise<void> {
       const absolute = resolve(apiKeyPath);
       return existsSync(absolute) ? absolute : null;
     }
-    return (
-      // Skip the bare filename entry — only directory paths are real search
-      // locations for an existing key.
-      uploadKeyPaths(apiKeyId).find((p) => p.includes("/") && existsSync(p)) ??
-      null
-    );
+    return uploadKeyPaths(apiKeyId).find((path) => existsSync(path)) ?? null;
   }
 
   /** xcodebuild's authentication flags. Without an API key it still passes
@@ -373,18 +372,19 @@ async function main(): Promise<void> {
     throw new Error("Upload requires an App Store Connect API key.");
   }
   await ensureAppRecordExists();
-  // altool has no --api-key-path flag; it searches ./private_keys first.
-  if (apiKeyPath) {
-    await mkdir("private_keys", { recursive: true });
-    await copyFile(resolve(apiKeyPath), uploadKeyPaths(apiKeyId)[0]!);
-  }
-  if (!findApiKey()) {
+  const uploadKeyPath = findApiKey();
+  if (!uploadKeyPath) {
     throw new Error(
       `AuthKey_${apiKeyId}.p8 not found in any standard location ` +
         `(${uploadKeyPaths(apiKeyId).join(", ")}); pass --api-key-path.`,
     );
   }
-  await $`xcrun altool --upload-app --type ios -f ${ipaPath} --apiKey ${apiKeyId} --apiIssuer ${apiIssuer}`;
+  // altool has no path flag, but it honors API_PRIVATE_KEYS_DIR. Point it at
+  // the configured key instead of copying a credential into the repository.
+  await $`xcrun altool --upload-app --type ios -f ${ipaPath} --apiKey ${apiKeyId} --apiIssuer ${apiIssuer}`.env({
+    ...process.env,
+    API_PRIVATE_KEYS_DIR: dirname(resolve(uploadKeyPath)),
+  });
 
   console.log(
     `\nShidou iOS ${version} (build ${buildNumber}) uploaded. App Store Connect ` +

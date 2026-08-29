@@ -35,14 +35,14 @@ describe("exportOptionsPlist", () => {
 describe("uploadKeyPaths", () => {
   test("returns every standard AuthKey search path for the key id", () => {
     const paths = uploadKeyPaths("ABC123");
-    expect(paths).toContain("AuthKey_ABC123.p8");
+    expect(paths).toContain("private_keys/AuthKey_ABC123.p8");
     expect(paths.some((p) => p.endsWith("/.appstoreconnect/private_keys/AuthKey_ABC123.p8"))).toBe(
       true,
     );
     expect(paths.some((p) => p.endsWith("/private_keys/AuthKey_ABC123.p8"))).toBe(true);
   });
 
-  test("orders the cwd-relative path first", () => {
-    expect(uploadKeyPaths("ABC123")[0]).toBe("AuthKey_ABC123.p8");
+  test("never treats the repository root as key storage", () => {
+    expect(uploadKeyPaths("ABC123")).not.toContain("AuthKey_ABC123.p8");
   });
 });

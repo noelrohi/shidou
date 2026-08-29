@@ -54,10 +54,12 @@ bun run ios-release --upload --build-number <n> --profile "Shidou TestFlight 202
   the profile was created via the API and installed locally (2027 expiry). If
   the upload fails with a *cloud signing permission error*, the profile name
   is the missing flag — it is not a certificate problem.
-- **Credentials**: `.env` carries the ASC key id/issuer; the `.p8` lives in
-  `private_keys/`. If a key file is ever found sitting at the repo root, move
-  it into `private_keys/` — it is one careless `git add` away from being
-  committed. Never print key contents.
+- **Credentials**: `.env` carries the ASC key id/issuer and
+  `SHIDOU_ASC_API_KEY_PATH`; keep the `.p8` at
+  `~/.appstoreconnect/private_keys/AuthKey_<id>.p8`. The release script points
+  altool there with `API_PRIVATE_KEYS_DIR` and never copies credentials into
+  the repository. If a key is found in the checkout, move it to that user-level
+  directory before continuing. Never print key contents.
 
 ## 3. Poll until it is live
 
