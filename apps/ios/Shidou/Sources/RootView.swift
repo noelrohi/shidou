@@ -6,7 +6,7 @@ import SwiftUI
 /// The navigation spine. iPad keeps the split view — its sidebar *is* the
 /// session list. iPhone drops the sessions page entirely: the task is the
 /// screen, and a slide-in drawer (the shape Claude's iOS app normalized) is
-/// the task switcher. Nothing open means the drawer is open.
+/// the task switcher. Nothing open means the most recent task opens.
 ///
 /// Both size classes now carry "which task" the same way — a selection and a
 /// draft flag — so crossing the boundary keeps the open task in place.
@@ -73,6 +73,20 @@ struct RootView: View {
         }
         .task(id: connection.sessions.map(ObjectIdentifier.init)) {
             attention.follow(connection.sessions)
+        }
+        // "Nothing open" is not a state worth a screen. As soon as the catalog
+        // lands the app opens the task the user last touched, and only a
+        // genuinely empty catalog falls through — to a draft on the phone,
+        // where there is no list beside the transcript to explain the blank.
+        .onChange(of: taskToAdopt, initial: true) { _, adoption in
+            switch adoption {
+            case .undecided:
+                break
+            case .noTasks:
+                if sizeClass != .regular { showingDraft = true }
+            case .mostRecent(let sessionId):
+                selection = sessionId
+            }
         }
         // A tapped notification is a request to look at that task, whichever
         // screen the app came back to.
@@ -150,11 +164,6 @@ struct RootView: View {
                 if case .inlineIndicator = connection.presentation { ReconnectingBar() }
             }
         }
-        .onAppear {
-            // Nothing open means the drawer is the screen: the launch state of
-            // the phone is the drawer, the way a fresh visit lands on Chats.
-            if selection == nil, !showingDraft { showingDrawer = true }
-        }
     }
 
     @ViewBuilder
@@ -165,14 +174,11 @@ struct RootView: View {
             TranscriptView(sessionId: selection, opensDrawer: openDrawer)
                 .id(selection)
         } else {
-            ContentUnavailableView {
-                Label("No task open", systemImage: "text.bubble")
-            } description: {
-                Text("Pick a task from the drawer, or start a new one.")
-            } actions: {
-                Button("Browse tasks") { openDrawer() }
-                Button("New task") { showingDraft = true }
-            }
+            // Only ever a moment long: the catalog is still loading, and the
+            // frame it lands on picks the task. A screen that asks the user to
+            // choose would be a screen they never needed to see.
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -214,6 +220,20 @@ struct RootView: View {
         }
     }
 
+    /// What the app should open when nothing is open yet.
+    ///
+    /// Deliberately inert once something *is* open: the guard returns before
+    /// any session is read, so a streaming transcript does not invalidate the
+    /// spine on every commit.
+    private var taskToAdopt: TaskAdoption {
+        guard selection == nil, !showingDraft else { return .undecided }
+        guard let store = connection.sessions, store.hasLoadedCatalog else { return .undecided }
+        guard let recent = store.sessions.max(by: { $0.updatedAt < $1.updatedAt }) else {
+            return .noTasks
+        }
+        return .mostRecent(recent.id)
+    }
+
     /// Shows one task, from wherever the app currently is. Both size classes
     /// read the same state, so this is the whole story again.
     private func open(_ sessionId: UUID) {
@@ -239,6 +259,14 @@ struct RootView: View {
             )
         }
     }
+}
+
+/// What the spine opens on its own when the user has not picked anything.
+private enum TaskAdoption: Equatable {
+    /// The catalog has not landed yet, or a task is already open.
+    case undecided
+    case noTasks
+    case mostRecent(UUID)
 }
 
 /// Settings is a modal stack, reset to root each time it opens. Recreating the
