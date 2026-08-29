@@ -868,6 +868,34 @@ extension SessionStore {
         return data
     }
 
+    /// The bytes behind a transcript image, which a provider reports either as
+    /// a stored blob or as a path on the daemon host.
+    public func imageData(reference: String) async throws -> Data {
+        let command: Command = reference.hasPrefix(AttachmentLimits.blobScheme)
+            ? .readBlob(reference: reference)
+            : .readAttachment(reference: reference, path: reference)
+        guard case .blobData(let data) = try await request(command) else {
+            throw ShidouSessionError.unexpectedResponse(expected: "blobData")
+        }
+        return data
+    }
+
+    /// The bytes behind a file on the daemon host, imported once so the phone
+    /// can read it back the same way it reads any attachment.
+    public func imageData(daemonPath path: String) async throws -> Data {
+        guard case .attachmentStored(let attachment) = try await request(
+            .importPathAttachment(path: path)
+        ) else {
+            throw ShidouSessionError.unexpectedResponse(expected: "attachmentStored")
+        }
+        guard case .blobData(let data) = try await request(
+            .readAttachment(reference: attachment.reference, path: attachment.path)
+        ) else {
+            throw ShidouSessionError.unexpectedResponse(expected: "blobData")
+        }
+        return data
+    }
+
     // MARK: - Worktrees
 
     /// Turns a planned worktree into a real one. This is the moment a task

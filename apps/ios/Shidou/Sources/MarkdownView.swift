@@ -65,13 +65,10 @@ struct MarkdownBlockView: View {
             )
         case .thematicBreak:
             Divider()
-        case .image(_, let alt):
-            // Remote images live on the daemon host and load through the blob
-            // path, which the Surfaces Sheet owns in slice ③. Until then the
-            // alt text is what the transcript can honestly show.
-            Label(alt.isEmpty ? "Image" : alt, systemImage: "photo")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        case .image(let source, let alt):
+            // Images on the daemon host load through the blob path; the alt
+            // text stands in until the bytes land, and stays if they cannot.
+            MarkdownImageView(source: source, alt: alt)
         case .html(let raw):
             Text(raw)
                 .font(.system(.footnote, design: .monospaced))
