@@ -22,5 +22,8 @@
     "license-checker-rseidelsohn": "4.4.2",
     "typescript": "^7.0.2"
   },
-  "workspaces": ["website", "apps/*", "packages/*"]
+  "workspaces": ["website", "apps/*", "packages/*"],
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  }
 }
