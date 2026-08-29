@@ -971,6 +971,28 @@
         }
       }
     },
+    "Background work: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンド作業：%@"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gawain sa background: %@"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台工作：%@"
+          }
+        }
+      }
+    },
     "Binary file": {
       "localizations": {
         "ja": {
@@ -1962,6 +1984,28 @@
         }
       }
     },
+    "Copy message": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをコピー"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyahin ang mensahe"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制消息"
+          }
+        }
+      }
+    },
     "Copy response": {
       "localizations": {
         "ja": {
@@ -2774,6 +2818,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "耗时"
+          }
+        }
+      }
+    },
+    "Edit and send again": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集して送り直す"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I-edit at ipadalang muli"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑并重新发送"
           }
         }
       }
@@ -3660,6 +3726,94 @@
         }
       }
     },
+    "Fork task from here": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここからタスクを分岐"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumanga ng gawain mula rito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此处分叉任务"
+          }
+        }
+      }
+    },
+    "Fork task from this answer": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この回答からタスクを分岐"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumanga ng gawain mula sa sagot na ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此回复分叉任务"
+          }
+        }
+      }
+    },
+    "Forked, but the workspace checkpoint could not be restored: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分岐しましたが、ワークスペースのチェックポイントを復元できませんでした：%@"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasanga, ngunit hindi maibalik ang checkpoint ng workspace: %@"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已分叉，但无法恢复工作区检查点：%@"
+          }
+        }
+      }
+    },
+    "Forking task": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを分岐中"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinasanga ang gawain"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在分叉任务"
+          }
+        }
+      }
+    },
     "Full access": {
       "localizations": {
         "ja": {
@@ -3902,6 +4056,28 @@
         }
       }
     },
+    "Image": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larawan"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片"
+          }
+        }
+      }
+    },
     "Image output": {
       "localizations": {
         "ja": {
@@ -3920,6 +4096,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "图片输出"
+          }
+        }
+      }
+    },
+    "Image unavailable": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を読み込めません"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hindi mabuksan ang larawan"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片不可用"
           }
         }
       }
@@ -4627,6 +4825,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "消息"
+          }
+        }
+      }
+    },
+    "Message copied": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをコピーしました"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakopya ang mensahe"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息已复制"
           }
         }
       }
@@ -5710,6 +5930,72 @@
         }
       }
     },
+    "Opens the image full screen": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を全画面で開きます"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binubuksan ang larawan sa buong screen"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏打开图片"
+          }
+        }
+      }
+    },
+    "Opens this process": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロセスを開きます"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binubuksan ang prosesong ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开该进程"
+          }
+        }
+      }
+    },
+    "Opens this turn's diff": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターンの差分を開きます"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binubuksan ang diff ng turn na ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开本轮的差异"
+          }
+        }
+      }
+    },
     "Or paste the new token": {
       "localizations": {
         "ja": {
@@ -6392,6 +6678,28 @@
         }
       }
     },
+    "Quote in composer": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄に引用"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sipiin sa composer"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引用到输入框"
+          }
+        }
+      }
+    },
     "Ran %@": {
       "localizations": {
         "ja": {
@@ -6965,6 +7273,138 @@
         }
       }
     },
+    "Review": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suriin"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看"
+          }
+        }
+      }
+    },
+    "Review these changes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この変更を確認"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suriin ang mga pagbabagong ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看这些更改"
+          }
+        }
+      }
+    },
+    "Rewind and send": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "巻き戻して送信"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ibalik at ipadala"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回退并发送"
+          }
+        }
+      }
+    },
+    "Rewinding task": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを巻き戻し中"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ibinabalik ang gawain"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在回退任务"
+          }
+        }
+      }
+    },
+    "Rewinds the task to this prompt": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロンプトまでタスクを巻き戻します"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ibinabalik ang gawain sa prompt na ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将任务回退到此提示"
+          }
+        }
+      }
+    },
+    "Rewound, but some checkpoints could not be cleaned up: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "巻き戻しましたが、一部のチェックポイントを整理できませんでした：%@"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naibalik, ngunit may mga checkpoint na hindi nalinis: %@"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回退，但部分检查点未能清理：%@"
+          }
+        }
+      }
+    },
     "Role": {
       "localizations": {
         "ja": {
@@ -7468,6 +7908,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "发送反馈"
+          }
+        }
+      }
+    },
+    "Sending rewinds the task to this prompt": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信するとこのプロンプトまで巻き戻ります"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ang pagpapadala ay ibabalik ang gawain sa prompt na ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送将把任务回退到此提示"
           }
         }
       }
@@ -8072,6 +8534,28 @@
         }
       }
     },
+    "Starts a new task from the work up to this answer": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この回答までの作業から新しいタスクを開始します"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nagsisimula ng bagong gawain mula sa trabahong hanggang sa sagot na ito"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以此回复之前的工作开始一个新任务"
+          }
+        }
+      }
+    },
     "Status": {
       "localizations": {
         "ja": {
@@ -8464,6 +8948,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "任务"
+          }
+        }
+      }
+    },
+    "Task history": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク履歴"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kasaysayan ng gawain"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务历史"
           }
         }
       }
