@@ -121,7 +121,7 @@ struct SessionListView: View {
                 Section {
                     if !collapsed.contains(group.key) {
                         ForEach(group.items) { item in
-                            row(item, group: group)
+                            row(item)
                         }
                         if group.hasMore {
                             showMore(group)
@@ -155,15 +155,14 @@ struct SessionListView: View {
 
     // MARK: - Rows
 
-    private func row(_ item: SessionListItem, group: SessionListGroup) -> some View {
+    private func row(_ item: SessionListItem) -> some View {
         let selected = selection == item.session.id
         return Button {
             selection = item.session.id
         } label: {
             SessionRow(
                 item: item,
-                now: UInt64(now.timeIntervalSince1970),
-                inFolder: group.isFolder
+                now: UInt64(now.timeIntervalSince1970)
             )
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -404,112 +403,138 @@ private struct GroupHeader: View {
     }
 }
 
-/// One task, at the density the web sidebar settled on: the title with its
-/// status beside it, and one metadata line saying where the task lives and
-/// when it last said something.
+/// One task in one compact line: title, provider, then state and time.
 struct SessionRow: View {
     let item: SessionListItem
     let now: UInt64
-    /// Inside a project section the project name is the header, so the line
-    /// says the branch instead of repeating it.
-    var inFolder = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(displayTitle(item.session))
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                statusGlyph
+        HStack(spacing: 7) {
+            Text(displayTitle(item.session))
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            providerLabel
+
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
+
+                if !timeLabel.isEmpty {
+                    Text(timeLabel)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
             }
-            metadata
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var metadata: some View {
-        HStack(spacing: 5) {
-            if inFolder {
-                if let branch = item.branch {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10))
-                        .accessibilityHidden(true)
-                    Text(branch).lineLimit(1)
-                }
-            } else {
-                Image(systemName: "folder")
-                    .font(.system(size: 10))
-                    .accessibilityHidden(true)
-                Text(item.projectName).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            if !statusLabel.isEmpty {
-                Text(statusLabel)
-                    .monospacedDigit()
-                    .foregroundStyle(statusTint)
-                    .lineLimit(1)
-            }
+    private var providerLabel: some View {
+        HStack(spacing: 4) {
+            providerImage
+                .frame(width: 11, height: 11)
+                .accessibilityHidden(true)
+            Text(item.session.provider.sidebarName)
+                .lineLimit(1)
         }
-        .font(.caption2)
+        .font(.caption2.weight(.medium))
         .foregroundStyle(.tertiary)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// A Waiting Session is marked with a glyph *and* a sentence, never with a
-    /// colour alone: the whole point of the mark is that it must not be
-    /// missable.
     @ViewBuilder
-    private var statusGlyph: some View {
-        switch item.session.status {
-        case .working, .connecting:
-            if reduceMotion {
-                Image(systemName: "circle.dotted")
-                    .font(.caption2)
-                    .foregroundStyle(.tint)
-            } else {
-                ProgressView().controlSize(.mini)
-            }
-        case .waiting:
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-        case .failed:
-            Image(systemName: "xmark.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.red)
-        case .idle, .unknown:
-            EmptyView()
+    private var providerImage: some View {
+        if let assetName = item.session.provider.assetName {
+            Image(assetName)
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+        } else {
+            Image(systemName: "terminal")
+                .resizable()
+                .scaledToFit()
         }
     }
 
-    private var statusTint: HierarchicalShapeStyle {
-        item.session.status == .idle ? .quaternary : .tertiary
+    private var statusColor: Color {
+        switch item.session.status {
+        case .connecting, .working: .accentColor
+        case .waiting: .orange
+        case .failed: .red
+        case .idle, .unknown: .secondary.opacity(0.45)
+        }
     }
 
-    private var statusLabel: String {
+    private var timeLabel: String {
         switch SessionListPresentation.rowStatus(item.session, now: now) {
-        case .waiting:
-            return String(localized: "Waiting for you")
-        case .failed:
-            return String(localized: "Stopped")
-        case .working(let elapsed):
-            return elapsed.durationShortLabel
-        case .replied(let ago):
-            return ago.agoLabel
-        case .none:
-            return ""
+        case .working(let elapsed): elapsed.durationShortLabel
+        case .waiting, .failed, .replied:
+            item.session.lastReplyAt.map { Int(now > $0 ? now - $0 : 0).agoLabel } ?? ""
+        case .none: ""
+        }
+    }
+
+    private var statusDescription: String {
+        switch item.session.status {
+        case .connecting: String(localized: "Connecting")
+        case .working: String(localized: "Working")
+        case .waiting: String(localized: "Waiting for you")
+        case .failed: String(localized: "Stopped")
+        case .idle: String(localized: "Idle")
+        case .unknown: String(localized: "Unknown status")
         }
     }
 
     private var accessibilityLabel: String {
-        var parts = [displayTitle(item.session), item.projectName]
+        var parts = [
+            displayTitle(item.session),
+            item.projectName,
+            item.session.provider.displayName,
+            statusDescription,
+        ]
         if let branch = item.branch { parts.append(String(localized: "on branch \(branch)")) }
-        if !statusLabel.isEmpty { parts.append(statusLabel) }
+        if !timeLabel.isEmpty { parts.append(timeLabel) }
         return parts.joined(separator: ", ")
+    }
+}
+
+private extension ProviderKind {
+    var sidebarName: String {
+        switch self {
+        case .claude: "Claude Code"
+        case .codex: "Codex"
+        case .deepSeek: "DeepSeek"
+        case .openCode: "OpenCode"
+        case .ohMyPi: "Oh My Pi"
+        case .unknown: "Agent"
+        default: displayName
+        }
+    }
+
+    var assetName: String? {
+        switch self {
+        case .amp: "ProviderAmp"
+        case .claude: "ProviderClaude"
+        case .codex: "ProviderCodex"
+        case .cursor: "ProviderCursor"
+        case .deepSeek: "ProviderDeepSeek"
+        case .fx: "ProviderFx"
+        case .openCode: "ProviderOpenCode"
+        case .grok: "ProviderGrok"
+        case .kimi: "ProviderKimi"
+        case .ohMyPi: "ProviderOhMyPi"
+        case .pi: "ProviderPi"
+        case .unknown: nil
+        }
     }
 }
 
