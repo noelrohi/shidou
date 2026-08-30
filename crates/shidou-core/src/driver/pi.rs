@@ -48,6 +48,20 @@ pub enum PiFlavor {
     OhMyPi,
 }
 
+fn prompt_request(flavor: PiFlavor, prompt: String) -> Value {
+    match flavor {
+        // `agent_settled` reaches clients just before Pi clears its internal
+        // processing flag. A prompt submitted in that gap is a real next turn,
+        // so let Pi hold it briefly instead of rejecting it as concurrent work.
+        PiFlavor::Pi => json!({
+            "type": "prompt",
+            "message": prompt,
+            "streamingBehavior": "followUp"
+        }),
+        PiFlavor::OhMyPi => json!({"type": "prompt", "message": prompt}),
+    }
+}
+
 impl PiFlavor {
     fn display_name(self) -> &'static str {
         match self {
@@ -502,7 +516,7 @@ impl PiDriver {
                                 &mut stdin,
                                 &writer_pending,
                                 &mut next_request_id,
-                                json!({"type": "prompt", "message": prompt}),
+                                prompt_request(flavor, prompt),
                             );
                             if let Err(error) = result {
                                 let _ = writer_events.send(DriverEvent::Error(tr!(
@@ -1789,6 +1803,22 @@ mod tests {
             Arc::new(Mutex::new(HashMap::new())),
             PiStreamState::default(),
         )
+    }
+
+    #[test]
+    fn prompts_follow_up_if_pi_is_still_settling_the_previous_run() {
+        assert_eq!(
+            prompt_request(PiFlavor::Pi, "next turn".into()),
+            json!({
+                "type": "prompt",
+                "message": "next turn",
+                "streamingBehavior": "followUp"
+            })
+        );
+        assert_eq!(
+            prompt_request(PiFlavor::OhMyPi, "next turn".into()),
+            json!({"type": "prompt", "message": "next turn"})
+        );
     }
 
     #[test]
