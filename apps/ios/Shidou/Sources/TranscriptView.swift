@@ -28,10 +28,14 @@ struct TranscriptView: View {
     /// is its only door. iPad's split view has a real sidebar, so it leaves
     /// this nil and the item does not appear.
     var opensDrawer: (() -> Void)?
+    /// Starts a task from this one. Nil on a draft: there is nothing newer
+    /// than the task that does not exist yet.
+    var onNewTask: (() -> Void)?
 
-    init(sessionId: UUID, opensDrawer: (() -> Void)? = nil) {
+    init(sessionId: UUID, opensDrawer: (() -> Void)? = nil, onNewTask: (() -> Void)? = nil) {
         self.source = .existing(sessionId)
         self.opensDrawer = opensDrawer
+        self.onNewTask = onNewTask
     }
 
     init(draft: AgentSession, opensDrawer: (() -> Void)? = nil) {
@@ -601,16 +605,14 @@ struct TranscriptView: View {
                     "\(snapshot.additions) added, \(snapshot.deletions) removed")
             }
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                showingSurfaces.toggle()
-            } label: {
-                Image(systemName: "info.circle")
+        if let onNewTask {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onNewTask) {
+                    Image(systemName: "plus")
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                .accessibilityLabel("New task")
             }
-            .disabled(model.flatMap { store?.cwd(for: $0.session) } == nil)
-            .keyboardShortcut("0", modifiers: .command)
-            .accessibilityLabel("Files and changes")
-            .accessibilityHint("Opens files, changes, visuals and background work")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -624,6 +626,15 @@ struct TranscriptView: View {
 
     @ViewBuilder
     private var overflowMenuContents: some View {
+        Button {
+            showingSurfaces.toggle()
+        } label: {
+            Label("Files and changes", systemImage: "info.circle")
+        }
+        .disabled(model.flatMap { store?.cwd(for: $0.session) } == nil)
+        .keyboardShortcut("0", modifiers: .command)
+        .accessibilityHint("Opens files, changes, visuals and background work")
+        Divider()
         Button {
             isFinding = true
             currentMatch = nil

@@ -106,12 +106,12 @@ final class SessionListPresentationTests: XCTestCase {
         XCTAssertEqual(SessionListPresentation.rowStatus(waiting, now: 100), .waiting)
     }
 
-    /// Ticking every row every second on a phone is a battery bug. Only a
-    /// running turn needs one-second updates.
-    func testRefreshDelayIsOneSecondOnlyWhileATurnRuns() {
+    /// Ticking every row every second on a phone is a battery bug. A running
+    /// turn shows a spinner rather than seconds, so it asks for no timer.
+    func testRefreshDelayDoesNotTickForARunningTurn() {
         var working = session(status: .working)
         working.turns = [AgentTurn(turnCount: 1, status: .running, startedAt: 0)]
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             SessionListPresentation.nextRefreshDelay([working], now: now, calendar: calendar), 1
         )
 

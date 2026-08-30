@@ -224,10 +224,14 @@ public final class SessionStore {
             buffered[event.sessionId, default: []].append(event)
             return
         }
-        guard let model = open[event.sessionId] else { return }
+        guard let model = open[event.sessionId] else {
+            reflectInCatalog(event)
+            return
+        }
         applySteerVerdict(event, to: model)
         let result = model.apply(event)
         guard let result else { return }
+        reflectInCatalog(model.currentProjection)
         if result.settled || result.removeRuntime {
             persist(model.currentProjection)
             refreshWorkspace(for: model.currentProjection, force: true)
@@ -241,6 +245,32 @@ public final class SessionStore {
     }
 
     // MARK: - Catalog
+
+    /// The list reads catalog rows, not open projections, and the daemon only
+    /// re-sends the catalog when a projection is persisted — which is at the
+    /// end of a turn, not the start. So a turn that starts, blocks, or settles
+    /// has to reach the row here, for every session: the second task working
+    /// in the background is exactly the one the list exists to show.
+    private func reflectInCatalog(_ event: SequencedEvent) {
+        guard let index = sessions.firstIndex(where: { $0.id == event.sessionId }),
+            !runtimeEventAlreadyApplied(session: sessions[index], event: event)
+        else { return }
+        reflectInCatalog(reduceRuntimeEvent(sessions[index], event).session)
+    }
+
+    private func reflectInCatalog(_ session: AgentSession) {
+        guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
+        let current = sessions[index]
+        // Streaming text lands as one event per delta; the row only changes
+        // when its state does, and `sessions` is observed by every list.
+        guard current.status != session.status
+            || current.lastReplyAt != session.lastReplyAt
+            || current.turns.last != session.turns.last
+            || current.title != session.title
+            || current.autoTitle != session.autoTitle
+        else { return }
+        sessions[index] = merged(listProjection: current, with: session)
+    }
 
     public func refreshCatalog() {
         catalogGeneration &+= 1
@@ -457,7 +487,8 @@ public final class SessionStore {
 
     /// The catalog row carries no transcript, so a rename must not overwrite
     /// it with a hydrated session's messages — or the list would grow a copy
-    /// of every open transcript.
+    /// of every open transcript. The latest turn does come along: it is what
+    /// tells the row a turn is running, and one turn is not a transcript.
     private func merged(listProjection: AgentSession, with session: AgentSession) -> AgentSession {
         var row = listProjection
         row.title = session.title
@@ -465,6 +496,8 @@ public final class SessionStore {
         row.status = session.status
         row.updatedAt = session.updatedAt
         row.lastReplyAt = session.lastReplyAt
+        row.runtimeEventCursor = session.runtimeEventCursor
+        row.turns = Array(session.turns.suffix(1))
         return row
     }
 

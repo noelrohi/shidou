@@ -129,9 +129,10 @@ public enum SessionListPresentation {
     /// Seconds until a status line would read differently, so the list can
     /// schedule one timer instead of ticking every row every second.
     ///
-    /// A running turn shows seconds and needs one-second updates; everything
-    /// else changes at the next minute, hour, day, or local midnight — which
-    /// is minutes or hours away, and a phone should be asleep in between.
+    /// A running turn shows a spinner, not seconds, so it needs no timer at
+    /// all; everything else changes at the next minute, hour, day, or local
+    /// midnight — which is minutes or hours away, and a phone should be
+    /// asleep in between.
     public static func nextRefreshDelay(
         _ sessions: [AgentSession],
         now: Date = Date(),
@@ -141,12 +142,10 @@ public enum SessionListPresentation {
         var next = secondsUntilLocalMidnight(now: now, calendar: calendar)
         for session in sessions {
             switch rowStatus(session, now: nowSeconds) {
-            case .working:
-                return 1
             case .replied(let ago):
                 let step = ago < 3_600 ? 60 : ago < 86_400 ? 3_600 : 86_400
                 next = min(next, TimeInterval(max(1, step - ago % step)))
-            case .waiting, .failed, .none:
+            case .working, .waiting, .failed, .none:
                 continue
             }
         }

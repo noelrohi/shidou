@@ -143,7 +143,6 @@ struct SessionListView: View {
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -406,10 +405,14 @@ private struct GroupHeader: View {
     }
 }
 
-/// One task in one compact line: agent and state, title, then right-aligned time.
+/// One task in one compact line: agent and state, title, then right-aligned
+/// time — or, while the task works, a spinner where the time would be, with
+/// the status dot pulsing to say the same thing twice.
 struct SessionRow: View {
     let item: SessionListItem
     let now: UInt64
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 9) {
@@ -419,9 +422,7 @@ struct SessionRow: View {
                 .accessibilityHidden(true)
 
             if showsStatusDot {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 7, height: 7)
+                StatusDot(color: statusColor, pulsing: isWorking && !reduceMotion)
                     .accessibilityHidden(true)
             }
 
@@ -433,7 +434,12 @@ struct SessionRow: View {
 
             Spacer(minLength: 0)
 
-            if !timeLabel.isEmpty {
+            if isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.secondary)
+                    .accessibilityHidden(true)
+            } else if !timeLabel.isEmpty {
                 Text(timeLabel)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -464,6 +470,15 @@ struct SessionRow: View {
         switch item.session.status {
         case .idle, .unknown: false
         case .connecting, .working, .waiting, .failed: true
+        }
+    }
+
+    /// Connecting counts: the agent is being reached, and the row should
+    /// look alive from the moment the prompt is sent, not from the first token.
+    private var isWorking: Bool {
+        switch item.session.status {
+        case .connecting, .working: true
+        case .idle, .unknown, .waiting, .failed: false
         }
     }
 
@@ -506,6 +521,30 @@ struct SessionRow: View {
         if let branch = item.branch { parts.append(String(localized: "on branch \(branch)")) }
         if !timeLabel.isEmpty { parts.append(timeLabel) }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// The 7pt status dot, breathing while the task works. Opacity rather than
+/// scale, so the row's layout never moves; and a plain fill when the system
+/// asks for reduced motion, since the spinner beside it says the same thing.
+private struct StatusDot: View {
+    let color: Color
+    let pulsing: Bool
+
+    @State private var dimmed = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 7, height: 7)
+            .opacity(pulsing && dimmed ? 0.35 : 1)
+            .animation(
+                pulsing ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default,
+                value: dimmed
+            )
+            .onChange(of: pulsing, initial: true) { _, pulsing in
+                dimmed = pulsing
+            }
     }
 }
 

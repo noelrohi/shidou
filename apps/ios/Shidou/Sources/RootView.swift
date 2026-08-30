@@ -83,16 +83,11 @@ struct RootView: View {
         // lands the app opens the task the user last touched, and only a
         // genuinely empty catalog falls through — to a draft on the phone,
         // where there is no list beside the transcript to explain the blank.
-        .onChange(of: taskToAdopt, initial: true) { _, adoption in
-            switch adoption {
-            case .undecided:
-                break
-            case .noTasks:
-                if sizeClass != .regular { showingDraft = true }
-            case .mostRecent(let sessionId):
-                selection = sessionId
-            }
-        }
+        //
+        // Keyed on the catalog, not on the navigation state: the trigger is a
+        // catalog landing or a task leaving it, and what is open is read at
+        // that moment rather than diffed.
+        .task(id: adoptionKey) { adoptTaskIfNothingOpen() }
         // A tapped notification is a request to look at that task, whichever
         // screen the app came back to.
         .onChange(of: attention.openSessionId) { _, sessionId in
@@ -173,7 +168,7 @@ struct RootView: View {
         if showingDraft, selection == nil {
             NewTaskView(sourceSessionId: draftSourceSessionId, opensDrawer: openDrawer)
         } else if let selection {
-            TranscriptView(sessionId: selection, opensDrawer: openDrawer)
+            TranscriptView(sessionId: selection, opensDrawer: openDrawer, onNewTask: startNewTask)
                 .id(selection)
         } else {
             // Only ever a moment long: the catalog is still loading, and the
@@ -232,18 +227,32 @@ struct RootView: View {
         }
     }
 
-    /// What the app should open when nothing is open yet.
-    ///
-    /// Deliberately inert once something *is* open: the guard returns before
-    /// any session is read, so a streaming transcript does not invalidate the
-    /// spine on every commit.
-    private var taskToAdopt: TaskAdoption {
-        guard selection == nil, !showingDraft else { return .undecided }
-        guard let store = connection.sessions, store.hasLoadedCatalog else { return .undecided }
+    /// The catalog as adoption sees it: which store, whether it has landed,
+    /// and which tasks it holds. Selection is deliberately not part of it.
+    private struct AdoptionKey: Equatable {
+        var store: ObjectIdentifier?
+        var hasLoadedCatalog: Bool
+        var sessionIds: [UUID]
+    }
+
+    private var adoptionKey: AdoptionKey {
+        AdoptionKey(
+            store: connection.sessions.map(ObjectIdentifier.init),
+            hasLoadedCatalog: connection.sessions?.hasLoadedCatalog ?? false,
+            sessionIds: connection.sessions?.sessions.map(\.id) ?? []
+        )
+    }
+
+    /// Opens the most recent task if nothing is open. Inert while a task or a
+    /// draft is on screen, so a streaming transcript never reaches it.
+    private func adoptTaskIfNothingOpen() {
+        guard selection == nil, !showingDraft else { return }
+        guard let store = connection.sessions, store.hasLoadedCatalog else { return }
         guard let recent = store.sessions.max(by: { $0.updatedAt < $1.updatedAt }) else {
-            return .noTasks
+            if sizeClass != .regular { showingDraft = true }
+            return
         }
-        return .mostRecent(recent.id)
+        selection = recent.id
     }
 
     /// Shows one task, from wherever the app currently is. Both size classes
@@ -258,9 +267,11 @@ struct RootView: View {
     }
 
     private func startNewTask() {
+        // Already drafting: ＋ has nothing newer to offer.
+        guard !(showingDraft && selection == nil) else { return }
         draftSourceSessionId = selection
-        selection = nil
         showingDraft = true
+        selection = nil
     }
 
     @ViewBuilder
@@ -268,7 +279,7 @@ struct RootView: View {
         if showingDraft, selection == nil {
             NewTaskView(sourceSessionId: draftSourceSessionId)
         } else if let selection {
-            TranscriptView(sessionId: selection)
+            TranscriptView(sessionId: selection, onNewTask: startNewTask)
                 .id(selection)
         } else {
             ContentUnavailableView(
@@ -278,14 +289,6 @@ struct RootView: View {
             )
         }
     }
-}
-
-/// What the spine opens on its own when the user has not picked anything.
-private enum TaskAdoption: Equatable {
-    /// The catalog has not landed yet, or a task is already open.
-    case undecided
-    case noTasks
-    case mostRecent(UUID)
 }
 
 /// Settings is a modal stack, reset to root each time it opens. Recreating the

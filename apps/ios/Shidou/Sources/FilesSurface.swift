@@ -134,6 +134,10 @@ struct FileReaderView: View {
     private struct Prepared: Sendable {
         var lines: [Substring]
         var spans: [[HighlightedSpan]]?
+        /// The widest row, by character count. A lazy stack only knows the
+        /// width of the rows it has laid out, so without this the content
+        /// would be as wide as whatever happens to be on screen.
+        var longest: Substring
     }
 
     @State private var prepared: Prepared?
@@ -214,21 +218,31 @@ struct FileReaderView: View {
     private func reader(_ prepared: Prepared) -> some View {
         ScrollViewReader { proxy in
             ScrollView([.vertical, wrapLines ? [] : .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    // Indices rather than `enumerated()`: the list is lazy, and
-                    // materialising a pair per line would walk the whole file
-                    // to draw a screenful of it.
-                    ForEach(prepared.lines.indices, id: \.self) { index in
-                        LineRow(
-                            number: index + 1,
-                            text: prepared.lines[index],
-                            spans: prepared.spans?.indices.contains(index) == true
-                                ? prepared.spans?[index] : nil,
-                            wraps: wrapLines,
-                            isFocused: line == index + 1
-                        )
-                        .id(index + 1)
+                ZStack(alignment: .topLeading) {
+                    // Sets the scrollable width up front: a row for the longest
+                    // line, laid out but never drawn.
+                    if !wrapLines {
+                        LineRow(number: 0, text: prepared.longest, spans: nil, wraps: false, isFocused: false)
+                            .hidden()
+                            .frame(height: 0)
                     }
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // Indices rather than `enumerated()`: the list is lazy, and
+                        // materialising a pair per line would walk the whole file
+                        // to draw a screenful of it.
+                        ForEach(prepared.lines.indices, id: \.self) { index in
+                            LineRow(
+                                number: index + 1,
+                                text: prepared.lines[index],
+                                spans: prepared.spans?.indices.contains(index) == true
+                                    ? prepared.spans?[index] : nil,
+                                wraps: wrapLines,
+                                isFocused: line == index + 1
+                            )
+                            .id(index + 1)
+                        }
+                    }
+                    .fixedSize(horizontal: !wrapLines, vertical: false)
                 }
                 .padding(.vertical, 8)
             }
@@ -259,7 +273,8 @@ struct FileReaderView: View {
                 ? SyntaxHighlight.spansByLine(
                     SyntaxHighlight.spans(of: content, language: language))
                 : nil
-            return Prepared(lines: lines, spans: spans)
+            let longest = lines.max { $0.count < $1.count } ?? ""
+            return Prepared(lines: lines, spans: spans, longest: longest)
         }.value
         guard surfaces.openFile?.relativePath == path else { return }
         prepared = built

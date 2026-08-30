@@ -91,12 +91,22 @@ struct SideDrawer<Sidebar: View, Content: View>: View {
 
     private var contentLayer: some View {
         content()
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius * progress, style: .continuous))
+            // A mask rather than `clipShape`: the clip would take the view's
+            // own frame, which stops at the safe area, and the card would
+            // start under the status bar with its corners cutting into the
+            // toolbar. The mask reaches the screen's edges, so the card is
+            // the whole screen with its corners rounded — the shape the task
+            // already had before it slid aside.
+            .mask {
+                RoundedRectangle(cornerRadius: cornerRadius * progress, style: .continuous)
+                    .ignoresSafeArea()
+            }
             // A hairline along the rounded edge so the task reads as a card
             // lifted off the drawer, not a screen cut in half.
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius * progress, style: .continuous)
                     .strokeBorder(.white.opacity(0.14 * progress), lineWidth: 1)
+                    .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
             .overlay {
