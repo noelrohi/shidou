@@ -105,11 +105,22 @@ final class SurfacesNavigationUITests: XCTestCase {
         return buttons.firstMatch
     }
 
+    /// The diffstat in the transcript toolbar opens the panel once the daemon
+    /// has reported a workspace; before that, the same command sits in the
+    /// "More" menu.
     private func openPanel() {
         openTask()
-        let panel = app.buttons["Files and changes"]
-        XCTAssertTrue(panel.waitForExistence(timeout: 15))
-        panel.tap()
+        let diffStat = app.buttons["Diff stat"]
+        if diffStat.waitForExistence(timeout: 15), diffStat.isHittable {
+            diffStat.tap()
+        } else {
+            let more = app.buttons["More"]
+            XCTAssertTrue(more.waitForExistence(timeout: 15))
+            more.tap()
+            let panel = app.buttons["Files and changes"]
+            XCTAssertTrue(panel.waitForExistence(timeout: 10))
+            panel.tap()
+        }
         XCTAssertTrue(app.staticTexts["Files"].waitForExistence(timeout: 10))
     }
 
@@ -138,6 +149,30 @@ final class SurfacesNavigationUITests: XCTestCase {
         )
     }
 
+    func testFileReaderScrollsLongLinesHorizontally() {
+        openPanel()
+        section("Files").tap()
+        XCTAssertTrue(app.staticTexts["Cargo.toml"].waitForExistence(timeout: 15))
+        app.staticTexts["src"].tap()
+        app.staticTexts["limiter.rs"].tap()
+
+        let longLine = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "limiter mutex is not poisoned")
+        ).firstMatch
+        XCTAssertTrue(longLine.waitForExistence(timeout: 15))
+        let initialX = longLine.frame.minX
+        longLine.swipeLeft()
+        XCTAssertLessThan(
+            longLine.frame.minX, initialX - 20,
+            "a horizontal swipe should move an overlong source line"
+        )
+        // Kept on success too: the highlight palette is only checkable by eye.
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "file-reader-after-horizontal-swipe"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     func testChangesShowsTheDiffAndItsHunks() {
         openPanel()
         section("Changes").tap()
@@ -149,6 +184,28 @@ final class SurfacesNavigationUITests: XCTestCase {
             ).firstMatch.waitForExistence(timeout: 15),
             "the unified diff should render added lines"
         )
+    }
+
+    func testDiffScrollsLongLinesHorizontally() {
+        openPanel()
+        section("Changes").tap()
+        XCTAssertTrue(app.staticTexts["limiter.rs"].waitForExistence(timeout: 15))
+        app.staticTexts["limiter.rs"].tap()
+
+        let longLine = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@", "limiter mutex is not poisoned")
+        ).firstMatch
+        XCTAssertTrue(longLine.waitForExistence(timeout: 15))
+        let initialX = longLine.frame.minX
+        longLine.swipeLeft()
+        XCTAssertLessThan(
+            longLine.frame.minX, initialX - 20,
+            "a horizontal swipe should move an overlong diff line"
+        )
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "diff-after-horizontal-swipe"
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 
     func testVisualsShowsTheWorkspaceImages() {

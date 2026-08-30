@@ -662,20 +662,21 @@ struct CheckpointSummary: View {
                     .accessibilityHidden(true)
                 Text("Changed \(checkpoint.files.count) file")
                     .font(.caption.bold())
-                Text(verbatim: "+\(checkpoint.additions) −\(checkpoint.deletions)")
+                DiffStatText(additions: checkpoint.additions, deletions: checkpoint.deletions)
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
                 if let onReview {
                     Spacer(minLength: 8)
                     Button(action: onReview) {
-                        Label("Review", systemImage: "chevron.right")
-                            .labelStyle(.titleAndIcon)
-                            .font(.caption)
+                        Text("Review")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 12)
                             .frame(minHeight: 32)
-                            .contentShape(Rectangle())
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
+                    .glassSurface(in: Capsule(), interactive: true)
+                    .fallbackBorder(Capsule())
                     .accessibilityLabel("Review these changes")
                     .accessibilityHint("Opens this turn's diff")
                 }
@@ -687,9 +688,8 @@ struct CheckpointSummary: View {
                         .lineLimit(1)
                         .truncationMode(.head)
                     Spacer(minLength: 4)
-                    Text(verbatim: "+\(file.additions) −\(file.deletions)")
+                    DiffStatText(additions: file.additions, deletions: file.deletions)
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -697,6 +697,27 @@ struct CheckpointSummary: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// `+12 −3`, with each half in the colour the diff draws that kind of line
+/// in. The signs carry the meaning too, so the colour is reinforcement rather
+/// than the only cue.
+struct DiffStatText: View {
+    let additions: UInt64
+    let deletions: UInt64
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(verbatim: "+\(additions)")
+                .foregroundStyle(SyntaxPalette.addition(scheme: colorScheme))
+            Text(verbatim: "−\(deletions)")
+                .foregroundStyle(SyntaxPalette.deletion(scheme: colorScheme))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(additions) added, \(deletions) removed")
     }
 }
 

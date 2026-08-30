@@ -19,7 +19,11 @@ struct ProjectsView: View {
 
     /// Projects with the most recently touched first, so the one you are in
     /// the middle of is at the top rather than wherever it was created.
-    private var projects: [(project: Project, taskCount: Int, lastTouched: UInt64)] {
+    ///
+    /// The daemon files every folderless task under its own scratch project,
+    /// so left alone the list fills with "No project" rows between the real
+    /// ones. Those fold into a single row that carries all of their tasks.
+    private var entries: [ProjectsEntry] {
         guard let store else { return [] }
         var byProject: [UUID: (count: Int, latest: UInt64)] = [:]
         for session in store.sessions where SessionListPresentation.hasStarted(session) {
@@ -27,31 +31,67 @@ struct ProjectsView: View {
             let entry = byProject[session.projectId] ?? (0, 0)
             byProject[session.projectId] = (entry.count + 1, max(entry.latest, stamp))
         }
-        return store.projects
-            .map { project in
-                let entry = byProject[project.id] ?? (0, project.createdAt)
-                return (project, entry.count, entry.latest)
+        var entries: [ProjectsEntry] = []
+        var scratch: [Project] = []
+        var scratchCount = 0
+        var scratchLatest: UInt64 = 0
+        for project in store.projects {
+            let stats = byProject[project.id] ?? (0, project.createdAt)
+            if project.isProjectless {
+                scratch.append(project)
+                scratchCount += stats.count
+                scratchLatest = max(scratchLatest, stats.latest)
+                continue
             }
-            .sorted { $0.lastTouched > $1.lastTouched }
+            entries.append(
+                ProjectsEntry(
+                    id: project.id, title: project.name, subtitle: project.path.abbreviatingHome,
+                    icon: "folder", projectIds: [project.id], taskCount: stats.count,
+                    lastTouched: stats.latest))
+        }
+        if !scratch.isEmpty {
+            entries.append(
+                ProjectsEntry(
+                    id: ProjectsEntry.projectlessId, title: String(localized: "No project"),
+                    subtitle: Self.commonParent(of: scratch.map(\.path)).abbreviatingHome,
+                    icon: "tray", projectIds: Set(scratch.map(\.id)), taskCount: scratchCount,
+                    lastTouched: scratchLatest))
+        }
+        return entries.sorted { $0.lastTouched > $1.lastTouched }
+    }
+
+    /// The deepest directory every path sits under, so the scratch row reads
+    /// `~/.shidou/projects` rather than one arbitrary workspace's path.
+    static func commonParent(of paths: [String]) -> String {
+        guard var common = paths.first.map({ $0.split(separator: "/", omittingEmptySubsequences: false) })
+        else { return "" }
+        for path in paths.dropFirst() {
+            let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+            let shared = zip(common, parts).prefix { $0 == $1 }.count
+            common = Array(common.prefix(shared))
+        }
+        let joined = common.joined(separator: "/")
+        return joined.isEmpty ? "/" : joined
     }
 
     var body: some View {
-        List(projects, id: \.project.id) { entry in
+        List(entries) { entry in
             NavigationLink {
-                ProjectTasksView(project: entry.project, selection: $selection)
+                ProjectTasksView(
+                    title: entry.title, projectIds: entry.projectIds, selection: $selection)
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "folder")
+                    Image(systemName: entry.icon)
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .frame(width: 24)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.project.name)
+                        Text(entry.title)
                             .font(.body)
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                        Text(entry.project.path.abbreviatingHome)
+                        Text(entry.subtitle)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -66,14 +106,14 @@ struct ProjectsView: View {
                 .padding(.vertical, 4)
             }
             .accessibilityLabel(
-                Text("\(entry.project.name), \(entry.taskCount) tasks")
+                Text("\(entry.title), \(entry.taskCount) tasks")
             )
         }
         .listStyle(.plain)
         .navigationTitle("Projects")
         .navigationBarTitleDisplayMode(.large)
         .overlay {
-            if let store, store.hasLoadedCatalog, projects.isEmpty {
+            if let store, store.hasLoadedCatalog, entries.isEmpty {
                 ContentUnavailableView(
                     "No projects yet",
                     systemImage: "folder",
@@ -83,6 +123,20 @@ struct ProjectsView: View {
         }
         .refreshable { store?.refreshCatalog() }
     }
+}
+
+/// One row of the projects list: a project, or every scratch project folded
+/// into one.
+private struct ProjectsEntry: Identifiable {
+    static let projectlessId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+
+    let id: UUID
+    let title: String
+    let subtitle: String
+    let icon: String
+    let projectIds: Set<UUID>
+    let taskCount: Int
+    let lastTouched: UInt64
 }
 
 /// `ProjectsView` as its own screen: a stack with a close button, covering the
@@ -111,9 +165,11 @@ struct ProjectsScreen: View {
     }
 }
 
-/// One project's tasks, newest first, in the rows the list uses.
+/// One project's tasks, newest first, in the rows the list uses. The scratch
+/// row passes every projectless project, so its tasks land here together.
 private struct ProjectTasksView: View {
-    let project: Project
+    let title: String
+    let projectIds: Set<UUID>
     @Binding var selection: UUID?
 
     @Environment(DaemonConnection.self) private var connection
@@ -124,7 +180,7 @@ private struct ProjectTasksView: View {
     private var items: [SessionListItem] {
         guard let store else { return [] }
         return SessionListPresentation.groups(
-            sessions: store.sessions.filter { $0.projectId == project.id },
+            sessions: store.sessions.filter { projectIds.contains($0.projectId) },
             projects: store.projects,
             grouping: .updated,
             ordering: .newest
@@ -150,7 +206,7 @@ private struct ProjectTasksView: View {
         }
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 1)
-        .navigationTitle(project.name)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if items.isEmpty {

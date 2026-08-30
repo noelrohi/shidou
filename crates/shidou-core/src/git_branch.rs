@@ -152,7 +152,7 @@ fn numstat_line_counts(output: &[u8]) -> (u64, u64) {
 /// lines as additions so the compact status agrees with the Uncommitted review
 /// source that opens when it is clicked. Bounds keep generated trees from
 /// turning a background metadata refresh into unbounded work.
-fn untracked_line_additions(repository: &Path) -> u64 {
+pub(crate) fn untracked_line_additions(repository: &Path) -> u64 {
     let Ok(output) = crate::command_env::plain_command("git")
         .args([
             "ls-files",

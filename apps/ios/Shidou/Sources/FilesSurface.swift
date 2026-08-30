@@ -218,14 +218,9 @@ struct FileReaderView: View {
     private func reader(_ prepared: Prepared) -> some View {
         ScrollViewReader { proxy in
             ScrollView([.vertical, wrapLines ? [] : .horizontal]) {
-                ZStack(alignment: .topLeading) {
-                    // Sets the scrollable width up front: a row for the longest
-                    // line, laid out but never drawn.
-                    if !wrapLines {
-                        LineRow(number: 0, text: prepared.longest, spans: nil, wraps: false, isFocused: false)
-                            .hidden()
-                            .frame(height: 0)
-                    }
+                WidestRowSized(sized: !wrapLines) {
+                    LineRow(number: 0, text: prepared.longest, spans: nil, wraps: false, isFocused: false)
+                } content: {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         // Indices rather than `enumerated()`: the list is lazy, and
                         // materialising a pair per line would walk the whole file
@@ -242,10 +237,10 @@ struct FileReaderView: View {
                             .id(index + 1)
                         }
                     }
-                    .fixedSize(horizontal: !wrapLines, vertical: false)
                 }
                 .padding(.vertical, 8)
             }
+            .defaultScrollAnchor(.topLeading)
             .onAppear {
                 // A transcript link named a line; land on it rather than at
                 // the top of a file the reader has to search.
@@ -319,5 +314,37 @@ private struct LineRow: View {
             out += piece
         }
         return out
+    }
+}
+
+/// Rows of code inside a two-axis `ScrollView`.
+///
+/// A lazy stack only knows the width of the rows it has laid out, so left to
+/// itself it reports the viewport's width: rows draw past the edge, but the
+/// scroll view has nothing wider than itself to scroll into. The sentinel is
+/// a row for the widest line, laid out but never drawn. Its width is measured
+/// and given to the stack outright, so the scrollable extent is right from the
+/// first frame rather than whenever the widest row happens to scroll in.
+///
+/// With `sized` off (wrapped lines) the stack is left to the viewport, which
+/// is then the right width.
+struct WidestRowSized<Sentinel: View, Content: View>: View {
+    var sized: Bool
+    @ViewBuilder var sentinel: () -> Sentinel
+    @ViewBuilder var content: () -> Content
+
+    @State private var width: CGFloat?
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if sized {
+                sentinel()
+                    .hidden()
+                    .frame(height: 0)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            }
+            content()
+                .frame(width: sized ? width : nil, alignment: .leading)
+        }
     }
 }

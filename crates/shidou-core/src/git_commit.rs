@@ -56,8 +56,10 @@ pub fn inspect(cwd: &Path) -> anyhow::Result<Snapshot> {
         .unwrap_or_else(|| "HEAD".to_owned());
     let status = git_stdout(cwd, &["status", "--porcelain=v1", "--untracked-files=all"])?;
     let (has_staged, has_unstaged) = status_flags(&status);
-    let (additions, deletions) = numstat(cwd, &["diff", "--numstat", "HEAD", "--"])
+    let (tracked_additions, deletions) = numstat(cwd, &["diff", "--numstat", "HEAD", "--"])
         .unwrap_or_else(|_| combined_numstat(cwd));
+    let additions =
+        tracked_additions.saturating_add(crate::git_branch::untracked_line_additions(cwd));
     let (staged_additions, staged_deletions) =
         numstat(cwd, &["diff", "--cached", "--numstat", "--"]).unwrap_or_default();
     let can_push = push_target(cwd, &branch)?
@@ -687,6 +689,18 @@ mod tests {
             git_stdout(&root, &["log", "-1", "--pretty=%s"]).unwrap(),
             "Update readme"
         );
+    }
+
+    #[test]
+    fn inspect_counts_untracked_text_lines_as_additions() {
+        let root = repository();
+        fs::write(root.join("new.txt"), "one\ntwo\nthree\n").unwrap();
+
+        let snapshot = inspect(&root).unwrap();
+
+        assert!(snapshot.has_unstaged);
+        assert_eq!(snapshot.additions, 3);
+        assert_eq!(snapshot.deletions, 0);
     }
 
     #[test]

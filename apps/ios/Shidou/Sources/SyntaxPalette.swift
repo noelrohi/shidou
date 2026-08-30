@@ -4,6 +4,10 @@ import SwiftUI
 /// One token palette for every surface that renders code — transcript fences
 /// and the file reader both.
 ///
+/// The values are Pierre's `pierre-dark` / `pierre-light` themes, which the
+/// web client's `@pierre/diffs` surfaces use, so a file reads the same on the
+/// phone as it does in the browser.
+///
 /// Colours carry emphasis, never meaning: the same code reads correctly with
 /// every token plain, which is exactly what an unhighlighted block already is.
 enum SyntaxPalette {
@@ -13,25 +17,42 @@ enum SyntaxPalette {
         case .plain:
             return .primary
         case .keyword:
-            return dark
-                ? Color(red: 0.85, green: 0.60, blue: 0.95)
-                : Color(red: 0.50, green: 0.16, blue: 0.62)
+            return dark ? Color(hex: 0xFF678D) : Color(hex: 0xD32A61)
         case .string:
-            return dark
-                ? Color(red: 0.62, green: 0.84, blue: 0.55)
-                : Color(red: 0.13, green: 0.45, blue: 0.16)
+            return dark ? Color(hex: 0x5ECC71) : Color(hex: 0x199F43)
         case .number:
-            return dark
-                ? Color(red: 0.95, green: 0.72, blue: 0.44)
-                : Color(red: 0.63, green: 0.36, blue: 0.05)
+            return dark ? Color(hex: 0x68CDF2) : Color(hex: 0x1CA1C7)
         case .comment:
-            return .secondary
+            return Color(hex: 0x737373)
         case .type:
-            return dark
-                ? Color(red: 0.50, green: 0.78, blue: 0.95)
-                : Color(red: 0.09, green: 0.39, blue: 0.63)
+            return dark ? Color(hex: 0xD568EA) : Color(hex: 0xA631BE)
         case .punctuation:
-            return .secondary
+            return dark ? Color(hex: 0x8C8C8C) : Color(hex: 0x636363)
         }
+    }
+
+    /// The diff accents `@pierre/diffs` draws additions and deletions with.
+    static func addition(scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0x5ECC71) : Color(hex: 0x0DBE4E)
+    }
+
+    static func deletion(scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0xFF6762) : Color(hex: 0xFF2E3F)
+    }
+
+    /// The row wash behind a changed line: the web mixes 20% of the accent into
+    /// the page in dark mode and 12% in light.
+    static func lineWash(_ accent: Color, scheme: ColorScheme) -> Color {
+        accent.opacity(scheme == .dark ? 0.2 : 0.12)
+    }
+}
+
+extension Color {
+    fileprivate init(hex: UInt32) {
+        self.init(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
     }
 }

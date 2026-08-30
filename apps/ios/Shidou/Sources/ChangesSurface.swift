@@ -132,6 +132,8 @@ enum DiffSourceChoice: String, CaseIterable, Identifiable, Hashable {
 private struct DiffFileRow: View {
     let file: UnifiedDiff.File
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
@@ -179,8 +181,8 @@ private struct DiffFileRow: View {
 
     private var tint: Color {
         switch file.change {
-        case .added: return .green
-        case .deleted: return .red
+        case .added: return SyntaxPalette.addition(scheme: colorScheme)
+        case .deleted: return SyntaxPalette.deletion(scheme: colorScheme)
         default: return .secondary
         }
     }
@@ -205,6 +207,9 @@ private struct DiffFileRow: View {
 struct DiffFileView: View {
     let surfaces: WorkspaceSurfaces
     let index: Int
+
+    /// The longest line in the file, which sets the scrollable width.
+    @State private var widest: UnifiedDiff.Line?
 
     private var file: UnifiedDiff.File? {
         surfaces.diffFiles.first { $0.index == index }
@@ -231,17 +236,31 @@ struct DiffFileView: View {
 
     private func diff(_ file: UnifiedDiff.File) -> some View {
         ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(file.hunks) { hunk in
-                    HunkHeaderRow(hunk: hunk)
-                    ForEach(hunk.lines) { line in
-                        DiffLineRow(line: line)
+            WidestRowSized(sized: true) {
+                if let widest {
+                    DiffLineRow(line: widest)
+                }
+            } content: {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(file.hunks) { hunk in
+                        HunkHeaderRow(hunk: hunk)
+                        ForEach(hunk.lines) { line in
+                            DiffLineRow(line: line)
+                        }
                     }
                 }
             }
             .padding(.vertical, 8)
         }
         .defaultScrollAnchor(.topLeading)
+        .task(id: index) {
+            // One pass per file opened, not per body evaluation: a large diff
+            // has more lines than a row builder should ever be asked to walk.
+            let hunks = file.hunks
+            widest = await Task.detached(priority: .utility) {
+                hunks.lazy.flatMap(\.lines).max { $0.content.count < $1.content.count }
+            }.value
+        }
     }
 }
 
@@ -320,17 +339,16 @@ private struct DiffLineRow: View {
 
     private var markerTint: Color {
         switch line.kind {
-        case .addition: return .green
-        case .deletion: return .red
+        case .addition: return SyntaxPalette.addition(scheme: colorScheme)
+        case .deletion: return SyntaxPalette.deletion(scheme: colorScheme)
         case .context: return .secondary
         }
     }
 
     private var background: Color {
-        let strength = colorScheme == .dark ? 0.22 : 0.12
         switch line.kind {
-        case .addition: return Color.green.opacity(strength)
-        case .deletion: return Color.red.opacity(strength)
+        case .addition, .deletion:
+            return SyntaxPalette.lineWash(markerTint, scheme: colorScheme)
         case .context: return .clear
         }
     }
