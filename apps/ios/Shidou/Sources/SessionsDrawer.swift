@@ -7,10 +7,13 @@ import SwiftUI
 ///
 /// The list itself is `SessionListView`, hosted whole rather than rebuilt as
 /// drawer rows: grouping, rename, delete and the empty states already live
-/// there and would only drift if repeated here, and search has its own screen
-/// the list's row routes to. What the drawer adds is the chrome around it —
-/// the mark and wordmark, the demo banner, and a floating bar carrying the
+/// there and would only drift if repeated here. What the drawer adds is the
+/// chrome around it — the mark and wordmark, a search button that covers the
+/// screen with `SearchView`, the demo banner, and a floating bar carrying the
 /// two things you reach for without reading: Settings, and a new task.
+///
+/// There is no close button: the task showing past the drawer's edge is the
+/// way back, by tap or by drag, the same as Claude's drawer.
 struct SessionsDrawer: View {
     @Binding var selection: UUID?
     @Binding var showingDraft: Bool
@@ -19,16 +22,15 @@ struct SessionsDrawer: View {
 
     @Environment(DaemonConnection.self) private var connection
     @State private var showingSettings = false
-    @Environment(\.displayScale) private var displayScale
+    @State private var showingSearch = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if connection.isDemo { DemoBanner() }
-            // The stack exists for the search push — nothing else is ever
-            // pushed onto it. Its bar stays hidden: the drawer's own header
-            // carries the chrome at the root, and `SearchView` draws its
-            // field and Cancel itself.
+            // The stack exists for the Projects push. Its bar stays hidden
+            // at the root, where the drawer's own header is the chrome, and
+            // comes back on the pushed screens, which need a way home.
             NavigationStack {
                 SessionListView(selection: $selection)
                     .toolbar(.hidden, for: .navigationBar)
@@ -48,19 +50,16 @@ struct SessionsDrawer: View {
                 .fill(.background)
                 .ignoresSafeArea(.container, edges: .vertical)
         }
-        // An explicit rule rather than `Divider()`, which draws horizontally
-        // outside an `HStack` and would lay a line across the list instead of
-        // along its edge.
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1 / displayScale)
-                .ignoresSafeArea(.container, edges: .vertical)
-        }
         .sheet(isPresented: $showingSettings) {
             NavigationStack {
                 SettingsView(done: { showingSettings = false })
             }
+        }
+        // A cover rather than a push: search is its own screen with the
+        // keyboard up and a field at the bottom, and a sheet's grabber would
+        // sit in the way of the empty state it centres.
+        .fullScreenCover(isPresented: $showingSearch) {
+            SearchView(selection: $selection)
         }
     }
 
@@ -76,20 +75,24 @@ struct SessionsDrawer: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .accessibilityHidden(true)
                 Text("Shidou")
-                    .font(.title2.weight(.semibold))
+                    .font(.title.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
             }
             Spacer(minLength: 0)
-            Button(action: dismiss) {
-                Image(systemName: "sidebar.leading")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-                    .background(.quaternary.opacity(0.5), in: Circle())
+            Button { showingSearch = true } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .glassSurface(
+                        in: Circle(),
+                        interactive: true,
+                        fallback: AnyShapeStyle(.quaternary.opacity(0.5))
+                    )
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Hide tasks")
+            .accessibilityLabel("Search tasks")
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)

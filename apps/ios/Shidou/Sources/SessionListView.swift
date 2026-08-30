@@ -4,22 +4,24 @@ import SwiftUI
 
 /// The task list, shared by the iPhone drawer and the iPad sidebar.
 ///
-/// It carries what the web sidebar carries, at mobile density: a search row
-/// that routes to the search screen, collapsible sections that file tasks
-/// either by recency or by project, an options menu on the first header that
-/// chooses between the two, and rows that say what the task is, where it
-/// lives, and what it is doing.
+/// It carries what the web sidebar carries, at mobile density: collapsible
+/// sections that file tasks either by recency or by project, an options menu
+/// on the first header that chooses between the two, and rows that say what
+/// the task is, where it lives, and what it is doing. Search is not a row
+/// here — the chrome around the list (the drawer header, the iPad toolbar)
+/// opens `SearchView`, so the list is never mistaken for a field.
 struct SessionListView: View {
     @Binding var selection: UUID?
 
     @Environment(DaemonConnection.self) private var connection
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// Same defaults keys the web client uses, because the two clients are the
     /// same product and a person who files by project on one means it on both.
     @AppStorage("shidou.sidebarGrouping") private var groupingChoice = SessionListGrouping.updated.rawValue
     @AppStorage("shidou.sidebarOrdering") private var orderingChoice = SessionListOrdering.newest.rawValue
 
-    @State private var showingSearch = false
+    @State private var showingProjects = false
     @State private var collapsed: Set<String> = []
     /// Per project section: how many tasks older than the recent window the
     /// user has asked to see.
@@ -41,13 +43,22 @@ struct SessionListView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            searchRow
-            list
-                .overlay { emptyState }
+        list
+            .overlay { emptyState }
+        // On the phone Projects is a new screen over the drawer, the way
+        // ChatGPT's and Claude's sidebars open theirs; the iPad sidebar has a
+        // real column to push into.
+        .navigationDestination(isPresented: Binding(
+            get: { showingProjects && sizeClass == .regular },
+            set: { showingProjects = $0 }
+        )) {
+            ProjectsView(selection: $selection)
         }
-        .navigationDestination(isPresented: $showingSearch) {
-            SearchView(selection: $selection)
+        .fullScreenCover(isPresented: Binding(
+            get: { showingProjects && sizeClass != .regular },
+            set: { showingProjects = $0 }
+        )) {
+            ProjectsScreen(selection: $selection)
         }
         .refreshable { store?.refreshCatalog() }
         .task(id: tickKey) { await tick() }
@@ -79,43 +90,9 @@ struct SessionListView: View {
         }
     }
 
-    // MARK: - Search
-
-    /// A field's face on a button's body: the tap routes to `SearchView`,
-    /// where focus, keyboard, and results get a whole screen. Filtering this
-    /// list in place made every keystroke shrink it and left no room to say
-    /// what a query missed.
-    private var searchRow: some View {
-        Button {
-            showingSearch = true
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                Text("Search tasks")
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                .quaternary.opacity(0.5),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens search")
-    }
-
     private var list: some View {
         List {
+            navigation
             ForEach(groups) { group in
                 Section {
                     if !collapsed.contains(group.key) {
@@ -148,7 +125,34 @@ struct SessionListView: View {
                 .accessibilityHidden(true)
         }
         .listStyle(.plain)
+        .listSectionSpacing(0)
         .environment(\.defaultMinListRowHeight, 1)
+    }
+
+    // MARK: - Navigation
+
+    /// The destinations above the recents — Claude's sidebar shape, one row
+    /// per place. Only Projects for now; the row style is the contract.
+    private var navigation: some View {
+        Button {
+            showingProjects = true
+        } label: {
+            HStack(spacing: 0) {
+                Text("Projects")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 8, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .accessibilityHint("Shows your projects")
     }
 
     // MARK: - Rows
@@ -163,7 +167,7 @@ struct SessionListView: View {
                 now: UInt64(now.timeIntervalSince1970)
             )
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 selected ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
@@ -327,20 +331,25 @@ private struct GroupHeader: View {
                 HStack(spacing: 5) {
                     if group.isFolder {
                         Image(systemName: "folder")
-                            .font(.caption2)
+                            .font(.footnote)
                             .accessibilityHidden(true)
                     }
                     Text(title)
-                        .font(.caption.weight(.semibold))
+                        .font(.body.weight(.semibold))
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .semibold))
                         .rotationEffect(.degrees(collapsed ? -90 : 0))
                         .foregroundStyle(.tertiary)
                         .accessibilityHidden(true)
                     Spacer(minLength: 0)
                 }
-                .foregroundStyle(.secondary)
+                // ChatGPT's "Recents": the label is as white as the rows and
+                // bolder, so the section reads as a heading and not a hint.
+                // `Color.primary`, not the hierarchical `.primary`: a list
+                // header's foreground is already secondary, and the
+                // hierarchical level resolves relative to that.
+                .foregroundStyle(Color.primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -361,7 +370,7 @@ private struct GroupHeader: View {
         }
         .textCase(nil)
         .padding(.horizontal, 12)
-        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
+        .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 6, trailing: 0))
     }
 
     private var title: String {
@@ -381,13 +390,18 @@ private struct GroupHeader: View {
             }
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
-                .font(.caption)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 36, height: 32)
+                .glassSurface(
+                    in: Capsule(),
+                    interactive: true,
+                    fallback: AnyShapeStyle(.quaternary.opacity(0.5))
+                )
+                .contentShape(Capsule())
         }
         // A menu tints its label with the accent colour, which would make the
         // quietest control in the header the loudest thing in it.
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.primary)
         .accessibilityLabel("List options")
     }
 }
@@ -398,21 +412,21 @@ struct SessionRow: View {
     let now: UInt64
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 9) {
             providerImage
-                .frame(width: 11, height: 11)
+                .frame(width: 14, height: 14)
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
 
             if showsStatusDot {
                 Circle()
                     .fill(statusColor)
-                    .frame(width: 6, height: 6)
+                    .frame(width: 7, height: 7)
                     .accessibilityHidden(true)
             }
 
             Text(displayTitle(item.session))
-                .font(.subheadline)
+                .font(.body)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .layoutPriority(1)
@@ -421,7 +435,7 @@ struct SessionRow: View {
 
             if !timeLabel.isEmpty {
                 Text(timeLabel)
-                    .font(.caption.weight(.medium))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .lineLimit(1)

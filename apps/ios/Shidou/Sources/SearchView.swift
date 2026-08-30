@@ -2,13 +2,16 @@ import ShidouProtocol
 import ShidouSession
 import SwiftUI
 
-/// The screen the sidebar's search row routes to.
+/// The search screen: the drawer's search button covers the task with it, and
+/// the iPad sidebar pushes it.
 ///
-/// Search is a destination, not a drawer row: the field takes focus on
-/// arrival, the hits are one flat newest-first list instead of sections that
-/// shrink as you type, and an empty state has the room to say what a query
-/// missed. Rows reuse `SessionRow`, so a hit reads exactly like the row it
-/// names; rename and delete stay on the list, which owns them.
+/// The field sits at the bottom, where the keyboard it summons already is, so
+/// the thumb that opened search is the thumb that types — the layout Claude's
+/// iOS search settled on. Until something is typed the screen is empty on
+/// purpose: a glyph and one line saying what it will look through, centred in
+/// the room that a list of everything would otherwise fill. Hits are one flat
+/// newest-first list, and rows reuse `SessionRow` so a hit reads exactly like
+/// the row it names; rename and delete stay on the list, which owns them.
 struct SearchView: View {
     @Binding var selection: UUID?
 
@@ -22,10 +25,14 @@ struct SearchView: View {
 
     private var store: SessionStore? { connection.sessions }
 
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The hits, newest first: the sidebar's own grouping asked only for what
     /// the query matches, flattened to one list.
     private var hits: [SessionListItem] {
-        guard let store else { return [] }
+        guard let store, !trimmedQuery.isEmpty else { return [] }
         return SessionListPresentation.groups(
             sessions: store.sessions,
             projects: store.projects,
@@ -37,62 +44,83 @@ struct SearchView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            field
-            list
-                .overlay { emptyState }
-        }
-        .refreshable { store?.refreshCatalog() }
-        .task(id: tickKey) { await tick() }
-        .onAppear { fieldFocused = true }
-        .toolbar(.hidden, for: .navigationBar)
+        list
+            .overlay { emptyState }
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .floatingBottomBar { field }
+            .refreshable { store?.refreshCatalog() }
+            .task(id: tickKey) { await tick() }
+            .onAppear { fieldFocused = true }
+            .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Field
 
-    /// The sidebar row's field, standing on its own screen now, with a Cancel
-    /// that leaves by the same route the row came in.
+    /// A capsule and a close button, floating at the bottom over whatever the
+    /// list scrolled under it. Close leaves the screen; clearing a query is
+    /// the field's own affair, inside the capsule.
     private var field: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                TextField("Search tasks", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.subheadline)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.search)
-                    .focused($fieldFocused)
-                    .accessibilityLabel("Search tasks")
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                        fieldFocused = true
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.tertiary)
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .accessibilityHidden(true)
+                    TextField("Search", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.search)
+                        .focused($fieldFocused)
+                        .accessibilityLabel("Search tasks")
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                            fieldFocused = true
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.body)
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear search")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
                 }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                .quaternary.opacity(0.5),
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
+                .padding(.leading, 16)
+                .padding(.trailing, 10)
+                .frame(height: 50)
+                .glassSurface(in: Capsule(), fallback: AnyShapeStyle(.thickMaterial))
+                .fallbackBorder(Capsule())
 
-            Button("Cancel") { dismiss() }
-                .font(.subheadline)
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 50, height: 50)
+                        .glassSurface(
+                            in: Circle(),
+                            interactive: true,
+                            fallback: AnyShapeStyle(.thickMaterial)
+                        )
+                        .fallbackBorder(Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close search")
+                .keyboardShortcut(.cancelAction)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .floatingBarBackdrop()
     }
+
+    // MARK: - Hits
 
     private var list: some View {
         List(hits) { item in
@@ -115,6 +143,7 @@ struct SearchView: View {
             .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .environment(\.defaultMinListRowHeight, 1)
     }
@@ -122,12 +151,8 @@ struct SearchView: View {
     @ViewBuilder
     private var emptyState: some View {
         if let store, store.hasLoadedCatalog, hits.isEmpty {
-            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ContentUnavailableView {
-                    Label("Search your tasks", systemImage: "magnifyingglass")
-                } description: {
-                    Text("Find a task by its title, project or branch.")
-                }
+            if trimmedQuery.isEmpty {
+                prompt
             } else {
                 ContentUnavailableView {
                     Label("No matches", systemImage: "magnifyingglass")
@@ -146,6 +171,24 @@ struct SearchView: View {
         } else if store?.hasLoadedCatalog != true {
             ProgressView()
         }
+    }
+
+    /// The screen before a query: the glyph and one line, nothing that looks
+    /// like a result.
+    private var prompt: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 44, weight: .regular))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text("Search tasks, projects and branches")
+                .font(.body)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Data

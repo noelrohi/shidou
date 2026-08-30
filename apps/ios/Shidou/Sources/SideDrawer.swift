@@ -11,9 +11,12 @@ import UIKit
 /// Releasing hands off to a spring that respects where the finger was going.
 struct SideDrawer<Sidebar: View, Content: View>: View {
     @Binding var isOpen: Bool
-    /// Four fifths of the screen, leaving a fifth of the task visible behind
-    /// the dimming — enough to keep the place you are coming back to.
-    var widthFraction: CGFloat = 0.8
+    /// Three quarters of the screen, near enough. The quarter of the task
+    /// left showing is what keeps the place you are coming back to, and it
+    /// has to be wide enough for the task's own leading button to sit in it
+    /// with air on both sides — the toolbar's inset is the system's, so the
+    /// room has to come from here.
+    var widthFraction: CGFloat = 0.76
     var maxWidth: CGFloat = 420
     @ViewBuilder var sidebar: () -> Sidebar
     @ViewBuilder var content: () -> Content
@@ -26,6 +29,10 @@ struct SideDrawer<Sidebar: View, Content: View>: View {
     /// so `isOpen` alone describes the resting state.
     @State private var drag: CGFloat = 0
     @State private var dragging = false
+
+    /// The device's own corner, near enough: the task keeps the shape it had
+    /// full-screen as it slides aside, rather than growing a new one.
+    private let cornerRadius: CGFloat = 48
 
     private var width: CGFloat {
         guard containerWidth > 0 else { return 0 }
@@ -84,7 +91,14 @@ struct SideDrawer<Sidebar: View, Content: View>: View {
 
     private var contentLayer: some View {
         content()
-            .clipShape(RoundedRectangle(cornerRadius: 34 * progress, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius * progress, style: .continuous))
+            // A hairline along the rounded edge so the task reads as a card
+            // lifted off the drawer, not a screen cut in half.
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius * progress, style: .continuous)
+                    .strokeBorder(.white.opacity(0.14 * progress), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
             .overlay {
                 if progress > 0 {
                     Rectangle()

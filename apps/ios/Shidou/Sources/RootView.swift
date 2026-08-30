@@ -23,6 +23,8 @@ struct RootView: View {
     @State private var settingsPresentation = 0
     @State private var selection: UUID?
     @State private var showingDraft = false
+    /// iPad only: search pushed onto the sidebar column.
+    @State private var showingSearch = false
     /// The task New Task was opened from. Kept separately because presenting
     /// the draft clears `selection`.
     @State private var draftSourceSessionId: UUID?
@@ -198,6 +200,9 @@ struct RootView: View {
             if newValue != nil { showingDraft = false }
         }
         .navigationTitle("Sessions")
+        .navigationDestination(isPresented: $showingSearch) {
+            SearchView(selection: $selection)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -207,6 +212,14 @@ struct RootView: View {
                     Image(systemName: "gearshape")
                 }
                 .accessibilityLabel("Settings")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingSearch = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search tasks")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
