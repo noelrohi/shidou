@@ -105,6 +105,7 @@ public final class SessionStore {
     /// Rejects a catalog load that a newer one has already superseded.
     @ObservationIgnored private var catalogGeneration = 0
     @ObservationIgnored private var workspaceProbes: Set<String> = []
+    @ObservationIgnored private var pendingWorkspaceRefreshes: Set<String> = []
     /// Turn-ref loads in flight, so a republished projection cannot queue one
     /// request per frame.
     @ObservationIgnored var turnRefLoads: Set<UUID> = []
@@ -162,6 +163,7 @@ public final class SessionStore {
         buffered.removeAll()
         workspaces.removeAll()
         workspaceProbes.removeAll()
+        pendingWorkspaceRefreshes.removeAll()
         workspaceSurfaces.removeAll()
         branches.removeAll()
         projectFiles.removeAll()
@@ -187,6 +189,7 @@ public final class SessionStore {
         case .phase(.connected):
             refreshCatalog()
             refreshComposerDrafts()
+            refreshOpenWorkspaces()
         case .reconnected:
             // Replayed events follow on this same stream, so the projections
             // catch up on their own. What cannot: the catalog, whose other
@@ -194,6 +197,7 @@ public final class SessionStore {
             // and the drafts, which they may have typed into.
             refreshCatalog()
             refreshComposerDrafts()
+            refreshOpenWorkspaces()
             reattachOpenSessions()
         case .taskStateChanged:
             refreshCatalog()
@@ -484,18 +488,32 @@ public final class SessionStore {
     /// it: the header renders without a subtitle until the result lands.
     public func refreshWorkspace(for session: AgentSession, force: Bool) {
         guard let cwd = cwd(for: session), !cwd.isEmpty else { return }
-        // `force` skips the cache, never the in-flight guard: two probes racing
-        // on one directory would have the first one's cleanup clear the marker
-        // the second is still relying on.
+        refreshWorkspace(cwd: cwd, force: force)
+    }
+
+    private func refreshWorkspace(cwd: String, force: Bool) {
+        if workspaceProbes.contains(cwd) {
+            if force { pendingWorkspaceRefreshes.insert(cwd) }
+            return
+        }
         if !force, workspaces[cwd] != nil { return }
-        guard workspaceProbes.insert(cwd).inserted else { return }
+        workspaceProbes.insert(cwd)
         Task { [weak self] in
             guard let self else { return }
-            defer { self.workspaceProbes.remove(cwd) }
-            guard case .workspace(.commitSnapshot(let snapshot)) =
-                try? await self.request(.workspace(.inspectCommit(cwd: cwd)))
-            else { return }
-            self.workspaces[cwd] = snapshot
+            let payload = try? await self.request(.workspace(.inspectCommit(cwd: cwd)))
+            self.workspaceProbes.remove(cwd)
+            if case .workspace(.commitSnapshot(let snapshot)) = payload {
+                self.setWorkspaceSnapshot(snapshot, for: cwd)
+            }
+            if self.pendingWorkspaceRefreshes.remove(cwd) != nil {
+                self.refreshWorkspace(cwd: cwd, force: true)
+            }
+        }
+    }
+
+    public func refreshOpenWorkspaces() {
+        for model in open.values {
+            refreshWorkspace(for: model.currentProjection, force: true)
         }
     }
 
@@ -505,6 +523,7 @@ public final class SessionStore {
 
     func setWorkspaceSnapshot(_ snapshot: CommitSnapshot, for cwd: String) {
         workspaces[cwd] = snapshot
+        workspaceSurfaces[cwd]?.workspaceDidChange()
     }
 
     // MARK: - Dispatch

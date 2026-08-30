@@ -118,6 +118,13 @@ final class SessionStoreTests: XCTestCase {
             store.workspace(for: model.session) != nil
         }
         XCTAssertFalse(store.workspace(for: model.session)?.branch.isEmpty ?? true)
+
+        let surfaces = try XCTUnwrap(store.surfaces(for: model.session))
+        let revision = surfaces.workspaceRevision
+        store.refreshWorkspace(for: model.session, force: true)
+        try await waitUntil("the workspace surfaces are invalidated") {
+            surfaces.workspaceRevision > revision
+        }
     }
 
     // MARK: - Streaming

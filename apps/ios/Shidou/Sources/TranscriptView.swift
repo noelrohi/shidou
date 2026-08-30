@@ -576,7 +576,7 @@ struct TranscriptView: View {
                 .accessibilityLabel("Tasks")
             }
         }
-        if let model, let snapshot = store?.branchSnapshot(for: model.session),
+        if let model, let snapshot = store?.workspace(for: model.session),
             snapshot.additions > 0 || snapshot.deletions > 0
         {
             // Keep the diffstat out of the hamburger's glass group so each

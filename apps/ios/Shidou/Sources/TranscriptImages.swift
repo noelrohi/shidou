@@ -270,11 +270,7 @@ struct MessageAttachmentsRow: View {
 
     var body: some View {
         if !attachments.isEmpty {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 96, maximum: 140), spacing: 8)],
-                alignment: .trailing,
-                spacing: 8
-            ) {
+            LazyVGrid(columns: columns, alignment: .trailing, spacing: 8) {
                 ForEach(attachments, id: \.self) { attachment in
                     if attachment.isImage, attachment.blobReference != nil {
                         TranscriptImageView(
@@ -293,7 +289,18 @@ struct MessageAttachmentsRow: View {
                     }
                 }
             }
+            .frame(width: gridWidth, alignment: .trailing)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
+    }
+
+    private var columnCount: Int { min(attachments.count, 2) }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.fixed(140), spacing: 8), count: columnCount)
+    }
+
+    private var gridWidth: CGFloat {
+        CGFloat(columnCount * 140 + max(0, columnCount - 1) * 8)
     }
 }

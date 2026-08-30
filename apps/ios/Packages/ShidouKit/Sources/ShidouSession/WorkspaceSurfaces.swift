@@ -49,6 +49,8 @@ public final class WorkspaceSurfaces {
     public private(set) var isLoadingDiff = false
     public private(set) var diffError: String?
     public private(set) var hasLoadedDiff = false
+    public private(set) var workspaceRevision: UInt64 = 0
+    @ObservationIgnored private var loadedDiffRevision: UInt64?
 
     // MARK: Visuals
 
@@ -207,7 +209,12 @@ public final class WorkspaceSurfaces {
         guard source != diffSource else { return }
         diffSource = source
         hasLoadedDiff = false
+        loadedDiffRevision = nil
         loadDiff(force: true)
+    }
+
+    func workspaceDidChange() {
+        workspaceRevision &+= 1
     }
 
     /// What a review-diff response decodes into, before it lands on the model.
@@ -217,8 +224,9 @@ public final class WorkspaceSurfaces {
     }
 
     public func loadDiff(force: Bool = false) {
-        guard force || (!hasLoadedDiff && !isLoadingDiff) else { return }
+        guard force || (loadedDiffRevision != workspaceRevision && !isLoadingDiff) else { return }
         let source = diffSource
+        let revision = workspaceRevision
         fetch(
             .diff,
             isLoading: \.isLoadingDiff,
@@ -244,6 +252,7 @@ public final class WorkspaceSurfaces {
                 self.diffIsComplete = diff.completeContext
                 self.diffError = nil
                 self.hasLoadedDiff = true
+                self.loadedDiffRevision = revision
             },
             fail: { error in
                 self.diffFiles = []

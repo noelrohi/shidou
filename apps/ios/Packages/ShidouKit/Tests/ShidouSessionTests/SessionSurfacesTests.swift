@@ -145,6 +145,57 @@ final class SessionSurfacesTests: XCTestCase {
         XCTAssertNil(surfaces.diffError)
     }
 
+    func testAWorkspaceChangeMakesTheCachedDiffReload() async throws {
+        let patches = [
+            """
+            diff --git a/one.txt b/one.txt
+            new file mode 100644
+            --- /dev/null
+            +++ b/one.txt
+            @@ -0,0 +1 @@
+            +one
+            """,
+            """
+            diff --git a/two.txt b/two.txt
+            new file mode 100644
+            --- /dev/null
+            +++ b/two.txt
+            @@ -0,0 +1,2 @@
+            +two
+            +more
+            """,
+        ]
+        var requestCount = 0
+        let surfaces = WorkspaceSurfaces(cwd: workspaceRoot) { _ in
+            let patch = patches[requestCount]
+            requestCount += 1
+            let object: [String: Any] = [
+                "type": "workspace",
+                "result": [
+                    "type": "reviewDiff",
+                    "data": [
+                        "source": "uncommitted",
+                        "numstat": "",
+                        "patch": patch,
+                        "completeContext": true,
+                    ],
+                ],
+            ]
+            return try JSONDecoder().decode(
+                ResponsePayload.self, from: JSONSerialization.data(withJSONObject: object))
+        }
+
+        surfaces.loadDiff()
+        try await waitUntil("the first diff loads") { surfaces.diffAdditions == 1 }
+
+        surfaces.workspaceDidChange()
+        surfaces.loadDiff()
+        try await waitUntil("the changed diff loads") { surfaces.diffAdditions == 2 }
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(surfaces.diffFiles.map(\.path), ["two.txt"])
+    }
+
     // MARK: - Visuals
 
     func testTheGalleryFindsTheWorkspacesImagesAndReadsTheirBytes() async throws {

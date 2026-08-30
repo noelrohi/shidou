@@ -221,6 +221,7 @@ final class DaemonConnection {
 
     func enterForeground() {
         cancelGraceWindow()
+        sessions?.refreshOpenWorkspaces()
         guard let supervisor else {
             connectIfPossible()
             return

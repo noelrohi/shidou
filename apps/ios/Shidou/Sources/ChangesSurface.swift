@@ -57,7 +57,7 @@ struct ChangesView: View {
         .navigationTitle("Changes")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { surfaces.loadDiff(force: true) }
-        .task { surfaces.loadDiff() }
+        .task(id: surfaces.workspaceRevision) { surfaces.loadDiff(force: true) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -241,6 +241,7 @@ struct DiffFileView: View {
             }
             .padding(.vertical, 8)
         }
+        .defaultScrollAnchor(.topLeading)
     }
 }
 
@@ -285,8 +286,11 @@ private struct DiffLineRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            number(line.oldNumber)
-            number(line.newNumber)
+            Text(verbatim: String(line.newNumber ?? line.oldNumber ?? 0))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .frame(minWidth: 30, alignment: .trailing)
+                .accessibilityHidden(true)
             // The marker is text, so an added line is not only a green one.
             Text(verbatim: marker)
                 .font(.system(.footnote, design: .monospaced))
@@ -304,14 +308,6 @@ private struct DiffLineRow: View {
         .background(background)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
-    }
-
-    private func number(_ value: Int?) -> some View {
-        Text(verbatim: value.map(String.init) ?? " ")
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(.tertiary)
-            .frame(minWidth: 30, alignment: .trailing)
-            .accessibilityHidden(true)
     }
 
     private var marker: String {
