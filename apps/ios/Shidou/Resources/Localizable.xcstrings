@@ -7626,6 +7626,28 @@
         }
       }
     },
+    "Scroll to bottom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一番下へスクロール"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I-scroll hanggang sa ilalim"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚动到底部"
+          }
+        }
+      }
+    },
     "Search branches": {
       "localizations": {
         "ja": {

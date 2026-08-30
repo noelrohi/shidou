@@ -4,10 +4,11 @@ import SwiftUI
 
 /// The task list, shared by the iPhone drawer and the iPad sidebar.
 ///
-/// It carries what the web sidebar carries, at mobile density: a search field,
-/// collapsible sections that file tasks either by recency or by project, an
-/// options menu on the first header that chooses between the two, and rows
-/// that say what the task is, where it lives, and what it is doing.
+/// It carries what the web sidebar carries, at mobile density: a search row
+/// that routes to the search screen, collapsible sections that file tasks
+/// either by recency or by project, an options menu on the first header that
+/// chooses between the two, and rows that say what the task is, where it
+/// lives, and what it is doing.
 struct SessionListView: View {
     @Binding var selection: UUID?
 
@@ -18,7 +19,7 @@ struct SessionListView: View {
     @AppStorage("shidou.sidebarGrouping") private var groupingChoice = SessionListGrouping.updated.rawValue
     @AppStorage("shidou.sidebarOrdering") private var orderingChoice = SessionListOrdering.newest.rawValue
 
-    @State private var query = ""
+    @State private var showingSearch = false
     @State private var collapsed: Set<String> = []
     /// Per project section: how many tasks older than the recent window the
     /// user has asked to see.
@@ -28,8 +29,6 @@ struct SessionListView: View {
     @State private var renameText = ""
     @State private var deleting: AgentSession?
     @State private var actionError: String?
-
-    @FocusState private var searchFocused: Bool
 
     private var store: SessionStore? { connection.sessions }
 
@@ -43,9 +42,12 @@ struct SessionListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchField
+            searchRow
             list
                 .overlay { emptyState }
+        }
+        .navigationDestination(isPresented: $showingSearch) {
+            SearchView(selection: $selection)
         }
         .refreshable { store?.refreshCatalog() }
         .task(id: tickKey) { await tick() }
@@ -79,40 +81,37 @@ struct SessionListView: View {
 
     // MARK: - Search
 
-    /// The web's search row, as the field it stands for. A drawer has no
-    /// navigation bar of its own to hang `.searchable` on, and a row that only
-    /// opens a search screen is a tap this list does not need.
-    private var searchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField("Search tasks", text: $query)
-                .textFieldStyle(.plain)
-                .font(.subheadline)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-                .focused($searchFocused)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                    searchFocused = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
+    /// A field's face on a button's body: the tap routes to `SearchView`,
+    /// where focus, keyboard, and results get a whole screen. Filtering this
+    /// list in place made every keystroke shrink it and left no room to say
+    /// what a query missed.
+    private var searchRow: some View {
+        Button {
+            showingSearch = true
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text("Search tasks")
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                .quaternary.opacity(0.5),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens search")
     }
 
     private var list: some View {
@@ -149,7 +148,6 @@ struct SessionListView: View {
                 .accessibilityHidden(true)
         }
         .listStyle(.plain)
-        .scrollDismissesKeyboard(.interactively)
         .environment(\.defaultMinListRowHeight, 1)
     }
 
@@ -221,18 +219,10 @@ struct SessionListView: View {
     @ViewBuilder
     private var emptyState: some View {
         if let store, store.hasLoadedCatalog, isEmpty {
-            if !query.isEmpty {
-                ContentUnavailableView {
-                    Label("No matches", systemImage: "magnifyingglass")
-                } description: {
-                    Text("No task's title, project or branch contains “\(query)”.")
-                }
-            } else {
-                ContentUnavailableView {
-                    Label("No tasks yet", systemImage: "tray")
-                } description: {
-                    Text("Start one with ＋, or from Shidou on your Mac.")
-                }
+            ContentUnavailableView {
+                Label("No tasks yet", systemImage: "tray")
+            } description: {
+                Text("Start one with ＋, or from Shidou on your Mac.")
             }
         } else if let error = store?.catalogError {
             ContentUnavailableView {
@@ -256,7 +246,6 @@ struct SessionListView: View {
             projects: store.projects,
             grouping: grouping,
             ordering: ordering,
-            query: query,
             revealed: revealed,
             now: now,
             unknownProjectName: String(localized: "Unknown project"),

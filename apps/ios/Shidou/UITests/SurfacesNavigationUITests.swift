@@ -34,11 +34,16 @@ final class SurfacesNavigationUITests: XCTestCase {
     /// list is one drawer away. "Tasks" is an accessibility label, not a
     /// localized string, so it matches in every locale.
     private func reachSessionList(in application: XCUIApplication) {
-        let tasks = application.buttons["Tasks"]
-        if tasks.waitForExistence(timeout: 15) {
-            tasks.tap()
-        }
         let row = self.taskRow(in: application)
+        for _ in 0..<3 where !row.isHittable {
+            let tasks = application.buttons["Tasks"]
+            if tasks.waitForExistence(timeout: 15), tasks.isHittable {
+                tasks.tap()
+            }
+            for _ in 0..<10 where !row.isHittable {
+                usleep(100_000)
+            }
+        }
         XCTAssertTrue(
             row.waitForExistence(timeout: 30),
             "the session list should arrive — is `shidou-demo` listening on 127.0.0.1:8787?"

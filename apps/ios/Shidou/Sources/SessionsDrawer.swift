@@ -6,11 +6,11 @@ import SwiftUI
 /// so this slides over it to show what else is open.
 ///
 /// The list itself is `SessionListView`, hosted whole rather than rebuilt as
-/// drawer rows: search, grouping, rename, delete and the empty states already
-/// live there and would only drift if repeated here. What the drawer adds is
-/// the chrome around it — the wordmark, the demo banner, and a floating bar
-/// carrying the two things you reach for without reading: Settings, and a new
-/// task.
+/// drawer rows: grouping, rename, delete and the empty states already live
+/// there and would only drift if repeated here, and search has its own screen
+/// the list's row routes to. What the drawer adds is the chrome around it —
+/// the mark and wordmark, the demo banner, and a floating bar carrying the
+/// two things you reach for without reading: Settings, and a new task.
 struct SessionsDrawer: View {
     @Binding var selection: UUID?
     @Binding var showingDraft: Bool
@@ -25,7 +25,14 @@ struct SessionsDrawer: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if connection.isDemo { DemoBanner() }
-            SessionListView(selection: $selection)
+            // The stack exists for the search push — nothing else is ever
+            // pushed onto it. Its bar stays hidden: the drawer's own header
+            // carries the chrome at the root, and `SearchView` draws its
+            // field and Cancel itself.
+            NavigationStack {
+                SessionListView(selection: $selection)
+                    .toolbar(.hidden, for: .navigationBar)
+            }
                 .onChange(of: selection) { _, newValue in
                     // Picking a task is leaving the drawer — and any draft
                     // that was never started.
@@ -58,11 +65,21 @@ struct SessionsDrawer: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Shidou")
-                .font(.title2.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+        HStack(spacing: 16) {
+            // The web sidebar's lockup, at the same size: the app icon at
+            // 24 points with a 6-point radius beside the wordmark.
+            HStack(spacing: 8) {
+                Image("AppIconMark")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 24, height: 24)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .accessibilityHidden(true)
+                Text("Shidou")
+                    .font(.title2.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: 0)
             Button(action: dismiss) {
                 Image(systemName: "sidebar.leading")
                     .font(.footnote.weight(.semibold))
