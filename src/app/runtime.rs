@@ -80,6 +80,13 @@ fn load_remote_task_state(
         Uuid::nil(),
         shidou_client::Command::LoadTaskState,
     )?;
+    remote_task_state_snapshot(response)
+}
+
+/// Read a task-state response into the snapshot the catalog merge applies.
+pub(super) fn remote_task_state_snapshot(
+    response: shidou_client::ResponsePayload,
+) -> anyhow::Result<RemoteTaskStateSnapshot> {
     let shidou_client::ResponsePayload::TaskState {
         projects,
         mut sessions,

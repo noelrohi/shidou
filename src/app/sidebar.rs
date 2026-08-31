@@ -1946,18 +1946,32 @@ impl Shidou {
         }
         for session_id in targets {
             let send = self.store.archive_session(session_id, archived);
+            let results = self.task_state_sync_tx.clone();
+            let wake = self.event_wake_tx.clone();
             cx.spawn(async move |shidou, cx| {
                 let result = cx.background_executor().spawn(async move { send() }).await;
-                if let Err(error) = result {
-                    let _ = shidou.update(cx, |shidou, cx| {
-                        // The Daemon's own refusal text; it knows why.
-                        shidou.show_toast(if archived {
-                            tr!("errors.archive_task", error = error)
-                        } else {
-                            tr!("errors.unarchive_task", error = error)
+                match result {
+                    // The daemon tells every client but this one, so the fresh
+                    // state rides the same channel the task-state sync worker
+                    // feeds and the pump applies it like any other refetch.
+                    Ok(response) => {
+                        let snapshot = super::runtime::remote_task_state_snapshot(response)
+                            .map_err(|error| error.to_string());
+                        if results.send(snapshot).is_ok() {
+                            signal_event_pump(&wake);
+                        }
+                    }
+                    Err(error) => {
+                        let _ = shidou.update(cx, |shidou, cx| {
+                            // The Daemon's own refusal text; it knows why.
+                            shidou.show_toast(if archived {
+                                tr!("errors.archive_task", error = error)
+                            } else {
+                                tr!("errors.unarchive_task", error = error)
+                            });
+                            cx.notify();
                         });
-                        cx.notify();
-                    });
+                    }
                 }
             })
             .detach();
