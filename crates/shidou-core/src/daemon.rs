@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use crate::{
-    Backend, Command, EventSink, Request, ResponsePayload, WireDriverEvent, WorkspaceOperation,
-    WorkspaceResult,
+    Backend, Command, EventSink, Request, ResponsePayload, SequencedEvent, WireDriverEvent,
+    WorkspaceOperation, WorkspaceResult,
 };
 use anyhow::{Context as _, anyhow, bail};
 use parking_lot::Mutex;
@@ -20,11 +20,12 @@ use crate::computer_use::{ComputerTarget, ComputerUsePhase, ComputerUseState};
 use crate::driver::{self, DriverHandle, DriverStartOptions, SessionOptions};
 use crate::model::{
     ActivityKind, AgentSession, Checkpoint, CheckpointStatus, DriverEvent, PermissionOption,
-    Project, ProviderKind, ProviderResumeCursor, SessionStatus,
+    Project, ProviderKind, ProviderResumeCursor, RuntimeEventCursor, SessionStatus,
 };
 use crate::persistence::{ComposerDraftStore, PersistedState, StateStore};
 use crate::settings::DaemonSettingsStore;
 use shidou_protocol::provider_session::{ProviderSessionFork, ProviderSessionForkRequest};
+use shidou_protocol::reducer::{ReduceContext, Reducer};
 
 pub struct ShidouBackend {
     sessions: Mutex<HashMap<Uuid, (Uuid, DriverHandle)>>,
@@ -32,6 +33,7 @@ pub struct ShidouBackend {
     settings: DaemonSettingsStore,
     task_store: StateStore,
     task_state: Mutex<PersistedState>,
+    reducers: Mutex<HashMap<(Uuid, Uuid), Reducer>>,
     removed_session_ids: Mutex<HashSet<Uuid>>,
     removed_project_ids: Mutex<HashSet<Uuid>>,
     #[cfg(test)]
@@ -50,6 +52,7 @@ impl ShidouBackend {
             .load()
             .context("could not load Shidou task database")?;
         migrate_projectless_state(&task_store, &mut task_state)?;
+        settle_orphaned_turns(&task_store, &mut task_state)?;
         let composer_drafts = ComposerDraftStore::for_state_path(task_store.path());
         let attachments = AttachmentStore::new(
             task_store
@@ -69,6 +72,7 @@ impl ShidouBackend {
             settings,
             task_store,
             task_state: Mutex::new(task_state),
+            reducers: Mutex::new(HashMap::new()),
             removed_session_ids: Mutex::new(HashSet::new()),
             removed_project_ids: Mutex::new(HashSet::new()),
             #[cfg(test)]
@@ -159,6 +163,36 @@ impl ShidouBackend {
 /// rows and the directories name paths on its host. Persist after each move
 /// so a later failure cannot leave an earlier project pointing at its old
 /// location in SQLite.
+fn settle_orphaned_turns(
+    task_store: &StateStore,
+    task_state: &mut PersistedState,
+) -> anyhow::Result<()> {
+    let orphaned = task_state
+        .sessions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, session)| session.status.is_busy().then_some(index))
+        .collect::<Vec<_>>();
+    for index in orphaned {
+        task_store.hydrate(&mut task_state.sessions[index])?;
+        if task_state.sessions[index].active_turn_id().is_none() {
+            continue;
+        }
+        let session_id = task_state.sessions[index].id;
+        Reducer::default().apply(
+            &mut task_state.sessions[index],
+            DriverEvent::TurnFinished {
+                success: false,
+                summary: None,
+            },
+            ReduceContext::default(),
+        );
+        task_state.mark_session_dirty(session_id);
+    }
+    task_store.save(task_state)?;
+    Ok(())
+}
+
 fn migrate_projectless_state(
     task_store: &StateStore,
     task_state: &mut PersistedState,
@@ -420,6 +454,9 @@ impl Backend for ShidouBackend {
                 Ok(ResponsePayload::Ack)
             }
             Command::RemoveSession => {
+                self.reducers
+                    .lock()
+                    .retain(|(candidate, _), _| *candidate != session_id);
                 {
                     let mut state = self.task_state.lock();
                     self.removed_session_ids.lock().insert(session_id);
@@ -607,6 +644,9 @@ impl Backend for ShidouBackend {
                 Ok(ResponsePayload::Ack)
             }
             Command::Start { options } => {
+                self.reducers
+                    .lock()
+                    .retain(|(candidate, _), _| *candidate != session_id);
                 let previous = self.sessions.lock().remove(&session_id);
                 if let Some((_, previous_driver)) = &previous {
                     previous_driver.cancel();
@@ -658,6 +698,7 @@ impl Backend for ShidouBackend {
                 Ok(ResponsePayload::Started { supports_steer })
             }
             Command::CloseSession => {
+                self.reducers.lock().remove(&(session_id, runtime_id));
                 let removed = {
                     let mut sessions = self.sessions.lock();
                     sessions
@@ -702,6 +743,60 @@ impl Backend for ShidouBackend {
                 handle_driver_command(&driver, command)
             }
         }
+    }
+
+    fn handle_runtime_event(&self, event: &SequencedEvent) -> anyhow::Result<()> {
+        let driver_event = event_from_wire(event.event.clone())?;
+        let mut state = self.task_state.lock();
+        let index = state
+            .sessions
+            .iter()
+            .position(|session| session.id == event.session_id)
+            .ok_or_else(|| {
+                anyhow!(
+                    "daemon session {} has no saved projection",
+                    event.session_id
+                )
+            })?;
+        self.task_store.hydrate(&mut state.sessions[index])?;
+
+        let provider_cursor_changed = matches!(
+            &driver_event,
+            DriverEvent::Connected { provider_cursor }
+                if *provider_cursor != state.sessions[index].provider_cursor
+        );
+        let accepted_turn = matches!(&driver_event, DriverEvent::TurnAccepted { .. });
+        let process_exited = matches!(&driver_event, DriverEvent::ProcessExited);
+        let reduction = self
+            .reducers
+            .lock()
+            .entry((event.session_id, event.runtime_id))
+            .or_default()
+            .apply(
+                &mut state.sessions[index],
+                driver_event,
+                ReduceContext::default(),
+            );
+        state.sessions[index].runtime_event_cursor = Some(RuntimeEventCursor {
+            runtime_id: event.runtime_id,
+            epoch: event.epoch,
+            sequence: event.sequence,
+        });
+
+        if accepted_turn || provider_cursor_changed || reduction.finished_turn.is_some() {
+            state.mark_session_dirty(event.session_id);
+            self.task_store.save(&mut state)?;
+        }
+        if process_exited {
+            self.reducers
+                .lock()
+                .remove(&(event.session_id, event.runtime_id));
+        }
+        Ok(())
+    }
+
+    fn runtime_ended(&self, session_id: Uuid, runtime_id: Uuid) {
+        self.reducers.lock().remove(&(session_id, runtime_id));
     }
 
     fn shutdown(&self) {
@@ -2132,6 +2227,113 @@ fn merge_saved_projects(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::DaemonSettingsStore;
+
+    fn test_backend(label: &str) -> (PathBuf, ShidouBackend) {
+        let root = std::env::temp_dir().join(format!("shidou-{label}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let backend = ShidouBackend::new(
+            DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
+            StateStore::daemon(root.join("app.db")),
+        )
+        .unwrap();
+        (root, backend)
+    }
+
+    fn sequenced_event(
+        session_id: Uuid,
+        runtime_id: Uuid,
+        epoch: Uuid,
+        sequence: u64,
+        event: DriverEvent,
+    ) -> SequencedEvent {
+        SequencedEvent {
+            session_id,
+            runtime_id,
+            epoch,
+            sequence,
+            event: event_to_wire(event).unwrap(),
+        }
+    }
+
+    #[test]
+    fn daemon_persists_reduced_output_when_the_turn_finishes() {
+        let (root, backend) = test_backend("reduce-turn");
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let session_id = session.id;
+        session.begin_turn("keep this");
+        session.status = SessionStatus::Connecting;
+        {
+            let mut state = backend.task_state.lock();
+            state.push_session(session);
+            backend.task_store.save(&mut state).unwrap();
+        }
+        let runtime_id = Uuid::new_v4();
+        let epoch = Uuid::new_v4();
+
+        backend
+            .handle_runtime_event(&sequenced_event(
+                session_id,
+                runtime_id,
+                epoch,
+                1,
+                DriverEvent::TextDelta("survived".into()),
+            ))
+            .unwrap();
+        backend
+            .handle_runtime_event(&sequenced_event(
+                session_id,
+                runtime_id,
+                epoch,
+                2,
+                DriverEvent::TurnFinished {
+                    success: true,
+                    summary: None,
+                },
+            ))
+            .unwrap();
+
+        let store = StateStore::daemon(root.join("app.db"));
+        let mut saved = store.load().unwrap();
+        store.hydrate(&mut saved.sessions[0]).unwrap();
+        assert_eq!(
+            saved.sessions[0].messages.last().unwrap().content,
+            "survived"
+        );
+        assert_eq!(saved.sessions[0].status, SessionStatus::Idle);
+        assert_eq!(saved.sessions[0].runtime_event_cursor.unwrap().sequence, 2);
+        drop(backend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn daemon_startup_fails_a_persisted_running_turn() {
+        let (root, backend) = test_backend("restart-settlement");
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        session.begin_turn("interrupted");
+        session.status = SessionStatus::Working;
+        {
+            let mut state = backend.task_state.lock();
+            state.push_session(session);
+            backend.task_store.save(&mut state).unwrap();
+        }
+        drop(backend);
+
+        let restarted = ShidouBackend::new(
+            DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
+            StateStore::daemon(root.join("app.db")),
+        )
+        .unwrap();
+        let state = restarted.task_state.lock();
+        assert_eq!(state.sessions[0].status, SessionStatus::Failed);
+        assert_eq!(
+            state.sessions[0].turns[0].status,
+            crate::model::TurnStatus::Failed
+        );
+        drop(state);
+        drop(restarted);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn a_removed_project_is_not_restored_by_a_save_already_in_flight() {

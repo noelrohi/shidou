@@ -63,6 +63,14 @@ impl Drop for ConnectionPermit {
 pub trait Backend: Send + Sync + 'static {
     fn handle(&self, request: Request, events: EventSink) -> anyhow::Result<ResponsePayload>;
 
+    /// Fold one sequenced replayable event into backend-owned state. The
+    /// default keeps lightweight test backends and non-session runtimes inert.
+    fn handle_runtime_event(&self, _event: &SequencedEvent) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn runtime_ended(&self, _session_id: Uuid, _runtime_id: Uuid) {}
+
     /// Whether the persisted session state still has a turn marked running.
     /// Read when a runtime is being torn down: a turn that loses its runtime
     /// mid-flight otherwise never settles anywhere.
@@ -78,11 +86,18 @@ pub struct EventSink {
     session_id: Uuid,
     runtime_id: Uuid,
     hub: Arc<Hub>,
+    backend: Option<Weak<dyn Backend>>,
 }
 
 impl EventSink {
     pub fn send(&self, event: WireDriverEvent) -> anyhow::Result<()> {
-        self.hub.emit(self.session_id, self.runtime_id, event, true);
+        self.hub.emit(
+            self.session_id,
+            self.runtime_id,
+            event,
+            true,
+            self.backend.as_ref(),
+        );
         Ok(())
     }
 
@@ -92,7 +107,7 @@ impl EventSink {
     /// also retain an unbounded terminal transcript in daemon memory.
     pub fn send_ephemeral(&self, event: WireDriverEvent) -> anyhow::Result<()> {
         self.hub
-            .emit(self.session_id, self.runtime_id, event, false);
+            .emit(self.session_id, self.runtime_id, event, false, None);
         Ok(())
     }
 }
@@ -103,6 +118,7 @@ struct HubState {
     task_state_revision: u64,
     subscribers: HashMap<u64, Sender<ServerMessage>>,
     active_runtimes: HashMap<Uuid, Uuid>,
+    event_locks: HashMap<(Uuid, Uuid), Arc<Mutex<()>>>,
     next_sequences: HashMap<(Uuid, Uuid), u64>,
     journal: HashMap<(Uuid, Uuid), VecDeque<SequencedEvent>>,
     responses: VecDeque<(Uuid, ResponseOutcome)>,
@@ -196,17 +212,45 @@ impl Hub {
         }
     }
 
+    #[cfg(test)]
     fn event_sink(self: &Arc<Self>, session_id: Uuid, runtime_id: Uuid) -> EventSink {
         EventSink {
             session_id,
             runtime_id,
             hub: self.clone(),
+            backend: None,
+        }
+    }
+
+    fn observed_event_sink(
+        self: &Arc<Self>,
+        session_id: Uuid,
+        runtime_id: Uuid,
+        backend: &Arc<dyn Backend>,
+    ) -> EventSink {
+        EventSink {
+            session_id,
+            runtime_id,
+            hub: self.clone(),
+            backend: Some(Arc::downgrade(backend)),
         }
     }
 
     fn begin_runtime(&self, session_id: Uuid, runtime_id: Uuid) {
+        let current_event_lock = {
+            let state = self.state.lock();
+            state
+                .active_runtimes
+                .get(&session_id)
+                .and_then(|active| state.event_locks.get(&(session_id, *active)))
+                .cloned()
+        };
+        let _event_order = current_event_lock.as_ref().map(|lock| lock.lock());
         let mut state = self.state.lock();
         state.active_runtimes.insert(session_id, runtime_id);
+        state
+            .event_locks
+            .retain(|(candidate, _), _| *candidate != session_id);
         state
             .next_sequences
             .retain(|(candidate, _), _| *candidate != session_id);
@@ -216,6 +260,15 @@ impl Hub {
     }
 
     fn end_runtime(&self, session_id: Uuid, runtime_id: Option<Uuid>) {
+        let current_event_lock = {
+            let state = self.state.lock();
+            state
+                .active_runtimes
+                .get(&session_id)
+                .and_then(|active| state.event_locks.get(&(session_id, *active)))
+                .cloned()
+        };
+        let _event_order = current_event_lock.as_ref().map(|lock| lock.lock());
         let mut state = self.state.lock();
         let matches_active = runtime_id
             .is_none_or(|runtime_id| state.active_runtimes.get(&session_id) == Some(&runtime_id));
@@ -224,6 +277,9 @@ impl Hub {
         }
         state.active_runtimes.remove(&session_id);
         state
+            .event_locks
+            .retain(|(candidate, _), _| *candidate != session_id);
+        state
             .next_sequences
             .retain(|(candidate, _), _| *candidate != session_id);
         state
@@ -231,32 +287,61 @@ impl Hub {
             .retain(|(candidate, _), _| *candidate != session_id);
     }
 
-    fn emit(&self, session_id: Uuid, runtime_id: Uuid, event: WireDriverEvent, replayable: bool) {
-        let mut state = self.state.lock();
-        if state.active_runtimes.get(&session_id) != Some(&runtime_id) {
-            return;
-        }
-        let sequence = state
-            .next_sequences
-            .entry((session_id, runtime_id))
-            .or_default();
-        *sequence = sequence.saturating_add(1);
-        let event = SequencedEvent {
-            session_id,
-            runtime_id,
-            epoch: self.epoch,
-            sequence: *sequence,
-            event,
-        };
-        if replayable {
-            let journal = state.journal.entry((session_id, runtime_id)).or_default();
-            journal.push_back(event.clone());
-            while journal.len() > self.replay_limit {
-                journal.pop_front();
+    fn emit(
+        &self,
+        session_id: Uuid,
+        runtime_id: Uuid,
+        event: WireDriverEvent,
+        replayable: bool,
+        backend: Option<&Weak<dyn Backend>>,
+    ) {
+        let event_lock = {
+            let mut state = self.state.lock();
+            if state.active_runtimes.get(&session_id) != Some(&runtime_id) {
+                return;
             }
+            state
+                .event_locks
+                .entry((session_id, runtime_id))
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _event_order = event_lock.lock();
+        let event = {
+            let mut state = self.state.lock();
+            if state.active_runtimes.get(&session_id) != Some(&runtime_id) {
+                return;
+            }
+            let sequence = state
+                .next_sequences
+                .entry((session_id, runtime_id))
+                .or_default();
+            *sequence = sequence.saturating_add(1);
+            let event = SequencedEvent {
+                session_id,
+                runtime_id,
+                epoch: self.epoch,
+                sequence: *sequence,
+                event,
+            };
+            if replayable {
+                let journal = state.journal.entry((session_id, runtime_id)).or_default();
+                journal.push_back(event.clone());
+                while journal.len() > self.replay_limit {
+                    journal.pop_front();
+                }
+            }
+            event
+        };
+        if replayable
+            && let Some(backend) = backend.and_then(Weak::upgrade)
+            && let Err(error) = backend.handle_runtime_event(&event)
+        {
+            eprintln!("shidou-daemon could not reduce runtime event: {error:#}");
         }
         let message = ServerMessage::Event(event);
-        state
+        self.state
+            .lock()
             .subscribers
             .retain(|_, subscriber| subscriber.send(message.clone()).is_ok());
     }
@@ -785,15 +870,12 @@ fn run_runtime_mailbox(
             if let Some(request_id) = resolved_interaction
                 && matches!(&handled.outcome, ResponseOutcome::Ok { .. })
             {
-                hub.emit(
-                    session_id,
-                    runtime_id,
-                    WireDriverEvent::new(
+                hub.observed_event_sink(session_id, runtime_id, &backend)
+                    .send(WireDriverEvent::new(
                         "interactionResolved",
                         serde_json::json!({ "requestId": request_id }),
-                    ),
-                    true,
-                );
+                    ))
+                    .ok();
             }
             if starts_runtime {
                 active_runtime_id =
@@ -813,8 +895,9 @@ fn run_runtime_mailbox(
                 if (removes_session || active_runtime_id == Some(runtime_id))
                     && matches!(&handled.outcome, ResponseOutcome::Ok { .. })
                 {
-                    settle_interrupted_turn(&hub, backend.as_ref(), session_id, runtime_id);
+                    settle_interrupted_turn(&hub, &backend, session_id, runtime_id);
                     hub.end_runtime(session_id, (!removes_session).then_some(runtime_id));
+                    backend.runtime_ended(session_id, runtime_id);
                     active_runtime_id = None;
                 }
             } else if active_runtime_id.is_none()
@@ -890,7 +973,7 @@ enum TaskCatalogAction {
 /// any driver event.
 fn settle_interrupted_turn(
     hub: &Arc<Hub>,
-    backend: &dyn Backend,
+    backend: &Arc<dyn Backend>,
     session_id: Uuid,
     runtime_id: Uuid,
 ) {
@@ -898,7 +981,7 @@ fn settle_interrupted_turn(
         return;
     }
     let _ = hub
-        .event_sink(session_id, runtime_id)
+        .observed_event_sink(session_id, runtime_id, backend)
         .send(WireDriverEvent::new(
             "turnFinished",
             serde_json::json!({ "success": false }),
@@ -928,7 +1011,8 @@ fn handle_request(
         if starts_runtime {
             hub.begin_runtime(session_id, runtime_id);
         }
-        let outcome = match backend.handle(request, hub.event_sink(session_id, runtime_id)) {
+        let events = hub.observed_event_sink(session_id, runtime_id, &backend);
+        let outcome = match backend.handle(request, events) {
             Ok(payload) => ResponseOutcome::Ok { payload },
             Err(error) => ResponseOutcome::Error {
                 error: RpcError::from(error),

@@ -269,6 +269,7 @@ impl ClaudeDriver {
             .name("shidou-claude-reader".into())
             .spawn(move || {
                 let mut state = ClaudeStreamState {
+                    native_session_id: reader_session.clone(),
                     pending_task_stops: reader_pending_task_stops,
                     pending_user_inputs: reader_pending_user_inputs,
                     ..ClaudeStreamState::default()
@@ -610,6 +611,9 @@ fn write_line(writer: &mut impl Write, value: &Value) -> std::io::Result<()> {
 
 #[derive(Default)]
 struct ClaudeStreamState {
+    /// The latest native conversation id reported by Claude. `/clear` forks
+    /// this id without replacing the CLI process.
+    native_session_id: String,
     saw_text_delta: bool,
     saw_reasoning_delta: bool,
     /// Tool-use id → transcript presentation plus the full shell command.
@@ -1220,17 +1224,48 @@ fn forward_subagent_transcript(
     ));
 }
 
+fn refresh_native_session_id(
+    value: &Value,
+    events: &DriverEventSender,
+    state: &mut ClaudeStreamState,
+) {
+    let Some(session_id) = value.get("session_id").and_then(Value::as_str) else {
+        return;
+    };
+    if session_id == state.native_session_id {
+        return;
+    }
+    state.native_session_id = session_id.to_owned();
+    let _ = events.send(DriverEvent::Connected {
+        provider_cursor: Some(ProviderResumeCursor::Claude {
+            session_id: session_id.to_owned(),
+            resume_at: None,
+        }),
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_message(
     value: &Value,
-    session_id: &str,
+    spawn_session_id: &str,
     events: &DriverEventSender,
     commands: &Sender<CommandMessage>,
     turn_active: &Mutex<bool>,
     auto_approve: bool,
     state: &mut ClaudeStreamState,
 ) {
-    match value.get("type").and_then(Value::as_str) {
+    if state.native_session_id.is_empty() {
+        state.native_session_id = spawn_session_id.to_owned();
+    }
+    let message_type = value.get("type").and_then(Value::as_str);
+    if message_type == Some("result")
+        || (message_type == Some("system")
+            && value.get("subtype").and_then(Value::as_str) == Some("init"))
+    {
+        refresh_native_session_id(value, events, state);
+    }
+
+    match message_type {
         Some("system") => {
             // The init handshake carries the CLI's own command registry —
             // built-ins, custom commands, plugins and skills alike.
@@ -1249,7 +1284,8 @@ fn handle_message(
                     let _ = events.send(DriverEvent::AvailableCommands(commands));
                 }
             }
-            handle_claude_system(value, session_id, events, state);
+            let native_session_id = state.native_session_id.clone();
+            handle_claude_system(value, &native_session_id, events, state);
         }
         Some("control_request") => {
             if value.pointer("/request/subtype").and_then(Value::as_str) == Some("can_use_tool") {
@@ -1513,7 +1549,8 @@ fn handle_message(
             // Claude writes its generated title and rewind checkpoint to the
             // same native transcript as the turn settles. Read it once, ahead
             // of TurnFinished, so that event's forced save includes both.
-            if let Ok(metadata) = crate::claude_session::session_metadata(session_id) {
+            let native_session_id = state.native_session_id.clone();
+            if let Ok(metadata) = crate::claude_session::session_metadata(&native_session_id) {
                 if let Some(title) = metadata.title
                     && state.last_auto_title.as_deref() != Some(title.as_str())
                 {
@@ -1523,7 +1560,7 @@ fn handle_message(
                 if let Some(message_id) = metadata.latest_message_id {
                     let _ = events.send(DriverEvent::Connected {
                         provider_cursor: Some(ProviderResumeCursor::Claude {
-                            session_id: session_id.to_owned(),
+                            session_id: native_session_id,
                             resume_at: Some(message_id),
                         }),
                     });
@@ -1716,6 +1753,33 @@ mod tests {
             Mutex::new(true),
             ClaudeStreamState::default(),
         )
+    }
+
+    #[test]
+    fn changed_init_session_id_refreshes_the_provider_cursor() {
+        let (events, event_rx, commands, _, turn_active, mut state) = harness();
+        state.native_session_id = "before-clear".into();
+
+        handle_message(
+            &json!({
+                "type": "system",
+                "subtype": "init",
+                "session_id": "after-clear",
+            }),
+            "before-clear",
+            &events,
+            &commands,
+            &turn_active,
+            false,
+            &mut state,
+        );
+
+        assert!(matches!(
+            event_rx.try_recv().unwrap(),
+            DriverEvent::Connected {
+                provider_cursor: Some(ProviderResumeCursor::Claude { session_id, resume_at })
+            } if session_id == "after-clear" && resume_at.is_none()
+        ));
     }
 
     #[cfg(unix)]
