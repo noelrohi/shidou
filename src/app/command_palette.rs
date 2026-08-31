@@ -122,6 +122,8 @@ pub(super) struct CommandPaletteItem {
     search_text: String,
     order: usize,
     recency: u64,
+    /// The Task is on the shelf. Results still list it; the row says so.
+    archived: bool,
 }
 
 impl CommandPaletteItem {
@@ -146,6 +148,7 @@ impl CommandPaletteItem {
             search_text,
             order,
             recency: 0,
+            archived: false,
         }
     }
 }
@@ -235,6 +238,73 @@ fn palette_content_match_text(
         push(matched.snippet.len(), normal_font, theme.text_tertiary);
     }
     StyledText::new(text).with_runs(runs)
+}
+
+/// Whether a Task belongs in the palette's Task results.
+///
+/// Only "has it started" decides. The archive mark deliberately plays no part:
+/// search is how a shelved Task is found again once the shelf is long.
+fn command_palette_lists_task(session: &AgentSession) -> bool {
+    session.has_started()
+}
+
+/// Builds one Task row. Archived Tasks are listed like any other; the row
+/// carries the mark so the user is not surprised when the sidebar does not
+/// scroll to a shelved Task.
+fn command_palette_task_item(
+    session: &AgentSession,
+    project: &str,
+    project_path: &str,
+    current: bool,
+    content_match: Option<crate::persistence::SessionMessageMatch>,
+    order: usize,
+) -> CommandPaletteItem {
+    let (workspace_path, branch) = match &session.workspace {
+        SessionWorkspace::Local => (String::new(), None),
+        SessionWorkspace::NewWorktree { base_branch } => (String::new(), base_branch.as_deref()),
+        SessionWorkspace::Worktree { path, branch } => {
+            (path.to_string_lossy().into_owned(), Some(branch.as_str()))
+        }
+    };
+    let mut details = vec![project.to_owned()];
+    if let Some(branch) = branch {
+        details.push(format!("#{branch}"));
+    }
+    if current {
+        details.push(tr!("command_palette.current"));
+    }
+    let detail = details.join(" · ");
+    let label = session.display_title().to_owned();
+    CommandPaletteItem {
+        section: PaletteSection::Tasks,
+        search_text: format!(
+            "{label} {project} {project_path} {workspace_path} {} {} {} {} task session chat conversation",
+            branch.unwrap_or_default(),
+            session.provider.short_name(),
+            session.provider.display_name(),
+            session.model.as_deref().unwrap_or_default(),
+        ),
+        label,
+        detail: Some(detail),
+        icon: PaletteIcon::Provider(session.provider),
+        shortcut: None,
+        action: PaletteAction::SelectTask(session.id),
+        content_match,
+        order,
+        recency: session.updated_at,
+        archived: session.archived_at.is_some(),
+    }
+}
+
+/// Ranks Task results by match quality, then recency, then candidate order.
+/// The archive mark is deliberately absent: a shelved Task is not demoted.
+fn sort_scored_palette_tasks(tasks: &mut [ScoredPaletteItem]) {
+    tasks.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then(b.item.recency.cmp(&a.item.recency))
+            .then(a.item.order.cmp(&b.item.order))
+    });
 }
 
 fn command_palette_row_height(item: &CommandPaletteItem) -> f32 {
@@ -700,54 +770,24 @@ impl Shidou {
         self.state
             .sessions
             .iter()
-            .filter(|session| session.has_started())
+            .filter(|session| command_palette_lists_task(session))
             .enumerate()
             .map(|(order, session)| {
                 let (project, project_path) = projects
                     .get(&session.project_id)
                     .cloned()
                     .unwrap_or_else(|| (tr!("project.no_project_name"), String::new()));
-                let (workspace_path, branch) = match &session.workspace {
-                    SessionWorkspace::Local => (String::new(), None),
-                    SessionWorkspace::NewWorktree { base_branch } => {
-                        (String::new(), base_branch.as_deref())
-                    }
-                    SessionWorkspace::Worktree { path, branch } => {
-                        (path.to_string_lossy().into_owned(), Some(branch.as_str()))
-                    }
-                };
-                let mut details = vec![project.clone()];
-                if let Some(branch) = branch {
-                    details.push(format!("#{branch}"));
-                }
-                if Some(session.id) == self.state.selected_session {
-                    details.push(tr!("command_palette.current"));
-                }
-                let detail = details.join(" · ");
-                let label = session.display_title().to_owned();
-                let content_match = self
-                    .command_palette
-                    .message_matches
-                    .get(&session.id)
-                    .cloned();
-                CommandPaletteItem {
-                    section: PaletteSection::Tasks,
-                    search_text: format!(
-                        "{label} {project} {project_path} {workspace_path} {} {} {} {} task session chat conversation",
-                        branch.unwrap_or_default(),
-                        session.provider.short_name(),
-                        session.provider.display_name(),
-                        session.model.as_deref().unwrap_or_default(),
-                    ),
-                    label,
-                    detail: Some(detail),
-                    icon: PaletteIcon::Provider(session.provider),
-                    shortcut: None,
-                    action: PaletteAction::SelectTask(session.id),
-                    content_match,
+                command_palette_task_item(
+                    session,
+                    &project,
+                    &project_path,
+                    Some(session.id) == self.state.selected_session,
+                    self.command_palette
+                        .message_matches
+                        .get(&session.id)
+                        .cloned(),
                     order,
-                    recency: session.updated_at,
-                }
+                )
             })
             .collect()
     }
@@ -800,12 +840,7 @@ impl Shidou {
                     .map(|score| ScoredPaletteItem { score, item })
             })
             .collect::<Vec<_>>();
-        tasks.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then(b.item.recency.cmp(&a.item.recency))
-                .then(a.item.order.cmp(&b.item.order))
-        });
+        sort_scored_palette_tasks(&mut tasks);
         tasks.truncate(MAX_TASK_RESULTS);
 
         let mut commands = self
@@ -1049,6 +1084,7 @@ impl Shidou {
                     PaletteIcon::Provider(provider) => provider_icon(provider),
                 };
                 let detail = item.detail.clone();
+                let archived = item.archived;
                 let content_match = item.content_match.clone();
                 let shortcut = item.shortcut;
                 results = results.child(
@@ -1127,6 +1163,22 @@ impl Shidou {
                                                     .text_size(sp(12.5))
                                                     .text_color(theme.text_tertiary)
                                                     .child(detail),
+                                            )
+                                        })
+                                        // A word, not a tint: the shelf state
+                                        // has to survive a monochrome theme and
+                                        // read the same in both.
+                                        .when(archived, |row| {
+                                            row.child(
+                                                div()
+                                                    .flex_none()
+                                                    .px(px(6.0))
+                                                    .rounded(px(6.0))
+                                                    .bg(theme.overlay_strong)
+                                                    .text_size(sp(11.5))
+                                                    .font_weight(FontWeight::MEDIUM)
+                                                    .text_color(theme.text_tertiary)
+                                                    .child(tr!("command_palette.archived")),
                                             )
                                         }),
                                 )
@@ -1349,6 +1401,72 @@ mod tests {
             command_palette_results_height(&[], true),
             EMPTY_RESULTS_HEIGHT + RESULTS_BOTTOM_PADDING
         );
+    }
+
+    fn started_session(title: &str, updated_at: u64, archived: bool) -> AgentSession {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::default());
+        session.title = title.to_owned();
+        session.updated_at = updated_at;
+        session.archived_at = archived.then_some(1_700_000_000);
+        // A stored row arrives as a skeleton, which is what "started" means to
+        // the list; nothing here needs a transcript.
+        session.detail_loaded = false;
+        session
+    }
+
+    fn task_item(session: &AgentSession, order: usize) -> CommandPaletteItem {
+        command_palette_task_item(session, "Shidou", "/tmp/shidou", false, None, order)
+    }
+
+    #[test]
+    fn archived_tasks_stay_in_results_and_carry_the_mark() {
+        let archived = started_session("Rewrite the veil", 20, true);
+        let live = started_session("Rewrite the pump", 30, false);
+
+        assert!(command_palette_lists_task(&archived));
+        assert!(command_palette_lists_task(&live));
+
+        let archived_item = task_item(&archived, 0);
+        let live_item = task_item(&live, 1);
+        assert!(archived_item.archived);
+        assert!(!live_item.archived);
+        // The row still finds itself by title, and the mark is a word.
+        assert!(score("rewrite veil", &archived_item.search_text).is_some());
+        assert_eq!(tr!("command_palette.archived"), "Archived");
+    }
+
+    #[test]
+    fn archived_tasks_keep_their_place_in_the_ordering() {
+        let sessions = [
+            started_session("Alpha", 40, true),
+            started_session("Beta", 30, false),
+            started_session("Gamma", 30, true),
+            started_session("Delta", 10, false),
+        ];
+        let scored = |mark_archive: bool| {
+            let mut scored = sessions
+                .iter()
+                .enumerate()
+                .map(|(order, session)| {
+                    let mut session = session.clone();
+                    if !mark_archive {
+                        session.archived_at = None;
+                    }
+                    ScoredPaletteItem {
+                        score: 100 - order as u32 % 2,
+                        item: task_item(&session, order),
+                    }
+                })
+                .collect::<Vec<_>>();
+            sort_scored_palette_tasks(&mut scored);
+            scored
+                .into_iter()
+                .map(|scored| scored.item.label)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(scored(true), scored(false));
+        // Score, then recency, then candidate order — the mark never enters.
+        assert_eq!(scored(true), ["Alpha", "Gamma", "Beta", "Delta"]);
     }
 
     #[test]

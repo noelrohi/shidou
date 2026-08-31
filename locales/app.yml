@@ -145,6 +145,8 @@ command_palette.hide_right_panel:
   en: Hide right panel
 command_palette.current:
   en: Current
+command_palette.archived:
+  en: Archived
 command_palette.you:
   en: You
 command_palette.agent:
