@@ -130,6 +130,31 @@ describe("ShidouClient", () => {
       outcome: { status: "error", error: { message: "nope" } },
     });
     await expect(response).rejects.toBeInstanceOf(ShidouRpcError);
+    await expect(response).rejects.toMatchObject({ kind: undefined, isRefusal: false });
+  });
+
+  test("tells a refusal apart from an ordinary failure", async () => {
+    const { client, sockets } = fixture();
+    const socket = sockets[0] ?? new FakeSocket();
+    const connected = client.connect();
+    const active = sockets[0] ?? socket;
+    active.open();
+    active.receive({ type: "hello", protocolVersion: PROTOCOL_VERSION, daemonVersion: "test" });
+    await connected;
+
+    const response = client.request({ type: "archiveSession", archived: true });
+    const request = JSON.parse(active.sent[1]!);
+    active.receive({
+      type: "response",
+      requestId: request.requestId,
+      outcome: {
+        status: "error",
+        error: { message: "this task is still running or waiting for you", kind: "refused" },
+      },
+    });
+    // A refusal is shown, not retried, so it must not look like a dropped
+    // connection or a timeout.
+    await expect(response).rejects.toMatchObject({ kind: "refused", isRefusal: true });
   });
 
   test("deduplicates events and resumes from the last sequence", async () => {

@@ -218,7 +218,10 @@ impl DaemonClient {
         }
         match response_rx.recv_timeout(REQUEST_TIMEOUT) {
             Ok(Ok(payload)) => Ok(payload),
-            Ok(Err(error)) => Err(anyhow!(error.message)),
+            // Carried whole, not flattened to its message: `refusal` below
+            // recovers the kind, which is how a caller tells a daemon that
+            // declined from a daemon it could not reach.
+            Ok(Err(error)) => Err(anyhow::Error::new(error)),
             Err(error) => {
                 self.inner.pending.lock().remove(&request_id);
                 Err(anyhow!("timed out waiting for Shidou daemon: {error}"))
@@ -402,6 +405,7 @@ fn run_client(
     for (_, response) in pending {
         let _ = response.send(Err(RpcError {
             message: "Shidou daemon disconnected".into(),
+            kind: None,
         }));
     }
     let sessions = std::mem::take(&mut *inner.sessions.lock());
@@ -520,6 +524,18 @@ fn read_server_message(
             _ => {}
         }
     }
+}
+
+/// The daemon's refusal, if this is one.
+///
+/// A refusal means the daemon received the command, understood it, and
+/// declined it — so a caller shows it and stops, rather than retrying. A
+/// timeout, a dropped connection, and an ordinary daemon failure all return
+/// `None`, because retrying those can succeed.
+pub fn refusal(error: &anyhow::Error) -> Option<&RpcError> {
+    error
+        .downcast_ref::<RpcError>()
+        .filter(|error| error.is_refusal())
 }
 
 #[cfg(test)]

@@ -24,6 +24,7 @@ use crate::model::{
 };
 use crate::persistence::{ComposerDraftStore, PersistedState, StateStore};
 use crate::settings::DaemonSettingsStore;
+use shidou_protocol::RpcError;
 use shidou_protocol::provider_session::{ProviderSessionFork, ProviderSessionForkRequest};
 use shidou_protocol::reducer::{ReduceContext, Reducer};
 
@@ -470,6 +471,18 @@ impl Backend for ShidouBackend {
                 else {
                     bail!("that task is no longer available");
                 };
+                // Archiving must never hide work that needs the user, so the
+                // daemon is the authority and refuses a busy Task however the
+                // asking client had it rendered. `is_busy` also covers
+                // Connecting, which is a turn already on its way: archiving in
+                // that instant would hide the permission request it is about
+                // to raise. Unarchiving is always allowed, because it can only
+                // bring a Task back into view.
+                if archived && session.status.is_busy() {
+                    return Err(
+                        RpcError::refused("this task is still running or waiting for you").into(),
+                    );
+                }
                 // Clearing deletes the mark rather than suppressing it, so
                 // `archived_at` has exactly one meaning.
                 session.archived_at = archived.then(crate::model::unix_time);

@@ -1085,7 +1085,10 @@ fn send_dispatch_error(
     let outcome = hub
         .cached_response(request_id)
         .unwrap_or_else(|| ResponseOutcome::Error {
-            error: RpcError { message },
+            error: RpcError {
+                message,
+                kind: None,
+            },
         });
     hub.cache_response(request_id, outcome.clone());
     let _ = outgoing.send(ServerMessage::Response {
@@ -1501,12 +1504,42 @@ mod tests {
         assert!(sessions.is_empty());
     }
 
-    /// Persists one started task through the wire, the way a client does
-    /// before it can archive anything.
+    /// Persists one started, quiet task through the wire, the way a client
+    /// does before it can archive anything.
     #[cfg(unix)]
     fn persist_task(client: &DaemonClient, project: &Project) -> AgentSession {
+        persist_task_with_status(client, project, SessionStatus::Idle)
+    }
+
+    #[cfg(unix)]
+    fn try_archive(
+        client: &DaemonClient,
+        session_id: Uuid,
+        archived: bool,
+    ) -> anyhow::Result<ResponsePayload> {
+        client.request(
+            session_id,
+            Uuid::nil(),
+            Command::ArchiveSession { archived },
+        )
+    }
+
+    #[cfg(unix)]
+    fn archive(client: &DaemonClient, session_id: Uuid, archived: bool) {
+        try_archive(client, session_id, archived).unwrap();
+    }
+
+    /// Persists one started task already in the given state, the way a client
+    /// reports a runtime it is driving.
+    #[cfg(unix)]
+    fn persist_task_with_status(
+        client: &DaemonClient,
+        project: &Project,
+        status: SessionStatus,
+    ) -> AgentSession {
         let mut session = AgentSession::new(project.id, ProviderKind::Codex);
         session.begin_turn("shelve me");
+        session.status = status;
         client
             .request(
                 Uuid::nil(),
@@ -1519,17 +1552,6 @@ mod tests {
             )
             .unwrap();
         session
-    }
-
-    #[cfg(unix)]
-    fn archive(client: &DaemonClient, session_id: Uuid, archived: bool) {
-        client
-            .request(
-                session_id,
-                Uuid::nil(),
-                Command::ArchiveSession { archived },
-            )
-            .unwrap();
     }
 
     #[cfg(unix)]
@@ -1677,6 +1699,119 @@ mod tests {
             "archiving invalidates the observer's task catalog"
         );
         assert!(archived_at(&observer, session.id).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archiving_a_working_task_is_refused() {
+        let daemon = ShidouTestDaemon::new("archive-working", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task_with_status(&client, &project, SessionStatus::Working);
+
+        let error = try_archive(&client, session.id, true).expect_err("a Working task is refused");
+
+        assert!(
+            shidou_client::refusal(&error).is_some(),
+            "a refusal is not a transport failure: {error}"
+        );
+        assert_eq!(archived_at(&client, session.id), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archiving_a_waiting_task_is_refused() {
+        let daemon = ShidouTestDaemon::new("archive-waiting", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task_with_status(&client, &project, SessionStatus::Waiting);
+
+        let error = try_archive(&client, session.id, true).expect_err("a Waiting task is refused");
+
+        assert!(
+            shidou_client::refusal(&error).is_some(),
+            "a refusal is not a transport failure: {error}"
+        );
+        assert_eq!(archived_at(&client, session.id), None);
+    }
+
+    /// A refusal is the guard surfacing, so a client shows it and stops. A
+    /// daemon it could not reach, and a daemon that simply failed, are both
+    /// things a client may retry, so neither may look like a refusal.
+    #[cfg(unix)]
+    #[test]
+    fn only_a_refusal_reads_as_a_refusal() {
+        let client = {
+            let daemon = ShidouTestDaemon::new("archive-refusal-kind", |_| {});
+            let client = daemon.connect();
+            let project = Project::from_path(daemon.root.join("repo"));
+            let session = persist_task_with_status(&client, &project, SessionStatus::Working);
+
+            let refused = try_archive(&client, session.id, true).expect_err("refused");
+            assert!(shidou_client::refusal(&refused).is_some());
+
+            // A task the daemon has never heard of fails, but not by refusal:
+            // nothing about the request was declined on its merits.
+            let missing =
+                try_archive(&client, Uuid::new_v4(), true).expect_err("unknown task fails");
+            assert!(
+                shidou_client::refusal(&missing).is_none(),
+                "an ordinary failure carries no refusal: {missing}"
+            );
+            client
+        };
+
+        // The daemon is gone now. Reaching a daemon that is not there is the
+        // case a client retries, so it must not read as a refusal either.
+        let unreachable =
+            try_archive(&client, Uuid::new_v4(), true).expect_err("a stopped daemon fails");
+        assert!(
+            shidou_client::refusal(&unreachable).is_none(),
+            "a transport failure carries no refusal: {unreachable}"
+        );
+    }
+
+    /// Unarchiving can only bring a task back into view, so no state of the
+    /// task is a reason to decline it.
+    #[cfg(unix)]
+    #[test]
+    fn unarchiving_is_never_refused() {
+        let daemon = ShidouTestDaemon::new("archive-unarchive-busy", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+
+        // The task starts working while it sits on the shelf.
+        let mut working = session.clone();
+        working.status = SessionStatus::Working;
+        working.updated_at = working.updated_at.saturating_add(1);
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![working.id],
+                    sessions: vec![working],
+                },
+            )
+            .unwrap();
+
+        try_archive(&client, session.id, false).expect("unarchiving a Working task is allowed");
+        assert_eq!(archived_at(&client, session.id), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archiving_a_quiet_task_still_succeeds() {
+        let daemon = ShidouTestDaemon::new("archive-quiet", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task_with_status(&client, &project, SessionStatus::Failed);
+
+        try_archive(&client, session.id, true).expect("a task that is not busy can be archived");
+        assert!(archived_at(&client, session.id).is_some());
     }
 
     #[cfg(unix)]

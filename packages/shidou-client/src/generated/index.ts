@@ -64,6 +64,7 @@ export type { ResponsePayload } from "./ResponsePayload";
 export type { ReviewDiffData } from "./ReviewDiffData";
 export type { ReviewDiffSource } from "./ReviewDiffSource";
 export type { RpcError } from "./RpcError";
+export type { RpcErrorKind } from "./RpcErrorKind";
 export type { RuntimeEventCursor } from "./RuntimeEventCursor";
 export type { RuntimeMode } from "./RuntimeMode";
 export type { SequencedEvent } from "./SequencedEvent";

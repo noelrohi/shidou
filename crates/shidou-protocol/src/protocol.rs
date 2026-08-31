@@ -476,15 +476,59 @@ pub enum ResponsePayload {
     },
 }
 
+/// Why a command failed, when the reason is something a client must act on
+/// differently from an ordinary failure.
+///
+/// Absent on a plain error. A transport drop, a timeout, and a daemon bug all
+/// carry no kind, so a client can tell them apart from a deliberate refusal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum RpcErrorKind {
+    /// The daemon considered the command and declined it. The request was
+    /// well-formed and arrived intact, so retrying it changes nothing until
+    /// the state that provoked the refusal changes. Show it to the user.
+    Refused,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 pub struct RpcError {
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<RpcErrorKind>,
 }
+
+impl RpcError {
+    /// A refusal: the daemon understood the command and declined it.
+    pub fn refused(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            kind: Some(RpcErrorKind::Refused),
+        }
+    }
+
+    pub fn is_refusal(&self) -> bool {
+        self.kind == Some(RpcErrorKind::Refused)
+    }
+}
+
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for RpcError {}
 
 impl From<anyhow::Error> for RpcError {
     fn from(error: anyhow::Error) -> Self {
-        Self {
-            message: error.to_string(),
+        // A backend that returned a typed error keeps its kind; anything else
+        // is an ordinary failure and reaches the client as bare text.
+        match error.downcast::<RpcError>() {
+            Ok(error) => error,
+            Err(error) => Self {
+                message: error.to_string(),
+                kind: None,
+            },
         }
     }
 }

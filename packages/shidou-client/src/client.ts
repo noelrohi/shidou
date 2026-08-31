@@ -4,6 +4,7 @@ import {
   type Command,
   type ReplayCursor,
   type ResponsePayload,
+  type RpcErrorKind,
   type SequencedEvent,
   type ServerMessage,
 } from "./generated";
@@ -37,9 +38,21 @@ export interface ShidouClientOptions {
 }
 
 export class ShidouRpcError extends Error {
-  constructor(message: string) {
+  /**
+   * Set when the daemon declined the command on its merits. A transport drop,
+   * a timeout, and an ordinary daemon failure leave this undefined, so a
+   * caller can show a refusal rather than retry it.
+   */
+  readonly kind?: RpcErrorKind | null;
+
+  constructor(message: string, kind?: RpcErrorKind | null) {
     super(message);
     this.name = "ShidouRpcError";
+    this.kind = kind;
+  }
+
+  get isRefusal(): boolean {
+    return this.kind === "refused";
   }
 }
 
@@ -322,7 +335,10 @@ export class ShidouClient {
       this.pending.delete(message.requestId);
       clearTimeout(pending.timeout);
       if (message.outcome.status === "ok") pending.resolve(message.outcome.payload);
-      else pending.reject(new ShidouRpcError(message.outcome.error.message));
+      else
+        pending.reject(
+          new ShidouRpcError(message.outcome.error.message, message.outcome.error.kind),
+        );
       return;
     }
     if (message.type === "event") {
