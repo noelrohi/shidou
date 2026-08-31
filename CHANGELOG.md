@@ -14,6 +14,15 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.11]
+
+- Keep task transcripts owned and persisted by the daemon, so prompts and
+  assistant output remain consistent across desktop, browser, and phone clients
+- Queue Pi and Oh My Pi follow-up prompts submitted while the provider is still
+  settling the previous turn
+- Include untracked text files in compact Git change counts, including sessions
+  opened from a repository subdirectory
+
 ## [0.2.10]
 
 - Sync follow-up turns across clients: a turn started from one client now
