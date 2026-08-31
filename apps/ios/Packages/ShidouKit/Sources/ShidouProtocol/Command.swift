@@ -167,6 +167,10 @@ public enum Command: Sendable {
     case loadTaskState
     case saveTaskState(projects: [Project], liveSessionIds: [UUID], sessions: [AgentSession])
     case removeSession
+    /// Set or clear the archive mark on one task. Explicit because saves merge
+    /// and can neither carry the mark nor be refused; the daemon refuses this
+    /// while the task is Working or Waiting.
+    case archiveSession(archived: Bool)
     case hydrateSession(sessionId: UUID)
     case loadComposerDrafts
     case saveComposerDrafts(drafts: ComposerDrafts, generation: UInt64)
@@ -188,7 +192,7 @@ extension Command: Encodable {
         case binaryOverride, discoverModels, probeVersion
         case projects, liveSessionIds, sessions, sessionId, reference, path
         case turnCount, operation, settings, key, controlId, window, projectRoots
-        case dirs, enabled
+        case dirs, enabled, archived
         case drafts, generation, changes, mimeType, bytes, name, upload
         case cliVersion
     }
@@ -265,6 +269,9 @@ extension Command: Encodable {
             try container.encode(sessions, forKey: .sessions)
         case .removeSession:
             try container.encode("removeSession", forKey: .type)
+        case .archiveSession(let archived):
+            try container.encode("archiveSession", forKey: .type)
+            try container.encode(archived, forKey: .archived)
         case .hydrateSession(let sessionId):
             try container.encode("hydrateSession", forKey: .type)
             try container.encode(sessionId.wireString, forKey: .sessionId)

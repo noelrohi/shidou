@@ -185,6 +185,9 @@ private struct ProjectTasksView: View {
             grouping: .updated,
             ordering: .newest
         )
+        // An Archived Task has left the project's history for the Task Shelf,
+        // which the task list draws; this screen is the history.
+        .filter { !$0.isShelf }
         .flatMap(\.items)
     }
 

@@ -23,6 +23,10 @@ struct SessionListView: View {
 
     @State private var showingProjects = false
     @State private var collapsed: Set<String> = []
+    /// The Task Shelf starts closed and opens on a tap. It is the one section
+    /// whose default is collapsed, so it is tracked apart from `collapsed`,
+    /// which records the sections the user has closed.
+    @State private var shelfExpanded = false
     /// Per project section: how many tasks older than the recent window the
     /// user has asked to see.
     @State private var revealed: [String: Int] = [:]
@@ -95,7 +99,7 @@ struct SessionListView: View {
             navigation
             ForEach(groups) { group in
                 Section {
-                    if !collapsed.contains(group.key) {
+                    if !isCollapsed(group) {
                         ForEach(group.items) { item in
                             row(item)
                         }
@@ -106,11 +110,11 @@ struct SessionListView: View {
                 } header: {
                     GroupHeader(
                         group: group,
-                        collapsed: collapsed.contains(group.key),
+                        collapsed: isCollapsed(group),
                         showsOptions: group.key == groups.first?.key,
                         grouping: grouping,
                         ordering: ordering,
-                        toggle: { toggle(group.key) },
+                        toggle: { toggle(group) },
                         chooseGrouping: { groupingChoice = $0.rawValue },
                         chooseOrdering: { orderingChoice = $0.rawValue }
                     )
@@ -218,6 +222,39 @@ struct SessionListView: View {
             Label("Rename", systemImage: "pencil")
         }
         .tint(.indigo)
+        // A task that is working, or waiting on the user, is not finished with:
+        // the daemon refuses to shelve one, so the control is not offered.
+        if canArchive(item.session) {
+            Button {
+                setArchived(item.session, archived: !item.session.isArchived)
+            } label: {
+                item.session.isArchived
+                    ? Label("Unarchive", systemImage: "tray.and.arrow.up")
+                    : Label("Archive", systemImage: "archivebox")
+            }
+            .tint(.gray)
+        }
+    }
+
+    private func canArchive(_ session: AgentSession) -> Bool {
+        switch session.status {
+        case .working, .waiting: false
+        case .idle, .connecting, .failed, .unknown: true
+        }
+    }
+
+    /// Nothing moves until the daemon says so: it owns the archive rule, and a
+    /// refusal has to leave the row exactly where it was rather than stranded
+    /// on a shelf it never reached.
+    private func setArchived(_ session: AgentSession, archived: Bool) {
+        guard let store else { return }
+        Task {
+            do {
+                try await store.setArchived(session.id, archived: archived)
+            } catch {
+                actionError = error.localizedDescription
+            }
+        }
     }
 
     @ViewBuilder
@@ -259,12 +296,18 @@ struct SessionListView: View {
 
     private var isEmpty: Bool { groups.allSatisfy { $0.items.isEmpty } }
 
-    private func toggle(_ key: String) {
+    private func isCollapsed(_ group: SessionListGroup) -> Bool {
+        group.isShelf ? !shelfExpanded : collapsed.contains(group.key)
+    }
+
+    private func toggle(_ group: SessionListGroup) {
         withAnimation(.snappy(duration: 0.2)) {
-            if collapsed.contains(key) {
-                collapsed.remove(key)
+            if group.isShelf {
+                shelfExpanded.toggle()
+            } else if collapsed.contains(group.key) {
+                collapsed.remove(group.key)
             } else {
-                collapsed.insert(key)
+                collapsed.insert(group.key)
             }
         }
     }
@@ -329,8 +372,8 @@ private struct GroupHeader: View {
         HStack(spacing: 4) {
             Button(action: toggle) {
                 HStack(spacing: 5) {
-                    if group.isFolder {
-                        Image(systemName: "folder")
+                    if let glyph {
+                        Image(systemName: glyph)
                             .font(.footnote)
                             .accessibilityHidden(true)
                     }
@@ -355,7 +398,11 @@ private struct GroupHeader: View {
             .buttonStyle(.plain)
             .accessibilityLabel(title)
             .accessibilityValue(collapsed ? Text("Collapsed") : Text("Expanded"))
-            .accessibilityHint("Shows or hides this section")
+            .accessibilityHint(
+                group.isShelf
+                    ? Text("Shows or hides your Archived Tasks")
+                    : Text("Shows or hides this section")
+            )
             .onKeyPress(.leftArrow) {
                 guard !collapsed else { return .ignored }
                 toggle()
@@ -374,8 +421,16 @@ private struct GroupHeader: View {
     }
 
     private var title: String {
-        if case .date(let bucket) = group.kind { return bucket.title }
-        return group.folderName ?? ""
+        switch group.kind {
+        case .date(let bucket): bucket.title
+        case .shelf: String(localized: "Task Shelf (\(group.totalCount))")
+        case .project, .projectless: group.folderName ?? ""
+        }
+    }
+
+    private var glyph: String? {
+        if group.isShelf { return "archivebox" }
+        return group.isFolder ? "folder" : nil
     }
 
     private var options: some View {

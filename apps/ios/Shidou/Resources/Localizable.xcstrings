@@ -707,6 +707,28 @@
         }
       }
     },
+    "Archive": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I-archive"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档"
+          }
+        }
+      }
+    },
     "Arguments": {
       "localizations": {
         "ja": {
@@ -8204,6 +8226,28 @@
         }
       }
     },
+    "Shows or hides your Archived Tasks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ済みタスクの表示を切り替えます"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ipinapakita o itinatago ang mga naka-archive na gawain"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏已归档任务"
+          }
+        }
+      }
+    },
     "Shows the details": {
       "localizations": {
         "ja": {
@@ -8970,6 +9014,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "任务"
+          }
+        }
+      }
+    },
+    "Task Shelf (%lld)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクシェルフ (%lld)"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Istante ng Gawain (%lld)"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务架 (%lld)"
           }
         }
       }
@@ -9873,6 +9939,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ultracode"
+          }
+        }
+      }
+    },
+    "Unarchive": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ解除"
+          }
+        },
+        "tl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I-unarchive"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消归档"
           }
         }
       }

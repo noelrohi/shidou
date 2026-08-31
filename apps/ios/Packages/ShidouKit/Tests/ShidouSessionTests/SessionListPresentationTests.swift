@@ -241,4 +241,154 @@ final class SessionListPresentationTests: XCTestCase {
         XCTAssertTrue(groups[0].items.isEmpty)
         XCTAssertEqual(groups[0].kind, .date(.today))
     }
+
+    // MARK: - The Task Shelf
+
+    /// A Task the daemon has marked archived. The phone never sets this — it
+    /// arrives on the row and the list reads it.
+    private func archivedSession(
+        title: String,
+        archivedAt: UInt64,
+        agoSeconds: TimeInterval = 0,
+        in projectId: UUID? = nil,
+        status: SessionStatus = .idle
+    ) -> AgentSession {
+        var session = session(in: projectId ?? self.projectId, title: title, agoSeconds: agoSeconds)
+        session.status = status
+        session.archivedAt = archivedAt
+        return session
+    }
+
+    func testArchivedTasksLeaveTheRecencySectionsForTheShelf() {
+        let groups = SessionListPresentation.groups(
+            sessions: [
+                session(title: "live"),
+                archivedSession(title: "shelved", archivedAt: 1_000),
+            ],
+            projects: [project],
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(groups.map(\.key), ["updated:today", SessionListPresentation.shelfKey])
+        XCTAssertEqual(groups[0].items.map(\.session.title), ["live"])
+        XCTAssertEqual(groups[1].items.map(\.session.title), ["shelved"])
+        XCTAssertTrue(groups[1].isShelf)
+        XCTAssertFalse(groups[1].isFolder)
+    }
+
+    /// The recency API answers "what was I just doing", which an Archived Task
+    /// by definition is not.
+    func testArchivedTasksLeaveTheRecencySectionsAPI() {
+        let sections = SessionListPresentation.sections(
+            sessions: [session(title: "live"), archivedSession(title: "shelved", archivedAt: 1)],
+            projects: [project],
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(sections.flatMap(\.items).map(\.session.title), ["live"])
+    }
+
+    /// One shelf, under everything, whichever way the list is filed.
+    func testOneShelfFollowsEveryGroupInBothGroupingModes() {
+        let other = Project(name: "notes", path: "/src/notes", createdAt: 0)
+        let sessions = [
+            session(in: projectId, title: "a"),
+            session(in: other.id, title: "b", agoSeconds: 86_400),
+            archivedSession(title: "shelved", archivedAt: 1_000),
+            archivedSession(title: "shelved too", archivedAt: 900, in: other.id),
+        ]
+        for grouping in SessionListGrouping.allCases {
+            let groups = SessionListPresentation.groups(
+                sessions: sessions, projects: [project, other], grouping: grouping,
+                now: now, calendar: calendar
+            )
+            let shelves = groups.filter(\.isShelf)
+            XCTAssertEqual(shelves.count, 1, "\(grouping)")
+            XCTAssertEqual(groups.last?.key, SessionListPresentation.shelfKey, "\(grouping)")
+            XCTAssertEqual(
+                shelves[0].items.map(\.session.title), ["shelved", "shelved too"], "\(grouping)"
+            )
+            XCTAssertFalse(
+                groups.dropLast().flatMap(\.items).contains { $0.session.isArchived }, "\(grouping)"
+            )
+        }
+    }
+
+    func testTheShelfIsOmittedWhenNothingIsArchived() {
+        let groups = SessionListPresentation.groups(
+            sessions: [session(title: "live")], projects: [project], now: now, calendar: calendar
+        )
+        XCTAssertFalse(groups.contains(where: \.isShelf))
+    }
+
+    /// Shelving every task must not take the header actions with it.
+    func testAShelfOnlyListStillYieldsOneHeaderAboveIt() {
+        let groups = SessionListPresentation.groups(
+            sessions: [archivedSession(title: "shelved", archivedAt: 1)],
+            projects: [project], now: now, calendar: calendar
+        )
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].kind, .date(.today))
+        XCTAssertTrue(groups[0].items.isEmpty)
+        XCTAssertTrue(groups[1].isShelf)
+    }
+
+    /// Most recently shelved first — where the user last put something is
+    /// where they look for it, whatever the list's ordering preference says.
+    func testTheShelfListsTheMostRecentlyArchivedTaskFirst() {
+        let sessions = [
+            archivedSession(title: "first", archivedAt: 100, agoSeconds: 10),
+            archivedSession(title: "third", archivedAt: 300, agoSeconds: 30),
+            archivedSession(title: "second", archivedAt: 200, agoSeconds: 20),
+        ]
+        for ordering in SessionListOrdering.allCases {
+            let shelf = SessionListPresentation.groups(
+                sessions: sessions, projects: [project], ordering: ordering,
+                now: now, calendar: calendar
+            ).last
+            XCTAssertEqual(shelf?.items.map(\.session.title), ["third", "second", "first"], "\(ordering)")
+        }
+    }
+
+    /// A shelf is a long place. It opens on one page and reveals another with
+    /// every Show more, and its header counts everything it holds, not the
+    /// page on screen.
+    func testTheShelfRevealsOlderArchivedTasksInPages() {
+        let batch = SessionListPresentation.projectRevealBatch
+        let total = batch + 5
+        let sessions = (0..<total).map {
+            archivedSession(title: "shelved\($0)", archivedAt: UInt64(total - $0))
+        }
+        let firstPage = SessionListPresentation.groups(
+            sessions: sessions, projects: [project], now: now, calendar: calendar
+        ).last
+        XCTAssertEqual(firstPage?.items.count, batch)
+        XCTAssertEqual(firstPage?.totalCount, total)
+        XCTAssertEqual(firstPage?.hasMore, true)
+
+        let revealed = SessionListPresentation.groups(
+            sessions: sessions, projects: [project],
+            revealed: [SessionListPresentation.shelfKey: batch],
+            now: now, calendar: calendar
+        ).last
+        XCTAssertEqual(revealed?.items.count, total)
+        XCTAssertEqual(revealed?.totalCount, total)
+        XCTAssertEqual(revealed?.hasMore, false)
+    }
+
+    /// The shelf is a partition of the same rows the list already holds, so a
+    /// query narrows it like any other section.
+    func testSearchStillReachesTheShelf() {
+        let sessions = [
+            session(title: "live parser"),
+            archivedSession(title: "shelved parser", archivedAt: 10),
+            archivedSession(title: "shelved other", archivedAt: 20),
+        ]
+        let groups = SessionListPresentation.groups(
+            sessions: sessions, projects: [project], query: "parser",
+            now: now, calendar: calendar
+        )
+        XCTAssertEqual(groups.last?.items.map(\.session.title), ["shelved parser"])
+        XCTAssertEqual(groups.last?.totalCount, 1)
+    }
 }

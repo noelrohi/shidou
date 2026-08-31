@@ -56,8 +56,10 @@ public enum SessionListPresentation {
         unknownProjectName: String = "Unknown project"
     ) -> [SessionListSection] {
         let projectsById = Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // An Archived Task leaves the recency history entirely — it belongs to
+        // the Task Shelf, which `groups` builds.
         let started = sessions
-            .filter(hasStarted)
+            .filter { hasStarted($0) && !$0.isArchived }
             .sorted { timestamp($0) > timestamp($1) }
 
         var grouped: [SessionDateGroup: [SessionListItem]] = [:]
@@ -180,6 +182,8 @@ public struct SessionListGroup: Identifiable, Sendable {
         case date(SessionDateGroup)
         case project(UUID)
         case projectless
+        /// The Task Shelf: every Archived Task, in one section under the rest.
+        case shelf
     }
 
     public var key: String
@@ -191,6 +195,9 @@ public struct SessionListGroup: Identifiable, Sendable {
     public var items: [SessionListItem]
     /// Older tasks this project group is holding back until asked.
     public var hasMore: Bool
+    /// Everything the group holds, including whatever `hasMore` is holding
+    /// back. The Task Shelf shows this in its header.
+    public var totalCount: Int
 
     public var id: String { key }
 
@@ -198,9 +205,15 @@ public struct SessionListGroup: Identifiable, Sendable {
     /// an indent guide. Date sections are derived from timestamps and draw
     /// neither.
     public var isFolder: Bool {
-        if case .date = kind { return false }
-        return true
+        switch kind {
+        case .date, .shelf: false
+        case .project, .projectless: true
+        }
     }
+
+    /// The Task Shelf, which the list draws with its own glyph and keeps
+    /// collapsed until asked.
+    public var isShelf: Bool { kind == .shelf }
 }
 
 extension SessionListPresentation {
@@ -208,6 +221,9 @@ extension SessionListPresentation {
     public static let projectRecentWindow: TimeInterval = 3 * 24 * 60 * 60
     /// How many older tasks each "Show more" reveals.
     public static let projectRevealBatch = 30
+    /// The Task Shelf's section key, stable across a grouping switch the way
+    /// every other section key is.
+    public static let shelfKey = "shelf"
 
     /// The sidebar's sections, in display order.
     ///
@@ -250,26 +266,57 @@ extension SessionListPresentation {
                 ordering == .oldest ? $0.timestamp < $1.timestamp : $0.timestamp > $1.timestamp
             }
 
-        let groups = grouping == .project
+        // An Archived Task leaves the grouped history entirely and gathers on
+        // the Task Shelf instead. The mark rides along on the row the list
+        // already reads, so this is a field test and nothing more: the phone
+        // renders the daemon's decision and never makes one.
+        let shelved = items.filter(\.session.isArchived)
+        let live = items.filter { !$0.session.isArchived }
+
+        var groups = grouping == .project
             ? projectGroups(
-                items, projectsById: projectsById, revealed: revealed, now: now,
+                live, projectsById: projectsById, revealed: revealed, now: now,
                 projectlessName: projectlessName)
-            : dateGroups(items, ordering: ordering, now: now, calendar: calendar)
-        if !groups.isEmpty { return groups }
-        // An empty result still needs its first header, or the section actions
-        // disappear along with the history.
-        if grouping == .project {
-            return [
-                SessionListGroup(
-                    key: "projectless", kind: .projectless, folderName: projectlessName,
-                    items: [], hasMore: false)
-            ]
+            : dateGroups(live, ordering: ordering, now: now, calendar: calendar)
+        if groups.isEmpty {
+            // An empty result still needs its first header, or the section
+            // actions disappear along with the history.
+            groups = grouping == .project
+                ? [
+                    SessionListGroup(
+                        key: "projectless", kind: .projectless, folderName: projectlessName,
+                        items: [], hasMore: false, totalCount: 0)
+                ]
+                : [
+                    SessionListGroup(
+                        key: "updated:today", kind: .date(.today), folderName: nil, items: [],
+                        hasMore: false, totalCount: 0)
+                ]
         }
-        return [
-            SessionListGroup(
-                key: "updated:today", kind: .date(.today), folderName: nil, items: [],
-                hasMore: false)
-        ]
+        if let shelf = shelfGroup(shelved, revealed: revealed) { groups.append(shelf) }
+        return groups
+    }
+
+    /// The Task Shelf: one section under every group, in both grouping modes,
+    /// ordered by when each task was shelved rather than by the list's ordering
+    /// preference — a shelved task's place is where the user put it.
+    ///
+    /// There is no recency window here, only paging: a shelved task is old by
+    /// definition, so the shelf shows one batch and reveals another with every
+    /// "Show more". Nothing archived means no shelf at all.
+    private static func shelfGroup(
+        _ items: [SessionListItem],
+        revealed: [String: Int]
+    ) -> SessionListGroup? {
+        guard !items.isEmpty else { return nil }
+        let ordered = items.sorted {
+            ($0.session.archivedAt ?? 0) > ($1.session.archivedAt ?? 0)
+        }
+        let visible = projectRevealBatch + (revealed[shelfKey] ?? 0)
+        return SessionListGroup(
+            key: shelfKey, kind: .shelf, folderName: nil,
+            items: Array(ordered.prefix(visible)), hasMore: ordered.count > visible,
+            totalCount: ordered.count)
     }
 
     /// Whether a row survives the search field. Title, project, and branch are
@@ -301,7 +348,7 @@ extension SessionListPresentation {
             guard let items = grouped[group], !items.isEmpty else { return nil }
             return SessionListGroup(
                 key: "updated:\(group.rawValue)", kind: .date(group), folderName: nil,
-                items: items, hasMore: false)
+                items: items, hasMore: false, totalCount: items.count)
         }
     }
 
@@ -331,13 +378,13 @@ extension SessionListPresentation {
                 SessionListGroup(
                     key: "project:\(id.uuidString)", kind: .project(id),
                     folderName: project?.name ?? item.projectName, items: [item],
-                    hasMore: false))
+                    hasMore: false, totalCount: 0))
         }
         if !projectless.isEmpty {
             groups.append(
                 SessionListGroup(
                     key: "projectless", kind: .projectless, folderName: projectlessName,
-                    items: projectless, hasMore: false))
+                    items: projectless, hasMore: false, totalCount: 0))
         }
         let cutoff = UInt64(max(0, now.timeIntervalSince1970 - projectRecentWindow))
         return groups.map { group in
@@ -350,6 +397,7 @@ extension SessionListPresentation {
                 if item.timestamp < cutoff { olderSeen += 1 }
             }
             group.hasMore = olderSeen > revealedOlder
+            group.totalCount = group.items.count
             group.items = visible
             return group
         }

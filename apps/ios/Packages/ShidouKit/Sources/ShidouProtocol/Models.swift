@@ -971,6 +971,14 @@ public struct AgentSession: Codable, Identifiable, Sendable {
     public var createdAt: UInt64
     public var updatedAt: UInt64
     public var lastReplyAt: UInt64?
+    /// When the user shelved this Task, unix seconds. `None` means the Task is
+    /// not archived.
+    ///
+    /// Daemon-owned: the phone reads it and renders. Only `Command.archiveSession`
+    /// writes it, and a save never carries it, so a stale snapshot from this
+    /// phone cannot clear a mark another client just set.
+    /// See `docs/adr/0002-explicit-archive-command.md`.
+    public var archivedAt: UInt64?
     /// Provider-specific resume state; only round-tripped, never interpreted.
     public var providerCursor: JSONValue?
     public var availableCommands: [ReportedCommand]
@@ -996,6 +1004,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case lastReplyAt = "last_reply_at"
+        case archivedAt = "archived_at"
         case providerCursor = "provider_cursor"
         case availableCommands = "available_commands"
         case contextUsage = "context_usage"
@@ -1022,6 +1031,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         createdAt: UInt64,
         updatedAt: UInt64,
         lastReplyAt: UInt64? = nil,
+        archivedAt: UInt64? = nil,
         providerCursor: JSONValue? = nil,
         availableCommands: [ReportedCommand] = [],
         contextUsage: ContextUsage? = nil,
@@ -1048,6 +1058,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.lastReplyAt = lastReplyAt
+        self.archivedAt = archivedAt
         self.providerCursor = providerCursor
         self.availableCommands = availableCommands
         self.contextUsage = contextUsage
@@ -1077,6 +1088,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         createdAt = try container.decode(UInt64.self, forKey: .createdAt)
         updatedAt = try container.decode(UInt64.self, forKey: .updatedAt)
         lastReplyAt = try container.decodeIfPresent(UInt64.self, forKey: .lastReplyAt)
+        archivedAt = try container.decodeIfPresent(UInt64.self, forKey: .archivedAt)
         let cursor = try container.decodeIfPresent(JSONValue.self, forKey: .providerCursor)
         providerCursor = cursor?.isNull == true ? nil : cursor
         availableCommands = try container.decodeIfPresent([ReportedCommand].self, forKey: .availableCommands) ?? []
@@ -1109,6 +1121,8 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(lastReplyAt, forKey: .lastReplyAt)
+        // The archive mark is deliberately not encoded: saves are merge-only,
+        // and only `archiveSession` may write the mark.
         try container.encode(providerCursor ?? .null, forKey: .providerCursor)
         if !availableCommands.isEmpty {
             try container.encode(availableCommands, forKey: .availableCommands)
@@ -1122,6 +1136,9 @@ public struct AgentSession: Codable, Identifiable, Sendable {
             try container.encode(queuedMessages, forKey: .queuedMessages)
         }
     }
+
+    /// On the Task Shelf rather than in the recency history.
+    public var isArchived: Bool { archivedAt != nil }
 
     public var displayTitle: String {
         if title != Self.defaultTitle { return title }

@@ -135,6 +135,52 @@ final class WireStabilityTests: XCTestCase {
         XCTAssertEqual(operation["cwd"] as? String, "/src/shidou")
     }
 
+    /// `Command::ArchiveSession { archived }` — the only thing that may write
+    /// the archive mark, so its tag and its one field are load-bearing.
+    func testArchiveSessionCommandShape() throws {
+        var object = try json(Command.archiveSession(archived: true))
+        XCTAssertEqual(object["type"] as? String, "archiveSession")
+        XCTAssertEqual(object["archived"] as? Bool, true)
+
+        object = try json(Command.archiveSession(archived: false))
+        XCTAssertEqual(object["type"] as? String, "archiveSession")
+        XCTAssertEqual(object["archived"] as? Bool, false)
+    }
+
+    /// The mark is snake_case like the rest of `AgentSession`, and optional:
+    /// a session that has never been shelved simply omits it.
+    func testArchivedAtDecodesFromTheSessionSnapshot() throws {
+        let base = #"{"id":"00000000-0000-0000-0000-00000000002a","title":"Task","#
+            + #""project_id":"00000000-0000-0000-0000-000000000000","provider":"claude","#
+            + #""runtime_mode":"fullAccess","status":"idle","created_at":1,"updated_at":2"#
+
+        let archived = try JSONDecoder().decode(
+            AgentSession.self, from: Data((base + #","archived_at":1700}"#).utf8)
+        )
+        XCTAssertEqual(archived.archivedAt, 1_700)
+        XCTAssertTrue(archived.isArchived)
+
+        let plain = try JSONDecoder().decode(AgentSession.self, from: Data((base + "}").utf8))
+        XCTAssertNil(plain.archivedAt)
+        XCTAssertFalse(plain.isArchived)
+    }
+
+    /// A save must never carry the mark. Saves merge, so a snapshot this phone
+    /// took before another client archived a task would otherwise clear it —
+    /// the bug `ArchiveSession` exists to prevent.
+    func testSavedSessionsNeverCarryTheArchiveMark() throws {
+        var session = AgentSession(
+            id: .zero, projectId: .zero, provider: .claude, createdAt: 1, updatedAt: 2
+        )
+        session.archivedAt = 1_700
+        let object = try json(Command.saveTaskState(
+            projects: [], liveSessionIds: [session.id], sessions: [session]
+        ))
+        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
+        XCTAssertNil(sessions[0]["archived_at"])
+        XCTAssertNil(sessions[0]["archivedAt"])
+    }
+
     func testServerMessagesDecode() throws {
         let hello = try JSONDecoder().decode(
             ServerMessage.self,

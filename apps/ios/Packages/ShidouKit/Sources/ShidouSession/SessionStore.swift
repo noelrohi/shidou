@@ -268,6 +268,7 @@ public final class SessionStore {
             || current.turns.last != session.turns.last
             || current.title != session.title
             || current.autoTitle != session.autoTitle
+            || current.archivedAt != session.archivedAt
         else { return }
         sessions[index] = merged(listProjection: current, with: session)
     }
@@ -446,6 +447,17 @@ public final class SessionStore {
         try await persistAndWait(session)
     }
 
+    /// Shelve a task, or take it back off the shelf.
+    ///
+    /// The daemon owns the archive rule and refuses while a task is Working or
+    /// Waiting, so nothing is written here before it answers: on a refusal the
+    /// call throws and the list is exactly as it was. The mark itself arrives
+    /// with the catalog the daemon re-sends.
+    public func setArchived(_ sessionId: UUID, archived: Bool) async throws {
+        _ = try await request(.archiveSession(archived: archived), sessionId: sessionId)
+        refreshCatalog()
+    }
+
     public func delete(_ sessionId: UUID) async throws {
         _ = try await request(.removeSession, sessionId: sessionId)
         sessions.removeAll { $0.id == sessionId }
@@ -496,6 +508,7 @@ public final class SessionStore {
         row.status = session.status
         row.updatedAt = session.updatedAt
         row.lastReplyAt = session.lastReplyAt
+        row.archivedAt = session.archivedAt
         row.runtimeEventCursor = session.runtimeEventCursor
         row.turns = Array(session.turns.suffix(1))
         return row
