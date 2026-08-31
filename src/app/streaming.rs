@@ -88,8 +88,17 @@ impl Shidou {
         match event {
             DriverEvent::RuntimeEventCursorAdvanced(_)
             | DriverEvent::AgentPresetSelected(_)
-            | DriverEvent::AutoTitleUpdated(_)
-            | DriverEvent::TurnAccepted { .. } => {
+            | DriverEvent::AutoTitleUpdated(_) => {
+                self.reduce(session_id, runtime, event);
+            }
+            DriverEvent::TurnAccepted { ref turn, .. } => {
+                if let Some(mut anchor) = self.transcript_anchor.get()
+                    && anchor.session_id == session_id
+                    && anchor.turn_id != turn.id
+                {
+                    anchor.turn_id = turn.id;
+                    self.transcript_anchor.set(Some(anchor));
+                }
                 self.reduce(session_id, runtime, event);
             }
             DriverEvent::Connected { .. } => {

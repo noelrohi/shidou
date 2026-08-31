@@ -993,6 +993,15 @@ impl StateStore {
             .iter()
             .filter(|session| dirty_ids.contains(&session.id))
             .cloned()
+            .map(|mut session| {
+                // The daemon owns the canonical Projection. Desktop saves
+                // still create sessions and reconcile metadata and queue
+                // state, but never carry the locally reduced transcript.
+                session.messages.clear();
+                session.transcript_blocks.clear();
+                session.turns.clear();
+                session
+            })
             .collect();
         let live_session_ids = state.sessions.iter().map(|session| session.id).collect();
         self.daemon

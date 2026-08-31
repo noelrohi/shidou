@@ -474,29 +474,81 @@ impl Reducer {
     }
 }
 
-/// Incorporate the turn another client persisted before it prompted the
-/// shared runtime. IDs come from the daemon's canonical projection, so source
-/// clients no-op while observers gain the exact turn needed to reduce the
-/// provider events that follow.
+/// Incorporate the daemon's canonical record of a submitted prompt.
+///
+/// The submitting client may already show a locally-created running turn. In
+/// that case the canonical identities replace the temporary identities in
+/// place, while the local message keeps presentation data that is not part of
+/// the prompt command. Observers without an optimistic turn append the record.
 pub fn accept_remote_turn(session: &mut AgentSession, turn: AgentTurn, messages: Vec<Message>) {
     let known_turn = session.turns.iter().any(|existing| existing.id == turn.id);
-    for message in messages {
-        if !session
+    let provisional = (!known_turn)
+        .then(|| {
+            session.turns.iter().position(|existing| {
+                existing.id != turn.id
+                    && existing.turn_count == turn.turn_count
+                    && existing.status == TurnStatus::Running
+            })
+        })
+        .flatten();
+
+    if let Some(turn_index) = provisional {
+        let provisional_turn_id = session.turns[turn_index].id;
+        session.turns[turn_index] = turn.clone();
+
+        let mut available_messages = session
             .messages
             .iter()
-            .any(|existing| existing.id == message.id)
-        {
-            session.messages.push(message);
+            .enumerate()
+            .filter(|(_, message)| message.turn_id == Some(provisional_turn_id))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        for message in messages {
+            if session
+                .messages
+                .iter()
+                .any(|existing| existing.id == message.id)
+            {
+                continue;
+            }
+            if let Some(position) = available_messages
+                .iter()
+                .position(|index| session.messages[*index].role == message.role)
+            {
+                let index = available_messages.remove(position);
+                session.messages[index].id = message.id;
+                session.messages[index].turn_id = Some(turn.id);
+            } else {
+                session.messages.push(message);
+            }
+        }
+        for index in available_messages {
+            session.messages[index].turn_id = Some(turn.id);
+        }
+        for block in &mut session.transcript_blocks {
+            if block.turn_id == Some(provisional_turn_id) {
+                block.turn_id = Some(turn.id);
+            }
+        }
+    } else {
+        for message in messages {
+            if !session
+                .messages
+                .iter()
+                .any(|existing| existing.id == message.id)
+            {
+                session.messages.push(message);
+            }
+        }
+        if !known_turn {
+            session.turns.push(turn.clone());
         }
     }
+
     session.updated_at = session.updated_at.max(turn.started_at);
     if turn.status == TurnStatus::Running && !session.status.is_busy() {
         session.status = SessionStatus::Connecting;
     }
-    if known_turn {
-        return;
-    }
-    session.turns.push(turn);
 }
 
 /// Foreground output is stronger evidence of a started provider turn than a
@@ -911,6 +963,57 @@ mod tests {
         assert_eq!(session.messages.len(), 1);
         assert_eq!(session.status, SessionStatus::Connecting);
         assert_eq!(session.active_turn_id(), Some(turn_id));
+    }
+
+    #[test]
+    fn accepted_turn_replaces_the_optimistic_turn_ids() {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let optimistic_turn_id = session.begin_turn_with_presentation(
+            "provider-facing prompt",
+            Some("visible prompt".into()),
+            Vec::new(),
+        );
+        let optimistic_message_id = session.messages[0].id;
+        let mut reducer = Reducer::default();
+        let canonical_turn_id = Uuid::new_v4();
+        let turn = AgentTurn {
+            id: canonical_turn_id,
+            turn_count: 1,
+            status: TurnStatus::Running,
+            provider_turn_started: false,
+            provider_resume_at: None,
+            started_at: unix_time(),
+            completed_at: None,
+            checkpoint: None,
+        };
+        let message = Message::new_for_turn(
+            MessageRole::User,
+            "daemon's provider-facing prompt",
+            canonical_turn_id,
+        );
+        let canonical_message_id = message.id;
+
+        apply(
+            &mut reducer,
+            &mut session,
+            [DriverEvent::TurnAccepted {
+                turn,
+                messages: vec![message],
+            }],
+        );
+
+        assert_ne!(optimistic_turn_id, canonical_turn_id);
+        assert_ne!(optimistic_message_id, canonical_message_id);
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.turns[0].id, canonical_turn_id);
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].id, canonical_message_id);
+        assert_eq!(session.messages[0].turn_id, Some(canonical_turn_id));
+        assert_eq!(session.messages[0].content, "provider-facing prompt");
+        assert_eq!(
+            session.messages[0].display_content.as_deref(),
+            Some("visible prompt")
+        );
     }
 
     #[test]
