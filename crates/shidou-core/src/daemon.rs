@@ -2302,6 +2302,7 @@ mod tests {
         );
         assert_eq!(saved.sessions[0].status, SessionStatus::Idle);
         assert_eq!(saved.sessions[0].runtime_event_cursor.unwrap().sequence, 2);
+        drop(store);
         drop(backend);
         std::fs::remove_dir_all(root).unwrap();
     }
