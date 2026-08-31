@@ -208,16 +208,7 @@ impl Shidou {
                 }
             }
             DriverEvent::SteerAccepted { message } => {
-                let submission = runtime
-                    .pending_steers
-                    .iter()
-                    .position(|submission| submission.prompt == message)
-                    .and_then(|index| runtime.pending_steers.remove(index))
-                    // Providers normally echo the exact transport text, but a
-                    // normalized echo still acknowledges the oldest pending
-                    // steer. Preserve its attachment presentation metadata.
-                    .or_else(|| runtime.pending_steers.pop_front())
-                    .unwrap_or_else(|| ComposerSubmission::plain(message.clone()));
+                let submission = take_pending_steer(runtime, &message);
                 self.reduce_with(
                     session_id,
                     runtime,
@@ -232,13 +223,7 @@ impl Shidou {
                 );
             }
             DriverEvent::SteerRejected { message, reason } => {
-                let submission = runtime
-                    .pending_steers
-                    .iter()
-                    .position(|submission| submission.prompt == message)
-                    .and_then(|index| runtime.pending_steers.remove(index))
-                    .or_else(|| runtime.pending_steers.pop_front())
-                    .unwrap_or_else(|| ComposerSubmission::plain(message));
+                let submission = take_pending_steer(runtime, &message);
                 let (busy, settled_cleanly) = self
                     .state
                     .sessions
@@ -503,6 +488,20 @@ impl Shidou {
         }
         runtime.computer_use_previews.push(preview);
     }
+}
+
+/// Resolve which pending steer a provider acknowledgement answers. Providers
+/// normally echo the exact transport text, but a normalized echo still
+/// acknowledges the oldest pending steer; either way its attachment
+/// presentation metadata is preserved.
+fn take_pending_steer(runtime: &mut SessionRuntime, message: &str) -> ComposerSubmission {
+    runtime
+        .pending_steers
+        .iter()
+        .position(|submission| submission.prompt == message)
+        .and_then(|index| runtime.pending_steers.remove(index))
+        .or_else(|| runtime.pending_steers.pop_front())
+        .unwrap_or_else(|| ComposerSubmission::plain(message.to_owned()))
 }
 
 /// A completed edit or shell command is the earliest provider-neutral point at

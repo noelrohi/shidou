@@ -163,8 +163,7 @@ impl Reducer {
             }
             DriverEvent::ReasoningDelta(delta) => {
                 if self.accepts_turn_output(session, &ctx) {
-                    self.append_reasoning_delta(session, delta);
-                    reduction.applied = true;
+                    reduction.applied = self.append_reasoning_delta(session, delta);
                 }
             }
             DriverEvent::Activity {
@@ -348,11 +347,13 @@ impl Reducer {
         self.stream_phase = Some(StreamPhase::Text);
     }
 
-    fn append_reasoning_delta(&mut self, session: &mut AgentSession, delta: String) {
+    /// Returns whether the delta entered the projection: a whitespace-only
+    /// delta cannot open a reasoning activity, only extend one.
+    fn append_reasoning_delta(&mut self, session: &mut AgentSession, delta: String) -> bool {
         let previous_phase = self.stream_phase;
         let continuing = previous_phase == Some(StreamPhase::Reasoning);
         if !continuing && delta.trim().is_empty() {
-            return;
+            return false;
         }
         let now = unix_time_millis();
         if !continuing {
@@ -386,6 +387,7 @@ impl Reducer {
         }
         session.updated_at = unix_time();
         self.stream_phase = Some(StreamPhase::Reasoning);
+        true
     }
 
     fn apply_activity(
