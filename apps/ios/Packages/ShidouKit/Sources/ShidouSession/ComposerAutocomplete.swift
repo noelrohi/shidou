@@ -7,9 +7,37 @@ import ShidouProtocol
 // project's files and slash commands, and everything after that — detection,
 // ranking, replacement, template expansion — happens here.
 //
-// Offsets are character offsets into the composer's text, which is what a
-// `UITextView` selection reports, so the whole file indexes an `Array<Character>`
-// rather than a `String.Index`.
+// Offsets are grapheme-cluster offsets into the composer's text. The UIKit
+// wrapper converts its UTF-16 selection offsets at the boundary, so this file
+// can index an `Array<Character>` consistently.
+
+/// Converts between the grapheme-cluster offsets the composer model uses and
+/// the UTF-16 offsets UIKit's text system reports. They differ as soon as a
+/// prompt contains emoji or a composed character.
+public enum ComposerTextOffset {
+    public static func characterOffset(in text: String, utf16Offset: Int) -> Int {
+        let target = max(0, utf16Offset)
+        var consumed = 0
+        var characters = 0
+        for character in text {
+            let length = String(character).utf16.count
+            guard consumed + length <= target else { break }
+            consumed += length
+            characters += 1
+        }
+        return characters
+    }
+
+    public static func utf16Offset(in text: String, characterOffset: Int) -> Int {
+        let target = max(0, characterOffset)
+        var offset = 0
+        for (index, character) in text.enumerated() {
+            guard index < target else { break }
+            offset += String(character).utf16.count
+        }
+        return offset
+    }
+}
 
 public enum ComposerTriggerKind: Sendable {
     case command

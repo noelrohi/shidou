@@ -1,3 +1,4 @@
+import ShidouSession
 import SwiftUI
 import UIKit
 
@@ -105,10 +106,12 @@ struct ComposerTextView: UIViewRepresentable {
         if view.text != text {
             view.text = text
             context.coordinator.applySelection(selection, to: view)
-        } else if view.offset(from: view.beginningOfDocument, to: view.selectedTextRange?.start
-            ?? view.beginningOfDocument) != selection
-            && !view.isFirstResponder
-        {
+        } else if ComposerTextOffset.characterOffset(
+            in: view.text,
+            utf16Offset: view.offset(
+                from: view.beginningOfDocument,
+                to: view.selectedTextRange?.start ?? view.beginningOfDocument)
+        ) != selection && !view.isFirstResponder {
             context.coordinator.applySelection(selection, to: view)
         }
         context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
@@ -136,8 +139,10 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         func applySelection(_ offset: Int, to view: UITextView) {
-            let clamped = max(0, min(offset, view.text.count))
-            guard let position = view.position(from: view.beginningOfDocument, offset: clamped)
+            let utf16Offset = ComposerTextOffset.utf16Offset(
+                in: view.text, characterOffset: offset)
+            guard let position = view.position(
+                from: view.beginningOfDocument, offset: utf16Offset)
             else { return }
             view.selectedTextRange = view.textRange(from: position, to: position)
         }
@@ -162,7 +167,10 @@ struct ComposerTextView: UIViewRepresentable {
 
         private func publishSelection(_ view: UITextView) {
             guard let start = view.selectedTextRange?.start else { return }
-            let offset = view.offset(from: view.beginningOfDocument, to: start)
+            let offset = ComposerTextOffset.characterOffset(
+                in: view.text,
+                utf16Offset: view.offset(from: view.beginningOfDocument, to: start)
+            )
             if parent.selection != offset { parent.selection = offset }
         }
 

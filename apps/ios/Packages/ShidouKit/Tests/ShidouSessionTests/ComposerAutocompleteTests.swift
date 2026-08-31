@@ -16,6 +16,16 @@ final class ComposerAutocompleteTests: XCTestCase {
         SlashCommand(name: name, description: description, scope: scope, template: template)
     }
 
+    func testConvertsUIKitUTF16SelectionOffsetsAroundEmoji() {
+        let text = "A👨‍👩‍👧‍👦éZ"
+        XCTAssertEqual(ComposerTextOffset.utf16Offset(in: text, characterOffset: 2), 12)
+        XCTAssertEqual(ComposerTextOffset.characterOffset(in: text, utf16Offset: 12), 2)
+        XCTAssertEqual(ComposerTextOffset.utf16Offset(in: text, characterOffset: 3), 14)
+        XCTAssertEqual(ComposerTextOffset.characterOffset(in: text, utf16Offset: 14), 3)
+        XCTAssertEqual(ComposerTextOffset.characterOffset(in: text, utf16Offset: 3), 1)
+        XCTAssertEqual(ComposerTextOffset.utf16Offset(in: text, characterOffset: 99), 15)
+    }
+
     func testDetectsSlashCommandsOnlyAtTheStartOfTheCurrentLine() {
         XCTAssertEqual(
             ComposerAutocomplete.trigger(in: "intro\n/rev", cursor: 10),
