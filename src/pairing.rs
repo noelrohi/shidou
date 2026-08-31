@@ -419,4 +419,3 @@ mod tests {
         assert!(image.size(0).width.0 > 0);
     }
 }
-
