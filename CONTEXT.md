@@ -103,6 +103,25 @@ applying the surviving tail onto a projection with a hole in it. A phone
 backgrounded through a long run is the ordinary way to get here.
 _Avoid_: desync, missed events
 
+### Session
+
+**Projection**:
+A session's reduced transcript — turns, messages, and activity — built by
+folding the runtime's event stream. The daemon's projection is the record;
+a client's is a live view of the same stream.
+_Avoid_: transcript state, reduced state
+
+**Reducer**:
+The logic that folds runtime events into a Projection. The daemon runs the
+canonical one; the apps run faithful ports of it for live rendering, and a
+divergent port causes transcript flapping between clients.
+
+**Accepted Turn**:
+The daemon's canonical record of a submitted prompt — the turn and its
+message identities. A client echoes the prompt optimistically with
+temporary ids and adopts the Accepted Turn's ids when it arrives.
+_Avoid_: optimistic turn, pending turn
+
 **Session Store**:
 The phone's whole client-side model of a daemon: projects, the session list,
 the projection of every open session, drafts, and the workspace snapshots the
