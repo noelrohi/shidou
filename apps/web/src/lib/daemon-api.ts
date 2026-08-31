@@ -255,6 +255,25 @@ export async function removeSession(
   return loadTaskState(client)
 }
 
+/**
+ * Shelve one task, or bring it back.
+ *
+ * The mark is the daemon's: this sends the ask and reads back the catalog it
+ * wrote. A refusal — the daemon guards a Working or Waiting task — rejects,
+ * and the caller reports it without having moved anything itself.
+ */
+export async function archiveSession(
+  client: ShidouClient,
+  sessionId: string,
+  archived: boolean,
+): Promise<TaskState> {
+  expectResponse(
+    await client.request({ type: 'archiveSession', archived }, sessionId),
+    'ack',
+  )
+  return loadTaskState(client)
+}
+
 /** Remove one daemon-owned task without reloading the whole catalog. */
 async function requestSessionRemoval(
   client: ShidouClient,

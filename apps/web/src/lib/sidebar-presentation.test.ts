@@ -9,6 +9,8 @@ import {
   sessionTimeLabel,
   sidebarGroups,
   sidebarRows,
+  PROJECT_REVEAL_BATCH,
+  SHELF_GROUP_KEY,
 } from './sidebar-presentation'
 
 describe('desktop sidebar presentation', () => {
@@ -141,6 +143,106 @@ describe('desktop sidebar presentation', () => {
     const resumed = session({ provider_cursor: { provider: 'codex', value: {} } as never })
     expect(sessionHasStarted(resumed)).toBe(true)
     expect(sessionTimeLabel(resumed, 1_000)).toBeNull()
+  })
+
+  test('gathers archived tasks in one shelf after every group, in both groupings', () => {
+    const projects: Project[] = [
+      { id: 'a', name: 'Alpha', path: '/work/alpha', created_at: 1, workspace_default: 'local' },
+      { id: 'b', name: 'Beta', path: '/work/beta', created_at: 1, workspace_default: 'local' },
+    ]
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const sessions = [
+      session({ id: 'active-a', project_id: 'a', last_reply_at: nowSeconds - 60 }),
+      session({ id: 'active-b', project_id: 'b', last_reply_at: nowSeconds - 90 }),
+      session({
+        id: 'shelved-old',
+        project_id: 'a',
+        last_reply_at: nowSeconds - 120,
+        archived_at: nowSeconds - 500,
+      }),
+      session({
+        id: 'shelved-new',
+        project_id: 'b',
+        last_reply_at: nowSeconds - 30,
+        archived_at: nowSeconds - 5,
+      }),
+    ]
+    for (const grouping of ['updated', 'project'] as const) {
+      const groups = sidebarGroups(projects, sessions, { grouping, ordering: 'newest', now })
+      const shelves = groups.filter((group) => group.kind === 'shelf')
+      expect(shelves).toHaveLength(1)
+      expect(groups.at(-1)).toBe(shelves[0]!)
+      expect(shelves[0]!.key).toBe(SHELF_GROUP_KEY)
+      // Newest-archived first, whatever the sidebar's own ordering says.
+      expect(shelves[0]!.sessions.map((item) => item.session.id))
+        .toEqual(['shelved-new', 'shelved-old'])
+      // No archived task survives anywhere above the shelf.
+      expect(
+        groups
+          .slice(0, -1)
+          .flatMap((group) => group.sessions.map((item) => item.session.id))
+          .sort(),
+      ).toEqual(['active-a', 'active-b'])
+    }
+  })
+
+  test('omits the shelf when nothing is archived and keeps the fallback header', () => {
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const active = sidebarGroups([], [session({ id: 'live', last_reply_at: nowSeconds })], {
+      grouping: 'updated',
+      ordering: 'newest',
+      now,
+    })
+    expect(active.some((group) => group.kind === 'shelf')).toBe(false)
+
+    // Only archived history: the empty first header still carries the sidebar
+    // actions, and the shelf follows it.
+    const onlyArchived = sidebarGroups([], [
+      session({ id: 'shelved', last_reply_at: nowSeconds, archived_at: nowSeconds }),
+    ], { grouping: 'updated', ordering: 'newest', now })
+    expect(onlyArchived.map((group) => group.kind)).toEqual(['date', 'shelf'])
+    expect(onlyArchived[0]!.sessions).toEqual([])
+    expect(onlyArchived[1]!.sessions.map((item) => item.session.id)).toEqual(['shelved'])
+  })
+
+  test('pages the shelf and counts every archived task in its header', () => {
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const total = PROJECT_REVEAL_BATCH + 5
+    const sessions = Array.from({ length: total }, (_, index) => session({
+      id: `shelved-${index}`,
+      last_reply_at: nowSeconds - index,
+      archived_at: nowSeconds - index,
+    }))
+    const shelf = sidebarGroups([], sessions, {
+      grouping: 'updated',
+      ordering: 'newest',
+      now,
+      shelfLabel: (count) => `Task Shelf (${count})`,
+    }).at(-1)!
+    expect(shelf.label).toBe(`Task Shelf (${total})`)
+    expect(shelf.sessions).toHaveLength(PROJECT_REVEAL_BATCH)
+    expect(shelf.showMore).toBe(true)
+
+    const revealed = sidebarGroups([], sessions, {
+      grouping: 'updated',
+      ordering: 'newest',
+      now,
+      revealed: new Map([[SHELF_GROUP_KEY, PROJECT_REVEAL_BATCH]]),
+    }).at(-1)!
+    expect(revealed.sessions).toHaveLength(total)
+    expect(revealed.showMore).toBe(false)
+
+    // Collapsed by default in the row list; open, it ends with its show-more.
+    const groups = sidebarGroups([], sessions, { grouping: 'updated', ordering: 'newest', now })
+    expect(sidebarRows(groups, new Set([SHELF_GROUP_KEY])).filter((row) => row.kind === 'session'))
+      .toEqual([])
+    const open = sidebarRows(groups, new Set())
+    expect(open.at(-2)?.kind).toBe('showMore')
+    const shelfSession = open.find((row) => row.kind === 'session' && row.item.session.id === 'shelved-0')
+    expect(shelfSession?.kind === 'session' && shelfSession.guides).toBe(false)
   })
 
   test('presents the projectless sentinel with the localized desktop name', () => {

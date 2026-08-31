@@ -246,6 +246,8 @@ common.settings: 设置
 common.copy: 复制
 common.remove: 移除
 common.rename: 重命名
+common.archive: 归档
+common.unarchive: 取消归档
 session.new_task: 新任务
 session.remove_one_title: "移除此任务？"
 session.remove_many_title: "移除 %{count} 个任务？"
@@ -671,6 +673,8 @@ errors.daemon_disconnected: Shidou 守护进程未连接
 errors.path_outside_workspace: 此路径位于守护进程主机上的当前工作区之外
 errors.rename_task: "无法重命名任务：%{error}"
 errors.remove_task: "无法移除任务：%{error}"
+errors.archive_task: "无法归档任务：%{error}"
+errors.unarchive_task: "无法取消归档任务：%{error}"
 errors.remove_project: "无法移除项目：%{error}"
 errors.save_draft: "无法保存草稿：%{error}"
 errors.rewind_task: "无法回退任务：%{error}"

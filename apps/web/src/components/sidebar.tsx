@@ -18,6 +18,7 @@ import {
   sidebarGroups,
   sidebarRows,
   PROJECT_REVEAL_BATCH,
+  SHELF_GROUP_KEY,
   type DateGroup,
   type SessionGroup,
   type SessionItem,
@@ -42,6 +43,7 @@ interface SidebarProps {
   onSelectSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, title: string) => Promise<void>
   onRemoveSession: (sessionId: string) => Promise<void>
+  onArchiveSession: (sessionId: string, archived: boolean) => Promise<void>
   onRemoveProject?: (project: Project) => void
   onSearch: () => void
   onSettings: () => void
@@ -74,12 +76,15 @@ export function Sidebar({
   onSelectSession,
   onRenameSession,
   onRemoveSession,
+  onArchiveSession,
   onRemoveProject,
   onSearch,
   onSettings,
 }: SidebarProps) {
   const { t } = useI18n()
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // The Task Shelf opens on demand. Like every other fold here it is
+  // runtime-only — this sidebar persists grouping and ordering, not disclosure.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set([SHELF_GROUP_KEY]))
   const [grouping, setGrouping] = useState<SidebarGrouping>(() => readStoredChoice('shidou.sidebarGrouping', 'updated', ['updated', 'project']))
   const [ordering, setOrdering] = useState<SidebarOrdering>(() => readStoredChoice('shidou.sidebarOrdering', 'newest', ['newest', 'oldest']))
   const [revealed, setRevealed] = useState<ReadonlyMap<string, number>>(new Map())
@@ -92,6 +97,7 @@ export function Sidebar({
     revealed,
     unknownProject: t('sidebar.unknown_project'),
     projectlessName: t('project.no_project_name'),
+    shelfLabel: (count) => t('sidebar.task_shelf', { count }),
   })
   const rows = sidebarRows(groups, collapsed)
   const groupKeys = useRef<string[]>([])
@@ -225,7 +231,7 @@ export function Sidebar({
               }
               if (row.kind === 'spacer') return <div className="h-2.5" />
               if (row.kind === 'group') {
-                const folder = row.group.kind !== 'date'
+                const folder = row.group.kind === 'project' || row.group.kind === 'projectless'
                 const compose = folder
                   ? row.group.kind === 'projectless'
                     ? onNewProjectlessTask
@@ -288,6 +294,7 @@ export function Sidebar({
                     nowSeconds={nowSeconds}
                     selected={selectedSessionId === row.item.session.id}
                     t={t}
+                    onArchive={onArchiveSession}
                     onRemove={onRemoveSession}
                     onRename={onRenameSession}
                     onSelect={(sessionId) => {
@@ -369,7 +376,10 @@ function GroupRow({
   const [menuOpen, setMenuOpen] = useState(false)
   const headerButton = useRef<HTMLButtonElement>(null)
   const restoreMenuFocus = useRef(false)
-  const folder = group.kind !== 'date'
+  const folder = group.kind === 'project' || group.kind === 'projectless'
+  // The shelf starts collapsed, so the only affordance saying the row opens
+  // must not wait for the pointer to arrive.
+  const shelf = group.kind === 'shelf'
   const removable = group.kind === 'project' && group.project && onRemoveProject
     ? group.project
     : undefined
@@ -414,7 +424,10 @@ function GroupRow({
         {folder && <ShidouIcon className="size-3.5 shrink-0" name="folder" />}
         <span className="min-w-0 truncate">{label}</span>
         <ShidouIcon
-          className="size-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+          className={cn(
+            'size-3 shrink-0',
+            !shelf && 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100',
+          )}
           name={collapsed ? 'chevronRight' : 'chevronDown'}
         />
       </button>
@@ -537,6 +550,7 @@ function SessionRow({
   onSelect,
   onRename,
   onRemove,
+  onArchive,
   t,
 }: {
   item: SessionItem
@@ -546,6 +560,7 @@ function SessionRow({
   onSelect: (sessionId: string) => void
   onRename: (sessionId: string, title: string) => Promise<void>
   onRemove: (sessionId: string) => Promise<void>
+  onArchive: (sessionId: string, archived: boolean) => Promise<void>
   t: Translator
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -555,6 +570,13 @@ function SessionRow({
   const rowButton = useRef<HTMLButtonElement>(null)
   const restoreMenuFocus = useRef(false)
   const currentTitle = displayTitle(item.session)
+  const archived = item.session.archived_at != null
+  // The daemon is the authority and refuses to shelve a Task that is still
+  // running or waiting for the user; the row only declines to ask. Bringing a
+  // Task back is always allowed, because it can only return it to view.
+  const busy = item.session.status === 'working'
+    || item.session.status === 'connecting'
+    || item.session.status === 'waiting'
 
   async function commitRename() {
     if (skipRenameCommit.current) {
@@ -665,6 +687,19 @@ function SessionRow({
               }}
             >
               <ShidouIcon className="size-3" name="pencil" /> {t('common.rename')}
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              className="shidou-menu-item"
+              disabled={!archived && busy}
+              onClick={() => {
+                restoreMenuFocus.current = false
+                setMenuOpen(false)
+                void onArchive(item.session.id, !archived).catch(() => {})
+              }}
+            >
+              <ShidouIcon className="size-3" name={archived ? 'arrowUp' : 'package'} />
+              {' '}
+              {archived ? t('common.unarchive') : t('common.archive')}
             </ContextMenu.Item>
             <ContextMenu.Separator className="shidou-menu-separator" />
             <ContextMenu.Item

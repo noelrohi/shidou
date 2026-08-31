@@ -46,6 +46,7 @@ import {
   hydrateSession,
   persistProject,
   removeProject,
+  archiveSession,
   removeSession,
   selectableProjects,
   sessionCwd,
@@ -817,6 +818,26 @@ export function ShidouApp() {
     forgetRightPanelSession(sessionId)
   }
 
+  /**
+   * Shelve one task, or bring it back.
+   *
+   * Nothing moves locally first: the mark is the daemon's, and it refuses to
+   * shelve a task that is still running or waiting for the user. A refusal is
+   * an answer rather than a failure to retry, so it only reports — there is no
+   * optimistic row to put back.
+   */
+  async function setSessionArchived(sessionId: string, archived: boolean) {
+    if (!client || !config) throw new Error(t('errors.daemon_disconnected'))
+    try {
+      const next = await archiveSession(client, sessionId, archived)
+      queryClient.setQueryData(daemonKeys.taskState(config.address), next)
+    } catch (error) {
+      toast.error(t(archived ? 'errors.archive_task' : 'errors.unarchive_task', {
+        error: errorMessage(error),
+      }))
+    }
+  }
+
   async function removeSessionById(sessionId: string) {
     if (!client || !config) throw new Error(t('errors.daemon_disconnected'))
     // A task whose fork is still mid-flight cannot go: the fork reads the
@@ -1108,6 +1129,7 @@ export function ShidouApp() {
           onNewTaskInProject={(project) => startNewTask(project)}
           onNewProjectlessTask={() => void createProjectlessTask()}
           onRemoveProject={setProjectPendingRemoval}
+          onArchiveSession={setSessionArchived}
           onRemoveSession={async (sessionId) => {
             const session = taskState.data?.sessions.find((item) => item.id === sessionId)
             if (session) setSessionPendingRemoval(session)

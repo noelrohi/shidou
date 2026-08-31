@@ -19,7 +19,7 @@ export interface SessionItem {
  */
 export interface SessionGroup {
   key: string
-  kind: 'date' | 'project' | 'projectless'
+  kind: 'date' | 'project' | 'projectless' | 'shelf'
   dateId?: DateGroup
   project?: Project
   label: string
@@ -49,6 +49,16 @@ const GROUP_ORDER: DateGroup[] = ['today', 'yesterday', 'week', 'month', 'year',
 const PROJECT_RECENT_WINDOW_SECONDS = 3 * 24 * 60 * 60
 export const PROJECT_REVEAL_BATCH = 30
 
+/**
+ * The one Task Shelf section. It is keyed the same in both grouping modes, so
+ * opening it under Project and switching to Updated leaves it open.
+ */
+export const SHELF_GROUP_KEY = 'shelf'
+
+function defaultShelfLabel(count: number): string {
+  return `Task Shelf (${count})`
+}
+
 export function sidebarRows(
   groups: SessionGroup[],
   collapsed: ReadonlySet<string>,
@@ -65,7 +75,7 @@ export function sidebarRows(
       first: index === 0,
     })
     if (!isCollapsed) {
-      const guides = group.kind !== 'date'
+      const guides = group.kind === 'project' || group.kind === 'projectless'
       rows.push(...group.sessions.map((item) => ({
         kind: 'session' as const,
         key: `session:${item.session.id}`,
@@ -91,6 +101,7 @@ export function sidebarGroups(
     revealed?: ReadonlyMap<string, number>
     unknownProject?: string
     projectlessName?: string
+    shelfLabel?: (count: number) => string
   },
 ): SessionGroup[] {
   const {
@@ -100,6 +111,7 @@ export function sidebarGroups(
     revealed,
     unknownProject = 'Unknown project',
     projectlessName = 'No project',
+    shelfLabel = defaultShelfLabel,
   } = options
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const started = sessions
@@ -118,15 +130,49 @@ export function sidebarGroups(
     }
   }
 
+  // An Archived Task leaves the grouped history entirely and gathers in the
+  // shelf instead. The daemon owns the mark, so this is a field test and
+  // nothing more: the client reads it and renders.
+  const archived = started.filter((session) => session.archived_at != null)
+  const active = started.filter((session) => session.archived_at == null)
+
   const groups = grouping === 'project'
-    ? projectGroups(started, projectById, item, now, revealed, unknownProject, projectlessName)
-    : dateGroups(started, item, now, ordering)
-  if (groups.length) return groups
-  // Keep the first header visible so the header actions never disappear
-  // merely because there is no task history yet.
-  return [grouping === 'project'
-    ? { key: 'projectless', kind: 'projectless', label: projectlessName, sessions: [], showMore: false }
-    : { key: 'updated:today', kind: 'date', dateId: 'today', label: GROUP_LABELS.today, sessions: [], showMore: false }]
+    ? projectGroups(active, projectById, item, now, revealed, unknownProject, projectlessName)
+    : dateGroups(active, item, now, ordering)
+  if (!groups.length) {
+    // Keep the first header visible so the header actions never disappear
+    // merely because there is no unarchived task history yet.
+    groups.push(grouping === 'project'
+      ? { key: 'projectless', kind: 'projectless', label: projectlessName, sessions: [], showMore: false }
+      : { key: 'updated:today', kind: 'date', dateId: 'today', label: GROUP_LABELS.today, sessions: [], showMore: false })
+  }
+  const shelf = shelfGroup(archived, item, revealed, shelfLabel)
+  if (shelf) groups.push(shelf)
+  return groups
+}
+
+/**
+ * The Task Shelf: one section after every group, identical in both grouping
+ * modes, ordered by when each Task was shelved rather than by the sidebar's
+ * ordering preference. It reveals a page at a time — unlike a project section
+ * there is no recency window here, because a shelved Task is old by definition.
+ */
+function shelfGroup(
+  archived: AgentSession[],
+  item: (session: AgentSession) => SessionItem,
+  revealed: ReadonlyMap<string, number> | undefined,
+  shelfLabel: (count: number) => string,
+): SessionGroup | null {
+  if (!archived.length) return null
+  const ordered = [...archived].sort((left, right) => (right.archived_at ?? 0) - (left.archived_at ?? 0))
+  const visible = PROJECT_REVEAL_BATCH + (revealed?.get(SHELF_GROUP_KEY) ?? 0)
+  return {
+    key: SHELF_GROUP_KEY,
+    kind: 'shelf',
+    label: shelfLabel(ordered.length),
+    sessions: ordered.slice(0, visible).map(item),
+    showMore: ordered.length > visible,
+  }
 }
 
 function dateGroups(

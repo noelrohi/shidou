@@ -503,6 +503,10 @@ common.remove:
   en: Remove
 common.rename:
   en: Rename
+common.archive:
+  en: Archive
+common.unarchive:
+  en: Unarchive
 
 session.new_task:
   en: New task
@@ -1379,6 +1383,10 @@ errors.rename_task:
   en: "Could not rename the task: %{error}"
 errors.remove_task:
   en: "Could not remove the task: %{error}"
+errors.archive_task:
+  en: "Could not archive the task: %{error}"
+errors.unarchive_task:
+  en: "Could not unarchive the task: %{error}"
 errors.remove_project:
   en: "Could not remove the project: %{error}"
 errors.save_draft:
