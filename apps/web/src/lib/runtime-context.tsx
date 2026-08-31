@@ -718,7 +718,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             }))
           }
         }
-        session = await persistOrdered(session)
+        // Keep the optimistic Projection in the cache until TurnAccepted
+        // replaces its temporary ids. The save response carries the daemon's
+        // pre-prompt Projection and would otherwise make the prompt disappear.
+        await persistOrdered(session)
         cacheSession(session)
       } catch (error) {
         cacheSession(currentSession)

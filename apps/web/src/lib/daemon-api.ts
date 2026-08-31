@@ -235,7 +235,12 @@ export async function persistSession(
       type: 'saveTaskState',
       projects: project ? [project] : [],
       liveSessionIds: [session.id],
-      sessions: [session],
+      sessions: [{
+        ...session,
+        messages: [],
+        transcript_blocks: [],
+        turns: [],
+      }],
     }),
     'taskStateSaved',
   )

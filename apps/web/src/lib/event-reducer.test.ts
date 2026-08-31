@@ -37,6 +37,48 @@ describe('reduceRuntimeEvent', () => {
     expect(session.messages.at(-1)?.content).toBe('Done.')
   })
 
+  test('adopts canonical ids for an optimistically echoed prompt', () => {
+    const optimistic = runningSession()
+    const optimisticTurnId = optimistic.turns[0]!.id
+    const optimisticMessageId = optimistic.messages[0]!.id
+    optimistic.messages[0]!.display_content = 'Go with context'
+    optimistic.messages[0]!.attachments = [{
+      name: 'context.txt',
+      path: '/tmp/context.txt',
+      mention: 'context.txt',
+      is_dir: false,
+      is_image: false,
+    }]
+
+    const session = apply(optimistic, 'turnAccepted', {
+      turn: {
+        ...optimistic.turns[0],
+        id: 'canonical-turn',
+      },
+      messages: [{
+        ...optimistic.messages[0],
+        id: 'canonical-message',
+        turn_id: 'canonical-turn',
+        content: 'daemon prompt',
+        display_content: null,
+        attachments: [],
+      }],
+    })
+
+    expect(optimisticTurnId).not.toBe('canonical-turn')
+    expect(optimisticMessageId).not.toBe('canonical-message')
+    expect(session.turns).toHaveLength(1)
+    expect(session.turns[0]?.id).toBe('canonical-turn')
+    expect(session.messages).toHaveLength(1)
+    expect(session.messages[0]).toMatchObject({
+      id: 'canonical-message',
+      turn_id: 'canonical-turn',
+      content: 'Go',
+      display_content: 'Go with context',
+      attachments: [{ mention: 'context.txt' }],
+    })
+  })
+
   test('incorporates a follow-up accepted by another client before its output', () => {
     let session = apply(runningSession(), 'turnFinished', { success: true, summary: null })
     const accepted = {

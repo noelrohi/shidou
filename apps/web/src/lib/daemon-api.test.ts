@@ -308,8 +308,19 @@ describe('persistProject', () => {
 })
 
 describe('persistSession', () => {
-  test('checkpoints one session without reloading or replacing the catalog', async () => {
-    const saved = createSession('project', 'codex', 'local')
+  test('saves session metadata and queue state without transcript content', async () => {
+    const saved = beginTurn(createSession('project', 'codex', 'local'), 'Do the work')
+    saved.title = 'Renamed task'
+    saved.queued_messages = [{
+      id: 'queued',
+      content: 'Follow up',
+      created_at: 1,
+    }]
+    saved.transcript_blocks = [{
+      after_message: 1,
+      turn_id: saved.turns[0]!.id,
+      content: { kind: 'activities', data: [] },
+    }]
     const commands: unknown[] = []
     const client = {
       request: async (command: unknown) => {
@@ -323,8 +334,15 @@ describe('persistSession', () => {
       type: 'saveTaskState',
       projects: [],
       liveSessionIds: [saved.id],
-      sessions: [saved],
+      sessions: [{
+        ...saved,
+        messages: [],
+        transcript_blocks: [],
+        turns: [],
+      }],
     }])
+    expect(saved.messages).toHaveLength(1)
+    expect(saved.turns).toHaveLength(1)
   })
 })
 

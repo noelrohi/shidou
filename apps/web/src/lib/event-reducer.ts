@@ -96,24 +96,65 @@ export function reduceRuntimeEvent(
       const value = asRecord(payload)
       const turn = asRecord(value?.turn)
       if (!turn || typeof turn.id !== 'string') break
-      const knownTurn = session.turns.some((existing) => existing.id === turn.id)
-      const messages = Array.isArray(value?.messages) ? value.messages : []
-      for (const candidate of messages) {
-        const message = asRecord(candidate)
-        if (
-          !message
-          || typeof message.id !== 'string'
-          || session.messages.some((existing) => existing.id === message.id)
-        ) continue
-        session.messages.push(clone(candidate as Message))
-      }
       const accepted = clone(value!.turn as AgentTurn)
+      const knownTurn = session.turns.some((existing) => existing.id === accepted.id)
+      const provisionalIndex = knownTurn
+        ? -1
+        : session.turns.findIndex((existing) =>
+            existing.id !== accepted.id
+            && existing.turn_count === accepted.turn_count
+            && existing.status === 'running',
+          )
+      const messages = Array.isArray(value?.messages) ? value.messages : []
+
+      if (provisionalIndex >= 0) {
+        const provisionalTurnId = session.turns[provisionalIndex]!.id
+        session.turns[provisionalIndex] = accepted
+        const availableMessages = session.messages
+          .map((message, index) => message.turn_id === provisionalTurnId ? index : -1)
+          .filter((index) => index >= 0)
+        for (const candidate of messages) {
+          const message = asRecord(candidate)
+          if (
+            !message
+            || typeof message.id !== 'string'
+            || session.messages.some((existing) => existing.id === message.id)
+          ) continue
+          const matchingPosition = availableMessages.findIndex(
+            (index) => session.messages[index]!.role === message.role,
+          )
+          if (matchingPosition >= 0) {
+            const index = availableMessages.splice(matchingPosition, 1)[0]!
+            session.messages[index]!.id = message.id
+            session.messages[index]!.turn_id = accepted.id
+          } else {
+            session.messages.push(clone(candidate as Message))
+          }
+        }
+        for (const index of availableMessages) {
+          session.messages[index]!.turn_id = accepted.id
+        }
+        for (const block of session.transcript_blocks) {
+          if (block.turn_id === provisionalTurnId) block.turn_id = accepted.id
+        }
+      } else {
+        for (const candidate of messages) {
+          const message = asRecord(candidate)
+          if (
+            !message
+            || typeof message.id !== 'string'
+            || session.messages.some((existing) => existing.id === message.id)
+          ) continue
+          session.messages.push(clone(candidate as Message))
+        }
+        if (!knownTurn) session.turns.push(accepted)
+      }
+
       if (
         accepted.status === 'running'
         && (session.status === 'idle' || session.status === 'failed')
       ) session.status = 'connecting'
       session.updated_at = Math.max(session.updated_at, accepted.started_at)
-      if (!knownTurn) session.turns.push(accepted)
       break
     }
     case 'turnStarted': {
