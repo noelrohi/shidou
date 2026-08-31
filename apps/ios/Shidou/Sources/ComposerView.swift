@@ -225,9 +225,9 @@ struct ComposerView: View {
     private var attachmentStrip: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
-                ForEach(Array(attachments.enumerated()), id: \.offset) { index, attachment in
+                ForEach(attachments, id: \.self) { attachment in
                     AttachmentTile(attachment: attachment, store: store) {
-                        attachments.remove(at: index)
+                        attachments.removeAll { $0 == attachment }
                         saveDraft()
                     }
                 }
