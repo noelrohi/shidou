@@ -576,6 +576,10 @@ sidebar.status_waiting:
   en: Waiting
 sidebar.status_failed:
   en: Failed
+sidebar.task_shelf:
+  en: "Task Shelf (%{count})"
+sidebar.task_shelf_hint:
+  en: Archived Tasks
 
 project.new_project:
   en: New project…

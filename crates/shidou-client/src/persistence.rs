@@ -337,6 +337,8 @@ struct AppState {
     sidebar_grouping: SidebarGrouping,
     #[serde(default)]
     sidebar_ordering: SidebarOrdering,
+    #[serde(default)]
+    sidebar_shelf_expanded: bool,
     #[serde(default = "default_right_panel_width")]
     right_panel_width: f32,
     /// Whether markdown files in the right panel open as a rendered preview
@@ -397,6 +399,11 @@ pub struct PersistedState {
     pub sidebar_grouping: SidebarGrouping,
     #[serde(default)]
     pub sidebar_ordering: SidebarOrdering,
+    /// Whether the sidebar's Task Shelf is open. Persisted, unlike the
+    /// runtime-only folds of the ordinary groups, because the shelf starts
+    /// collapsed and a user who opens it means to keep it open.
+    #[serde(default)]
+    pub sidebar_shelf_expanded: bool,
     #[serde(default = "default_right_panel_width")]
     pub right_panel_width: f32,
     /// Whether markdown files in the right panel open as a rendered preview
@@ -467,6 +474,7 @@ impl PersistedState {
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_grouping: SidebarGrouping::Updated,
             sidebar_ordering: SidebarOrdering::Newest,
+            sidebar_shelf_expanded: false,
             right_panel_width: DEFAULT_RIGHT_PANEL_WIDTH,
             markdown_preview: false,
             review_diff_mode: ReviewDiffMode::default(),
@@ -610,6 +618,7 @@ impl PersistedState {
             sidebar_width: self.sidebar_width,
             sidebar_grouping: self.sidebar_grouping,
             sidebar_ordering: self.sidebar_ordering,
+            sidebar_shelf_expanded: self.sidebar_shelf_expanded,
             right_panel_width: self.right_panel_width,
             markdown_preview: self.markdown_preview,
             review_diff_mode: self.review_diff_mode,
@@ -644,6 +653,7 @@ impl PersistedState {
         self.sidebar_width = app_state.sidebar_width;
         self.sidebar_grouping = app_state.sidebar_grouping;
         self.sidebar_ordering = app_state.sidebar_ordering;
+        self.sidebar_shelf_expanded = app_state.sidebar_shelf_expanded;
         self.right_panel_width = app_state.right_panel_width;
         self.markdown_preview = app_state.markdown_preview;
         self.review_diff_mode = app_state.review_diff_mode;
@@ -1154,6 +1164,7 @@ mod tests {
 
         assert_eq!(state.sidebar_grouping, SidebarGrouping::Updated);
         assert_eq!(state.sidebar_ordering, SidebarOrdering::Newest);
+        assert!(!state.sidebar_shelf_expanded);
         assert_eq!(state.last_runtime_mode, RuntimeMode::FullAccess);
     }
 

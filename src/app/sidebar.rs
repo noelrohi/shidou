@@ -69,6 +69,9 @@ pub(super) enum SidebarGroup {
     Updated(SessionDateGroup),
     Project(Uuid),
     Projectless,
+    /// The Task Shelf: one section at the foot of the sidebar holding every
+    /// Archived Task, identical in both grouping modes.
+    Shelf,
 }
 
 impl SidebarGroup {
@@ -77,6 +80,7 @@ impl SidebarGroup {
             Self::Updated(group) => format!("updated-{}", group.index()).into(),
             Self::Project(project_id) => format!("project-{project_id}").into(),
             Self::Projectless => "projectless".into(),
+            Self::Shelf => "shelf".into(),
         }
     }
 
@@ -85,6 +89,7 @@ impl SidebarGroup {
             Self::Updated(group) => mix(fingerprint, group.index() as u64 + 1),
             Self::Project(project_id) => mix_uuid(mix(fingerprint, 0x100), project_id),
             Self::Projectless => mix(fingerprint, 0x200),
+            Self::Shelf => mix(fingerprint, 0x300),
         }
     }
 }
@@ -298,6 +303,132 @@ fn visible_project_sessions(
         }
     }
     (visible, older_seen > revealed_older_sessions)
+}
+
+/// The shelf reveals its Archived Tasks a page at a time: one batch to start,
+/// one more with every Show more. Unlike a project section there is no recency
+/// window here — a shelved Task is old by definition.
+fn visible_shelf_sessions(sessions: &[Uuid], revealed_older_sessions: usize) -> (Vec<Uuid>, bool) {
+    let visible = SIDEBAR_PROJECT_REVEAL_BATCH.saturating_add(revealed_older_sessions);
+    (
+        sessions.iter().copied().take(visible).collect(),
+        sessions.len() > visible,
+    )
+}
+
+/// Everything the sidebar row shape depends on that the sessions themselves do
+/// not carry, gathered so [`build_sidebar_rows`] stays a pure function.
+struct SidebarRowState<'a> {
+    grouping: SidebarGrouping,
+    ordering: SidebarOrdering,
+    collapsed_groups: &'a HashSet<SidebarGroup>,
+    reveal_counts: &'a HashMap<SidebarGroup, usize>,
+    /// The Task Shelf is collapsed until the user opens it, and that choice is
+    /// persisted rather than held in `collapsed_groups`.
+    shelf_expanded: bool,
+    projectless_project_ids: &'a HashSet<Uuid>,
+    /// Header to fall back on so the sidebar actions stay reachable while
+    /// there is no unarchived history.
+    fallback_group: SidebarGroup,
+}
+
+/// Lay the started sessions out as a flat row list: the grouped history under
+/// the current preferences, then the Task Shelf beneath every group.
+fn build_sidebar_rows(
+    sessions: &[&AgentSession],
+    state: &SidebarRowState<'_>,
+    today: NaiveDate,
+    now: u64,
+) -> Vec<SidebarRow> {
+    let mut sorted_sessions = sessions.to_vec();
+    sort_sidebar_sessions(&mut sorted_sessions, state.ordering);
+    // An Archived Task leaves the grouped history entirely. The mark rides
+    // along on the summary the sidebar already reads, so this is a field test
+    // and nothing more — no clock, no I/O.
+    let (mut archived_sessions, sorted_sessions): (Vec<_>, Vec<_>) = sorted_sessions
+        .into_iter()
+        .partition(|session| session.archived_at.is_some());
+
+    let mut rows = vec![SidebarRow::Search];
+    match state.grouping {
+        SidebarGrouping::Updated => {
+            let mut grouped_sessions: [Vec<Uuid>; 6] = std::array::from_fn(|_| Vec::new());
+            for session in sorted_sessions {
+                grouped_sessions
+                    [session_date_group(sidebar_session_timestamp(session), today).index()]
+                .push(session.id);
+            }
+            let mut groups = SessionDateGroup::ALL;
+            if state.ordering == SidebarOrdering::Oldest {
+                groups.reverse();
+            }
+            for date_group in groups {
+                let group = SidebarGroup::Updated(date_group);
+                append_sidebar_group_rows(
+                    &mut rows,
+                    group,
+                    &grouped_sessions[date_group.index()],
+                    state.collapsed_groups.contains(&group),
+                    false,
+                );
+            }
+        }
+        SidebarGrouping::Project => {
+            let recent_cutoff = now.saturating_sub(SIDEBAR_PROJECT_RECENT_WINDOW_SECONDS);
+            let session_timestamps = sorted_sessions
+                .iter()
+                .map(|session| (session.id, sidebar_session_timestamp(session)))
+                .collect::<HashMap<_, _>>();
+            for (group, sessions) in
+                project_sidebar_groups(&sorted_sessions, state.projectless_project_ids)
+            {
+                let revealed_older_sessions =
+                    state.reveal_counts.get(&group).copied().unwrap_or_default();
+                let (visible_sessions, show_more) = visible_project_sessions(
+                    &sessions,
+                    &session_timestamps,
+                    recent_cutoff,
+                    revealed_older_sessions,
+                );
+                append_sidebar_group_rows(
+                    &mut rows,
+                    group,
+                    &visible_sessions,
+                    state.collapsed_groups.contains(&group),
+                    show_more,
+                );
+            }
+        }
+    }
+    if rows.len() == 1 {
+        // Keep the header actions visible while there is no history.
+        rows.push(SidebarRow::Header(state.fallback_group));
+    }
+
+    // The shelf follows every group, identical in both grouping modes, and
+    // orders by when each Task was shelved rather than by the sidebar's
+    // ordering preference.
+    archived_sessions.sort_by_key(|session| std::cmp::Reverse(session.archived_at));
+    let shelf_sessions = archived_sessions
+        .iter()
+        .map(|session| session.id)
+        .collect::<Vec<_>>();
+    let (visible_shelf_sessions, shelf_show_more) = visible_shelf_sessions(
+        &shelf_sessions,
+        state
+            .reveal_counts
+            .get(&SidebarGroup::Shelf)
+            .copied()
+            .unwrap_or_default(),
+    );
+    append_sidebar_group_rows(
+        &mut rows,
+        SidebarGroup::Shelf,
+        &visible_shelf_sessions,
+        !state.shelf_expanded,
+        shelf_show_more,
+    );
+    rows
 }
 
 fn sidebar_project_is_projectless(project: &Project, projectless_root: Option<&Path>) -> bool {
@@ -1095,6 +1226,9 @@ impl Shidou {
             fingerprint = mix_uuid(fingerprint, session.id);
             fingerprint = mix_uuid(fingerprint, session.project_id);
             fingerprint = mix(fingerprint, sidebar_session_timestamp(session));
+            // The archive mark both removes a Task from its group and orders
+            // it inside the shelf, so the whole value participates.
+            fingerprint = mix(fingerprint, session.archived_at.unwrap_or_default());
             if self.state.sidebar_grouping == SidebarGrouping::Project {
                 fingerprint = mix(
                     fingerprint,
@@ -1109,18 +1243,21 @@ impl Shidou {
             for project in &self.state.projects {
                 fingerprint = mix_uuid(fingerprint, project.id);
             }
-            // A map has no stable iteration order; combine order-independently.
-            let revealed =
-                self.sidebar_project_reveal_counts
-                    .iter()
-                    .fold(0u64, |combined, (group, count)| {
-                        combined.wrapping_add(group.mix_fingerprint(*count as u64))
-                    });
-            fingerprint = mix(
-                mix(fingerprint, self.sidebar_project_reveal_counts.len() as u64),
-                revealed,
-            );
         }
+        // Reveal counts page the shelf as well as the project sections, so
+        // they count in both grouping modes.
+        // A map has no stable iteration order; combine order-independently.
+        let revealed = self
+            .sidebar_project_reveal_counts
+            .iter()
+            .fold(0u64, |combined, (group, count)| {
+                combined.wrapping_add(group.mix_fingerprint(*count as u64))
+            });
+        fingerprint = mix(
+            mix(fingerprint, self.sidebar_project_reveal_counts.len() as u64),
+            revealed,
+        );
+        fingerprint = mix(fingerprint, u64::from(self.state.sidebar_shelf_expanded));
         // A set has no stable iteration order; combine order-independently.
         let collapsed = self
             .sidebar_collapsed_groups
@@ -1142,107 +1279,66 @@ impl Shidou {
     /// Snapshot the session history as a flat list of lightweight rows under
     /// the current grouping and ordering preferences.
     fn sidebar_rows(&self, today: NaiveDate, now: u64) -> Vec<SidebarRow> {
-        let mut sorted_sessions = self
+        let sessions = self
             .state
             .sessions
             .iter()
             .filter(|session| session.has_started())
             .collect::<Vec<_>>();
-        sort_sidebar_sessions(&mut sorted_sessions, self.state.sidebar_ordering);
+        let projectless_root = crate::projectless::workspace_root();
+        let projectless_project_ids = self
+            .state
+            .projects
+            .iter()
+            .filter(|project| sidebar_project_is_projectless(project, projectless_root.as_deref()))
+            .map(|project| project.id)
+            .collect::<HashSet<_>>();
+        let state = SidebarRowState {
+            grouping: self.state.sidebar_grouping,
+            ordering: self.state.sidebar_ordering,
+            collapsed_groups: &self.sidebar_collapsed_groups,
+            reveal_counts: &self.sidebar_project_reveal_counts,
+            shelf_expanded: self.state.sidebar_shelf_expanded,
+            projectless_project_ids: &projectless_project_ids,
+            fallback_group: self.sidebar_fallback_group(projectless_root.as_deref()),
+        };
+        build_sidebar_rows(&sessions, &state, today, now)
+    }
 
-        let mut rows = vec![SidebarRow::Search];
+    /// How many Archived Tasks the shelf holds, for its header. An in-memory
+    /// count over summaries already loaded — nothing a frame reaches here.
+    fn archived_session_count(&self) -> usize {
+        self.state
+            .sessions
+            .iter()
+            .filter(|session| session.has_started() && session.archived_at.is_some())
+            .count()
+    }
+
+    /// The header the sidebar falls back on when no unarchived Task remains,
+    /// so the actions it carries stay reachable.
+    fn sidebar_fallback_group(&self, projectless_root: Option<&Path>) -> SidebarGroup {
         match self.state.sidebar_grouping {
-            SidebarGrouping::Updated => {
-                let mut grouped_sessions: [Vec<Uuid>; 6] = std::array::from_fn(|_| Vec::new());
-                for session in sorted_sessions {
-                    grouped_sessions
-                        [session_date_group(sidebar_session_timestamp(session), today).index()]
-                    .push(session.id);
-                }
-                let mut groups = SessionDateGroup::ALL;
-                if self.state.sidebar_ordering == SidebarOrdering::Oldest {
-                    groups.reverse();
-                }
-                for date_group in groups {
-                    let group = SidebarGroup::Updated(date_group);
-                    append_sidebar_group_rows(
-                        &mut rows,
-                        group,
-                        &grouped_sessions[date_group.index()],
-                        self.sidebar_collapsed_groups.contains(&group),
-                        false,
-                    );
-                }
-            }
-            SidebarGrouping::Project => {
-                let recent_cutoff = now.saturating_sub(SIDEBAR_PROJECT_RECENT_WINDOW_SECONDS);
-                let session_timestamps = sorted_sessions
-                    .iter()
-                    .map(|session| (session.id, sidebar_session_timestamp(session)))
-                    .collect::<HashMap<_, _>>();
-                let projectless_root = crate::projectless::workspace_root();
-                let projectless_project_ids = self
-                    .state
-                    .projects
-                    .iter()
-                    .filter(|project| {
-                        sidebar_project_is_projectless(project, projectless_root.as_deref())
-                    })
-                    .map(|project| project.id)
-                    .collect::<HashSet<_>>();
-                for (group, sessions) in
-                    project_sidebar_groups(&sorted_sessions, &projectless_project_ids)
-                {
-                    let revealed_older_sessions = self
-                        .sidebar_project_reveal_counts
-                        .get(&group)
-                        .copied()
-                        .unwrap_or_default();
-                    let (visible_sessions, show_more) = visible_project_sessions(
-                        &sessions,
-                        &session_timestamps,
-                        recent_cutoff,
-                        revealed_older_sessions,
-                    );
-                    append_sidebar_group_rows(
-                        &mut rows,
-                        group,
-                        &visible_sessions,
-                        self.sidebar_collapsed_groups.contains(&group),
-                        show_more,
-                    );
-                }
-            }
-        }
-        if rows.len() == 1 {
-            // Keep the header actions visible while there is no history.
-            let group = match self.state.sidebar_grouping {
-                SidebarGrouping::Updated => SidebarGroup::Updated(SessionDateGroup::Today),
-                SidebarGrouping::Project => {
-                    let projectless_root = crate::projectless::workspace_root();
+            SidebarGrouping::Updated => SidebarGroup::Updated(SessionDateGroup::Today),
+            SidebarGrouping::Project => self
+                .state
+                .selected_project
+                .and_then(|project_id| {
                     self.state
-                        .selected_project
-                        .and_then(|project_id| {
-                            self.state
-                                .projects
-                                .iter()
-                                .find(|project| project.id == project_id)
-                        })
-                        .or_else(|| self.state.projects.first())
-                        .map(|project| {
-                            if sidebar_project_is_projectless(project, projectless_root.as_deref())
-                            {
-                                SidebarGroup::Projectless
-                            } else {
-                                SidebarGroup::Project(project.id)
-                            }
-                        })
-                        .unwrap_or(SidebarGroup::Projectless)
-                }
-            };
-            rows.push(SidebarRow::Header(group));
+                        .projects
+                        .iter()
+                        .find(|project| project.id == project_id)
+                })
+                .or_else(|| self.state.projects.first())
+                .map(|project| {
+                    if sidebar_project_is_projectless(project, projectless_root) {
+                        SidebarGroup::Projectless
+                    } else {
+                        SidebarGroup::Project(project.id)
+                    }
+                })
+                .unwrap_or(SidebarGroup::Projectless),
         }
-        rows
     }
 
     /// Keep the virtualized list in sync with the current row snapshot.
@@ -1306,7 +1402,7 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = Theme::current(cx);
-        let collapsed = self.sidebar_collapsed_groups.contains(&group);
+        let collapsed = self.sidebar_group_collapsed(group);
         let group_key = group.element_key();
         let group_name = SharedString::from(format!("sidebar-group-header-{group_key}"));
         let header_focus = self
@@ -1327,7 +1423,7 @@ impl Shidou {
                 .iter()
                 .find(|project| project.id == project_id)
                 .filter(|project| !project.is_projectless()),
-            SidebarGroup::Projectless | SidebarGroup::Updated(_) => None,
+            SidebarGroup::Projectless | SidebarGroup::Updated(_) | SidebarGroup::Shelf => None,
         };
         let project_menu = project.map(|project| {
             (
@@ -1347,14 +1443,21 @@ impl Shidou {
                 .map(Project::display_name)
                 .unwrap_or_else(|| tr!("project.no_project_name")),
             SidebarGroup::Projectless => tr!("project.no_project_name"),
+            SidebarGroup::Shelf => tr!("sidebar.task_shelf", count = self.archived_session_count()),
         };
-        let updated_chevron = matches!(group, SidebarGroup::Updated(_)).then(|| {
+        // The shelf keeps its chevron on screen rather than revealing it on
+        // hover: it starts collapsed, so the only affordance saying the row
+        // opens must not depend on the pointer being over it.
+        let shelf = group == SidebarGroup::Shelf;
+        let updated_chevron = (shelf || matches!(group, SidebarGroup::Updated(_))).then(|| {
             icon("icons/chevron-down.svg", 14.0, theme.text_secondary)
                 .when(collapsed, |icon| {
                     icon.with_transformation(gpui::Transformation::rotate(gpui::percentage(0.75)))
                 })
-                .invisible()
-                .group_hover(group_name.clone(), |icon| icon.visible())
+                .when(!shelf, |icon| {
+                    icon.invisible()
+                        .group_hover(group_name.clone(), |icon| icon.visible())
+                })
         });
         let compose = show_folder_icon.then(|| {
             let compose_focus = self
@@ -1429,6 +1532,9 @@ impl Shidou {
             .focus_visible(|style| style.border_1().border_color(theme.accent))
             .hover(|style| style.bg(theme.sidebar_item_background))
             .active(|style| style.bg(theme.overlay_strong))
+            .when(shelf, |element| {
+                element.tooltip(Tooltip::text(tr!("sidebar.task_shelf_hint")))
+            })
             .child(
                 div()
                     .flex_1()
@@ -1568,7 +1674,7 @@ impl Shidou {
         match group {
             SidebarGroup::Project(project_id) => self.select_project(project_id, cx),
             SidebarGroup::Projectless => self.create_projectless_session(cx),
-            SidebarGroup::Updated(_) => return,
+            SidebarGroup::Updated(_) | SidebarGroup::Shelf => return,
         }
         let focus = self.composer_focus(cx);
         window.focus(&focus, cx);
@@ -1637,7 +1743,7 @@ impl Shidou {
     }
 
     fn toggle_sidebar_group(&mut self, group: SidebarGroup, cx: &mut Context<Self>) {
-        let collapsed = !self.sidebar_collapsed_groups.contains(&group);
+        let collapsed = !self.sidebar_group_collapsed(group);
         self.set_sidebar_group_collapsed(group, collapsed, cx);
     }
 
@@ -1652,12 +1758,39 @@ impl Shidou {
             .collect::<Vec<_>>();
         let mut changed = false;
         for group in groups {
-            changed |= self.sidebar_collapsed_groups.insert(group);
+            changed |= self.store_sidebar_group_collapsed(group, true);
             changed |= self.sidebar_project_reveal_counts.remove(&group).is_some();
         }
         if changed {
             self.sidebar_rows_fingerprint.set(None);
             cx.notify();
+        }
+    }
+
+    /// Whether a group renders folded. Ordinary groups start expanded and the
+    /// user's folds are runtime-only; the Task Shelf is the other way round —
+    /// collapsed by default, with its state persisted across restarts.
+    pub(super) fn sidebar_group_collapsed(&self, group: SidebarGroup) -> bool {
+        match group {
+            SidebarGroup::Shelf => !self.state.sidebar_shelf_expanded,
+            _ => self.sidebar_collapsed_groups.contains(&group),
+        }
+    }
+
+    /// Record a group's fold where that group keeps it. Returns whether the
+    /// stored value moved.
+    fn store_sidebar_group_collapsed(&mut self, group: SidebarGroup, collapsed: bool) -> bool {
+        match group {
+            SidebarGroup::Shelf => {
+                let changed = self.state.sidebar_shelf_expanded == collapsed;
+                if changed {
+                    self.state.sidebar_shelf_expanded = !collapsed;
+                    self.save();
+                }
+                changed
+            }
+            _ if collapsed => self.sidebar_collapsed_groups.insert(group),
+            _ => self.sidebar_collapsed_groups.remove(&group),
         }
     }
 
@@ -1667,11 +1800,7 @@ impl Shidou {
         collapsed: bool,
         cx: &mut Context<Self>,
     ) {
-        let collapse_changed = if collapsed {
-            self.sidebar_collapsed_groups.insert(group)
-        } else {
-            self.sidebar_collapsed_groups.remove(&group)
-        };
+        let collapse_changed = self.store_sidebar_group_collapsed(group, collapsed);
         let reveal_reset = collapsed && self.sidebar_project_reveal_counts.remove(&group).is_some();
         if collapse_changed || reveal_reset {
             self.sidebar_rows_fingerprint.set(None);
@@ -2811,6 +2940,248 @@ mod tests {
         assert_eq!(
             persisted_sidebar_branch_label(&worktree),
             Some("feature/sidebar")
+        );
+    }
+
+    /// A started Task at `timestamp`, optionally carrying the archive mark.
+    fn shelf_session(project_id: Uuid, timestamp: u64, archived_at: Option<u64>) -> AgentSession {
+        let mut session = AgentSession::new(project_id, ProviderKind::Codex);
+        session.created_at = timestamp;
+        session.last_reply_at = Some(timestamp);
+        session.archived_at = archived_at;
+        session
+    }
+
+    fn shelf_row_state<'a>(
+        grouping: SidebarGrouping,
+        shelf_expanded: bool,
+        collapsed_groups: &'a HashSet<SidebarGroup>,
+        reveal_counts: &'a HashMap<SidebarGroup, usize>,
+        projectless_project_ids: &'a HashSet<Uuid>,
+    ) -> SidebarRowState<'a> {
+        SidebarRowState {
+            grouping,
+            ordering: SidebarOrdering::Newest,
+            collapsed_groups,
+            reveal_counts,
+            shelf_expanded,
+            projectless_project_ids,
+            fallback_group: SidebarGroup::Updated(SessionDateGroup::Today),
+        }
+    }
+
+    /// The rows the shelf contributes, from its header to the end of the list.
+    fn shelf_rows(rows: &[SidebarRow]) -> &[SidebarRow] {
+        rows.iter()
+            .position(|row| *row == SidebarRow::Header(SidebarGroup::Shelf))
+            .map(|start| &rows[start..])
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn archived_tasks_leave_every_date_and_project_group() {
+        let now = unix_time();
+        let today = Local::now().date_naive();
+        let project_id = Uuid::from_u128(1);
+        let active = shelf_session(project_id, now, None);
+        let archived = shelf_session(project_id, now, Some(now));
+        let sessions = [&active, &archived];
+        let collapsed = HashSet::new();
+        let reveals = HashMap::new();
+        let projectless = HashSet::new();
+
+        for grouping in [SidebarGrouping::Updated, SidebarGrouping::Project] {
+            let state = shelf_row_state(grouping, true, &collapsed, &reveals, &projectless);
+            let rows = build_sidebar_rows(&sessions, &state, today, now);
+            let shelf_start = rows
+                .iter()
+                .position(|row| *row == SidebarRow::Header(SidebarGroup::Shelf))
+                .expect("the shelf renders");
+
+            // Above the shelf: only the unarchived Task.
+            assert_eq!(
+                rows[..shelf_start]
+                    .iter()
+                    .filter(|row| matches!(row, SidebarRow::Session(_)))
+                    .copied()
+                    .collect::<Vec<_>>(),
+                vec![SidebarRow::Session(active.id)]
+            );
+            assert!(shelf_rows(&rows).contains(&SidebarRow::Session(archived.id)));
+        }
+    }
+
+    #[test]
+    fn one_task_shelf_follows_every_group_in_both_grouping_modes() {
+        let now = unix_time();
+        let today = Local::now().date_naive();
+        let first = shelf_session(Uuid::from_u128(1), now, None);
+        let second = shelf_session(Uuid::from_u128(2), now, None);
+        let archived = shelf_session(Uuid::from_u128(1), now, Some(now));
+        let sessions = [&first, &second, &archived];
+        let collapsed = HashSet::new();
+        let reveals = HashMap::new();
+        let projectless = HashSet::new();
+
+        for grouping in [SidebarGrouping::Updated, SidebarGrouping::Project] {
+            let state = shelf_row_state(grouping, true, &collapsed, &reveals, &projectless);
+            let rows = build_sidebar_rows(&sessions, &state, today, now);
+            let headers = rows
+                .iter()
+                .filter_map(|row| match row {
+                    SidebarRow::Header(group) => Some(*group),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                headers
+                    .iter()
+                    .filter(|group| **group == SidebarGroup::Shelf)
+                    .count(),
+                1
+            );
+            assert_eq!(headers.last(), Some(&SidebarGroup::Shelf));
+            assert_eq!(
+                shelf_rows(&rows),
+                [
+                    SidebarRow::Header(SidebarGroup::Shelf),
+                    SidebarRow::Session(archived.id),
+                    SidebarRow::GroupSpacer,
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn shelf_is_omitted_when_no_task_is_archived() {
+        let now = unix_time();
+        let today = Local::now().date_naive();
+        let active = shelf_session(Uuid::from_u128(1), now, None);
+        let sessions = [&active];
+        let collapsed = HashSet::new();
+        let reveals = HashMap::new();
+        let projectless = HashSet::new();
+
+        for grouping in [SidebarGrouping::Updated, SidebarGrouping::Project] {
+            for shelf_expanded in [false, true] {
+                let state =
+                    shelf_row_state(grouping, shelf_expanded, &collapsed, &reveals, &projectless);
+                let rows = build_sidebar_rows(&sessions, &state, today, now);
+                assert!(!rows.contains(&SidebarRow::Header(SidebarGroup::Shelf)));
+            }
+        }
+    }
+
+    #[test]
+    fn collapsed_shelf_contributes_only_its_header() {
+        let now = unix_time();
+        let today = Local::now().date_naive();
+        let archived = shelf_session(Uuid::from_u128(1), now, Some(now));
+        let sessions = [&archived];
+        let collapsed = HashSet::new();
+        let reveals = HashMap::new();
+        let projectless = HashSet::new();
+        let state = shelf_row_state(
+            SidebarGrouping::Updated,
+            false,
+            &collapsed,
+            &reveals,
+            &projectless,
+        );
+
+        let rows = build_sidebar_rows(&sessions, &state, today, now);
+
+        assert_eq!(
+            shelf_rows(&rows),
+            [
+                SidebarRow::Header(SidebarGroup::Shelf),
+                SidebarRow::GroupSpacer,
+            ]
+        );
+    }
+
+    #[test]
+    fn shelf_reveals_older_archived_tasks_in_batches() {
+        let total = SIDEBAR_PROJECT_REVEAL_BATCH + 5;
+        let archived_sessions = (0..total)
+            .map(|index| shelf_session(Uuid::from_u128(1), 1_000, Some(1_000 + index as u64)))
+            .collect::<Vec<_>>();
+        let sessions = archived_sessions.iter().collect::<Vec<_>>();
+        let now = unix_time();
+        let today = Local::now().date_naive();
+        let collapsed = HashSet::new();
+        let projectless = HashSet::new();
+
+        let reveals = HashMap::new();
+        let state = shelf_row_state(
+            SidebarGrouping::Updated,
+            true,
+            &collapsed,
+            &reveals,
+            &projectless,
+        );
+        let first_page = shelf_rows(&build_sidebar_rows(&sessions, &state, today, now)).to_vec();
+        assert_eq!(
+            first_page
+                .iter()
+                .filter(|row| matches!(row, SidebarRow::Session(_)))
+                .count(),
+            SIDEBAR_PROJECT_REVEAL_BATCH
+        );
+        assert!(first_page.contains(&SidebarRow::ShowMore(SidebarGroup::Shelf)));
+
+        let reveals = HashMap::from([(SidebarGroup::Shelf, SIDEBAR_PROJECT_REVEAL_BATCH)]);
+        let state = shelf_row_state(
+            SidebarGrouping::Updated,
+            true,
+            &collapsed,
+            &reveals,
+            &projectless,
+        );
+        let second_page = shelf_rows(&build_sidebar_rows(&sessions, &state, today, now)).to_vec();
+        assert_eq!(
+            second_page
+                .iter()
+                .filter(|row| matches!(row, SidebarRow::Session(_)))
+                .count(),
+            total
+        );
+        assert!(!second_page.contains(&SidebarRow::ShowMore(SidebarGroup::Shelf)));
+    }
+
+    #[test]
+    fn shelf_lists_the_most_recently_archived_task_first() {
+        let now = unix_time();
+        let today = Local::now().date_naive();
+        // Recency in the sidebar's sense runs the other way, so ordering by
+        // the reply time would put these in exactly the opposite order.
+        let oldest_mark = shelf_session(Uuid::from_u128(1), now, Some(100));
+        let newest_mark = shelf_session(Uuid::from_u128(1), now - 2, Some(300));
+        let middle_mark = shelf_session(Uuid::from_u128(1), now - 1, Some(200));
+        let sessions = [&oldest_mark, &middle_mark, &newest_mark];
+        let collapsed = HashSet::new();
+        let reveals = HashMap::new();
+        let projectless = HashSet::new();
+        let state = shelf_row_state(
+            SidebarGrouping::Updated,
+            true,
+            &collapsed,
+            &reveals,
+            &projectless,
+        );
+
+        let rows = build_sidebar_rows(&sessions, &state, today, now);
+
+        assert_eq!(
+            shelf_rows(&rows),
+            [
+                SidebarRow::Header(SidebarGroup::Shelf),
+                SidebarRow::Session(newest_mark.id),
+                SidebarRow::Session(middle_mark.id),
+                SidebarRow::Session(oldest_mark.id),
+                SidebarRow::GroupSpacer,
+            ]
         );
     }
 
