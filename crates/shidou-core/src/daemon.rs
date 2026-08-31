@@ -687,9 +687,16 @@ impl Backend for ShidouBackend {
                     }
                     driver.clone()
                 };
-                if matches!(&command, Command::Prompt { .. })
-                    && let Some(accepted) = accepted_turn_event(&self.task_state, session_id)
-                {
+                if let Command::Prompt { prompt } = &command {
+                    let accepted = {
+                        let mut state = self.task_state.lock();
+                        let session = state.session_mut(session_id).ok_or_else(|| {
+                            anyhow!("daemon session {session_id} has no saved projection")
+                        })?;
+                        let accepted = accept_prompt_turn(session, prompt);
+                        self.task_store.save(&mut state)?;
+                        accepted
+                    };
                     events.send(event_to_wire(accepted)?)?;
                 }
                 handle_driver_command(&driver, command)
@@ -716,20 +723,15 @@ impl Backend for ShidouBackend {
     }
 }
 
-fn accepted_turn_event(
-    task_state: &Mutex<PersistedState>,
-    session_id: Uuid,
-) -> Option<DriverEvent> {
-    let state = task_state.lock();
-    let session = state
-        .sessions
-        .iter()
-        .find(|session| session.id == session_id)?;
-    let turn_id = session.active_turn_id()?;
+fn accept_prompt_turn(session: &mut AgentSession, prompt: &str) -> DriverEvent {
+    let turn_id = session
+        .active_turn_id()
+        .unwrap_or_else(|| session.begin_turn(prompt));
     let turn = session
         .turns
         .iter()
-        .find(|turn| turn.id == turn_id)?
+        .find(|turn| turn.id == turn_id)
+        .expect("active turn belongs to the session")
         .clone();
     let messages = session
         .messages
@@ -737,7 +739,7 @@ fn accepted_turn_event(
         .filter(|message| message.turn_id == Some(turn_id))
         .cloned()
         .collect();
-    Some(DriverEvent::TurnAccepted { turn, messages })
+    DriverEvent::TurnAccepted { turn, messages }
 }
 
 fn merge_saved_session(
@@ -2264,24 +2266,38 @@ mod tests {
     }
 
     #[test]
-    fn accepted_turn_event_carries_the_canonical_user_message_and_ids() {
+    fn prompt_adopts_an_old_client_running_turn() {
         let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
-        let session_id = session.id;
-        let turn_id = session.begin_turn("this works fine");
+        let turn_id = session.begin_turn("shown to the user");
         let message_id = session.messages[0].id;
-        let mut state = PersistedState::empty();
-        state.sessions.push(session);
 
-        let accepted = accepted_turn_event(&Mutex::new(state), session_id).unwrap();
-        let wire = event_to_wire(accepted).unwrap();
-        assert_eq!(wire.kind, "turnAccepted");
-        let DriverEvent::TurnAccepted { turn, messages } = event_from_wire(wire).unwrap() else {
+        let accepted = accept_prompt_turn(&mut session, "expanded provider prompt");
+
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.messages.len(), 1);
+        let DriverEvent::TurnAccepted { turn, messages } = accepted else {
             panic!("expected an accepted turn");
         };
         assert_eq!(turn.id, turn_id);
-        assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].id, message_id);
-        assert_eq!(messages[0].content, "this works fine");
+        assert_eq!(messages[0].content, "shown to the user");
+    }
+
+    #[test]
+    fn prompt_synthesizes_a_running_turn_when_the_client_did_not() {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+
+        let accepted = accept_prompt_turn(&mut session, "author this turn");
+
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.messages.len(), 1);
+        let DriverEvent::TurnAccepted { turn, messages } = accepted else {
+            panic!("expected an accepted turn");
+        };
+        assert_eq!(session.active_turn_id(), Some(turn.id));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, session.messages[0].id);
+        assert_eq!(messages[0].content, "author this turn");
     }
 
     #[test]
