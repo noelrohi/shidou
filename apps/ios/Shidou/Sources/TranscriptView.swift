@@ -313,10 +313,18 @@ struct TranscriptView: View {
                             viewportHeight: viewport.size.height
                         )
                     }
+                    // On iOS 17 the scroll-anchor API cannot separate initial
+                    // placement from keyboard-driven size changes. Bottom-align
+                    // short content here and scroll long content once on open,
+                    // so later viewport changes can preserve what is being read.
+                    .frame(
+                        minHeight: max(0, viewport.size.height - 24),
+                        alignment: .bottom
+                    )
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
-                .defaultScrollAnchor(.bottom)
+                .transcriptDefaultScrollAnchor()
                 .scrollDismissesKeyboard(.interactively)
                 .dismissesKeyboardOnTap()
                 .accessibilityIdentifier("transcript-scroll")
@@ -325,7 +333,15 @@ struct TranscriptView: View {
                 // slop keeps the button from flickering while the pinned
                 // tail drifts a few points under streaming updates.
                 .onScrolledAwayFromBottom(threshold: 100) { isAwayFromLatest = $0 }
-                .onAppear { anchorSubmittedMessage(in: rows, with: proxy) }
+                .onAppear {
+                    anchorSubmittedMessage(in: rows, with: proxy)
+                    if #unavailable(iOS 18.0), pendingSubmissionAnchor == nil {
+                        Task { @MainActor in
+                            await Task.yield()
+                            proxy.scrollTo("transcript-tail", anchor: .bottom)
+                        }
+                    }
+                }
                 .onChange(of: latestUserMessageId(in: model.session)) {
                     reconcileSubmittedMessageAnchor(in: rows)
                     anchorSubmittedMessage(in: rows, with: proxy)
@@ -793,6 +809,22 @@ private struct FindBar: View {
     }
 }
 
+
+extension View {
+    /// Opens short transcripts at the bottom without treating every later
+    /// viewport change as a command to move there. In particular, the keyboard
+    /// and a growing composer shrink the viewport; applying the bottom anchor
+    /// to that size change pushes the row being read above the screen.
+    @ViewBuilder
+    func transcriptDefaultScrollAnchor() -> some View {
+        if #available(iOS 18.0, *) {
+            defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .alignment)
+        } else {
+            self
+        }
+    }
+}
 
 private struct ScrollBottomState: Equatable {
     let isScrollable: Bool

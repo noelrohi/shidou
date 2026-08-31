@@ -183,6 +183,7 @@ struct SessionListView: View {
         // so the same actions are also a context menu that focus can open.
         .contextMenu { actions(for: item) }
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityIdentifier("session-\(item.session.id.uuidString.lowercased())")
     }
 
     private func showMore(_ group: SessionListGroup) -> some View {

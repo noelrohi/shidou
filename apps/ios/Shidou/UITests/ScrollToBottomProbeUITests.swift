@@ -13,22 +13,16 @@ final class ScrollToBottomProbeUITests: XCTestCase {
             tryTheDemo.tap()
         }
 
-        let tasks = app.buttons["Tasks"]
-        if tasks.waitForExistence(timeout: 15) {
-            tasks.tap()
-        }
-
-        let row = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "Rate limiting")
-        ).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "task row should exist")
-        for _ in 0..<50 where !row.isHittable {
-            usleep(100_000)
-        }
-        row.tap()
-
         let transcript = app.scrollViews["transcript-scroll"]
-        XCTAssertTrue(transcript.waitForExistence(timeout: 30), "transcript should render")
+        XCTAssertTrue(transcript.waitForExistence(timeout: 30), "a transcript should render")
+
+        app.buttons["Tasks"].tap()
+        let row = app.descendants(matching: .any)[
+            "session-5eed0000-0000-0000-0000-000000020001"
+        ]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "task row should exist")
+        row.tap()
+        XCTAssertTrue(transcript.waitForExistence(timeout: 10), "selected transcript should render")
 
         let field = app.textViews.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Ask Shidou")
