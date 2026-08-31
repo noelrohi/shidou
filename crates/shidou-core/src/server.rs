@@ -1065,6 +1065,7 @@ fn task_catalog_action(command: &Command) -> TaskCatalogAction {
             projects: projects.clone(),
         },
         Command::RemoveSession
+        | Command::ArchiveSession { .. }
         | Command::RemoveProject { .. }
         | Command::ForkSessionFromResponse { .. }
         | Command::RewindSessionToMessage { .. } => TaskCatalogAction::Changed,
@@ -1167,6 +1168,23 @@ mod tests {
         fn new(label: &str, configure: impl FnOnce(&ShidouBackend)) -> Self {
             let root = std::env::temp_dir().join(format!("shidou-{label}-{}", Uuid::new_v4()));
             std::fs::create_dir_all(&root).unwrap();
+            let (address, shutdown_client, server) = Self::start(&root, configure);
+            Self {
+                root,
+                address,
+                shutdown_client,
+                server: Some(server),
+            }
+        }
+
+        fn start(
+            root: &std::path::Path,
+            configure: impl FnOnce(&ShidouBackend),
+        ) -> (
+            std::net::SocketAddr,
+            DaemonClient,
+            std::thread::JoinHandle<()>,
+        ) {
             let backend = ShidouBackend::new(
                 DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
                 StateStore::daemon(root.join("app.db")),
@@ -1192,12 +1210,19 @@ mod tests {
             });
             let shutdown_client =
                 DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
-            Self {
-                root,
-                address,
-                shutdown_client,
-                server: Some(server),
-            }
+            (address, shutdown_client, server)
+        }
+
+        /// Stops the daemon and starts a fresh one over the same state
+        /// directory, so a test can assert what survives a restart rather than
+        /// what a still-running process happens to hold in memory.
+        fn restart(&mut self) {
+            self.shutdown_client.shutdown();
+            self.server.take().unwrap().join().unwrap();
+            let (address, shutdown_client, server) = Self::start(&self.root, |_| {});
+            self.address = address;
+            self.shutdown_client = shutdown_client;
+            self.server = Some(server);
         }
 
         fn connect(&self) -> DaemonClient {
@@ -1474,6 +1499,184 @@ mod tests {
             panic!("expected task state");
         };
         assert!(sessions.is_empty());
+    }
+
+    /// Persists one started task through the wire, the way a client does
+    /// before it can archive anything.
+    #[cfg(unix)]
+    fn persist_task(client: &DaemonClient, project: &Project) -> AgentSession {
+        let mut session = AgentSession::new(project.id, ProviderKind::Codex);
+        session.begin_turn("shelve me");
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project.clone()],
+                    live_session_ids: vec![session.id],
+                    sessions: vec![session.clone()],
+                },
+            )
+            .unwrap();
+        session
+    }
+
+    #[cfg(unix)]
+    fn archive(client: &DaemonClient, session_id: Uuid, archived: bool) {
+        client
+            .request(
+                session_id,
+                Uuid::nil(),
+                Command::ArchiveSession { archived },
+            )
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    fn archived_at(client: &DaemonClient, session_id: Uuid) -> Option<u64> {
+        let ResponsePayload::TaskState { sessions, .. } = client
+            .request(Uuid::nil(), Uuid::nil(), Command::LoadTaskState)
+            .unwrap()
+        else {
+            panic!("expected task state");
+        };
+        sessions
+            .into_iter()
+            .find(|session| session.id == session_id)
+            .expect("the task is listed")
+            .archived_at
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_archive_command_marks_a_task_and_clears_it_again() {
+        let daemon = ShidouTestDaemon::new("archive-mark", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+
+        assert_eq!(
+            archived_at(&client, session.id),
+            None,
+            "an existing task starts unarchived"
+        );
+
+        archive(&client, session.id, true);
+        assert!(archived_at(&client, session.id).is_some());
+
+        archive(&client, session.id, false);
+        assert_eq!(
+            archived_at(&client, session.id),
+            None,
+            "unarchiving clears the mark rather than suppressing it"
+        );
+    }
+
+    /// Only the command writes the mark. A snapshot save carrying one is not a
+    /// second way in, not even for a task the daemon has never seen before.
+    #[cfg(unix)]
+    #[test]
+    fn a_snapshot_save_cannot_set_the_archive_mark() {
+        let daemon = ShidouTestDaemon::new("archive-claim", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let mut claiming = AgentSession::new(project.id, ProviderKind::Codex);
+        claiming.begin_turn("already shelved");
+        claiming.archived_at = Some(1);
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![claiming.id],
+                    sessions: vec![claiming.clone()],
+                },
+            )
+            .unwrap();
+        assert_eq!(archived_at(&client, claiming.id), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_snapshot_cannot_clear_an_archive_mark() {
+        let daemon = ShidouTestDaemon::new("archive-race", |_| {});
+        let stale_client = daemon.connect();
+        let archiver = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&stale_client, &project);
+
+        archive(&archiver, session.id, true);
+        let marked_at = archived_at(&stale_client, session.id).expect("the task is archived");
+
+        // The snapshot the second client is still holding predates the mark,
+        // and saving it advances the projection — the branch that replaces the
+        // whole session.
+        let mut stale = session.clone();
+        stale.archived_at = None;
+        stale.updated_at = stale.updated_at.saturating_add(1);
+        let ResponsePayload::TaskStateSaved { sessions } = stale_client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![stale.id],
+                    sessions: vec![stale],
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected task-state save response");
+        };
+        assert_eq!(sessions[0].archived_at, Some(marked_at));
+        assert_eq!(archived_at(&stale_client, session.id), Some(marked_at));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_archive_mark_survives_a_daemon_restart() {
+        let mut daemon = ShidouTestDaemon::new("archive-restart", |_| {});
+        let session = {
+            let client = daemon.connect();
+            let project = Project::from_path(daemon.root.join("repo"));
+            let session = persist_task(&client, &project);
+            archive(&client, session.id, true);
+            session
+        };
+        let marked_at = {
+            let client = daemon.connect();
+            archived_at(&client, session.id).expect("the task is archived")
+        };
+
+        daemon.restart();
+
+        let reconnected = daemon.connect();
+        assert_eq!(archived_at(&reconnected, session.id), Some(marked_at));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archiving_reaches_a_second_client() {
+        let daemon = ShidouTestDaemon::new("archive-broadcast", |_| {});
+        let archiver = daemon.connect();
+        let observer = daemon.connect();
+        let observed_revisions = observer.subscribe_task_state();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&archiver, &project);
+        let saved_revision = observed_revisions
+            .recv_timeout(Duration::from_secs(1))
+            .expect("the save reaches the observer");
+
+        archive(&archiver, session.id, true);
+
+        assert!(
+            observed_revisions
+                .recv_timeout(Duration::from_secs(1))
+                .is_ok_and(|revision| revision > saved_revision),
+            "archiving invalidates the observer's task catalog"
+        );
+        assert!(archived_at(&observer, session.id).is_some());
     }
 
     #[cfg(unix)]

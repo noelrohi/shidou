@@ -872,6 +872,15 @@ pub struct AgentSession {
     /// then refreshed when the turn settles, whatever its outcome.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_reply_at: Option<u64>,
+    /// When the user shelved this Task, unix seconds. `None` means the Task is
+    /// not archived.
+    ///
+    /// Daemon-owned. Clients read it and render; only the explicit archive
+    /// command writes it. A whole-snapshot save never carries the mark, so a
+    /// client holding a stale snapshot cannot clear one another client just
+    /// set (see `docs/adr/0002-explicit-archive-command.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<u64>,
     #[serde(default)]
     pub provider_cursor: Option<ProviderResumeCursor>,
     /// Slash commands the provider reported for this session's live process,
@@ -937,6 +946,7 @@ impl AgentSession {
             created_at: now,
             updated_at: now,
             last_reply_at: None,
+            archived_at: None,
             detail_loaded: true,
             provider_cursor: None,
             available_commands: Vec::new(),
@@ -974,6 +984,7 @@ impl AgentSession {
             created_at: self.created_at,
             updated_at: self.updated_at,
             last_reply_at: self.last_reply_at,
+            archived_at: self.archived_at,
             provider_cursor: None,
             available_commands: Vec::new(),
             context_usage: None,

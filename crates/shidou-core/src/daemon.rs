@@ -380,6 +380,14 @@ impl Backend for ShidouBackend {
                 let sessions = sessions
                     .into_iter()
                     .filter(|session| !removed_session_ids.contains(&session.id))
+                    .map(|mut session| {
+                        // The archive mark is daemon state, set only by
+                        // `ArchiveSession`. Whatever a client's snapshot
+                        // carries is discarded here so a stale one can neither
+                        // set nor clear a mark (ADR 0002).
+                        session.archived_at = None;
+                        session
+                    })
                     .collect::<Vec<_>>();
                 drop(removed_session_ids);
                 let saved_ids = sessions
@@ -451,6 +459,22 @@ impl Backend for ShidouBackend {
                 for session_id in stranded {
                     drop(sessions.remove(&session_id));
                 }
+                Ok(ResponsePayload::Ack)
+            }
+            Command::ArchiveSession { archived } => {
+                let mut state = self.task_state.lock();
+                let Some(session) = state
+                    .sessions
+                    .iter_mut()
+                    .find(|session| session.id == session_id)
+                else {
+                    bail!("that task is no longer available");
+                };
+                // Clearing deletes the mark rather than suppressing it, so
+                // `archived_at` has exactly one meaning.
+                session.archived_at = archived.then(crate::model::unix_time);
+                state.mark_session_dirty(session_id);
+                self.task_store.save(&mut state)?;
                 Ok(ResponsePayload::Ack)
             }
             Command::RemoveSession => {
@@ -844,6 +868,9 @@ fn merge_saved_session(
 ) {
     let advances = session_projection_order(existing, &incoming, active_runtime_id)
         == SessionProjectionOrder::Advances;
+    // A snapshot never carries the mark, so the daemon's own value is the only
+    // one there is. Restore it across the whole-projection replacement below.
+    incoming.archived_at = existing.archived_at;
     if !advances || !preserves_transcript_lineage(existing, &incoming) {
         merge_stale_session_metadata(existing, incoming);
     } else {
@@ -1882,6 +1909,7 @@ fn handle_driver_command(
         | Command::LoadTaskState
         | Command::SaveTaskState { .. }
         | Command::RemoveSession
+        | Command::ArchiveSession { .. }
         | Command::RemoveProject { .. }
         | Command::HydrateSession { .. }
         | Command::SearchSessionMessages { .. }

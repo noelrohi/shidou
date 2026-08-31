@@ -267,7 +267,9 @@ impl Backend for DemoBackend {
                     .map(|session| session.list_projection())
                     .collect(),
             }),
-            Command::RemoveSession | Command::RemoveProject { .. } => Ok(ResponsePayload::Ack),
+            Command::RemoveSession
+            | Command::ArchiveSession { .. }
+            | Command::RemoveProject { .. } => Ok(ResponsePayload::Ack),
             Command::HydrateSession { session_id } => Ok(ResponsePayload::Session {
                 session: sessions::hydrate(session_id),
             }),

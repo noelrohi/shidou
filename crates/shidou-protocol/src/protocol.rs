@@ -170,6 +170,12 @@ pub enum Command {
     /// merge-only so a stale client snapshot cannot delete tasks another
     /// client just created.
     RemoveSession,
+    /// Explicitly set or clear the archive mark on one daemon-owned task.
+    /// Saves never carry the mark, so a stale client snapshot cannot clear a
+    /// mark another client just set — only this can.
+    ArchiveSession {
+        archived: bool,
+    },
     /// Explicitly remove one daemon-owned project. Saves merge projects the
     /// same way they merge tasks, so dropping one from a client snapshot can
     /// never delete it — only this can.

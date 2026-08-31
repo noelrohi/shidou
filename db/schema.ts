@@ -44,6 +44,12 @@ export const sessions = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
     /** Completion of the most recent assistant turn, unix seconds. */
     lastReplyAt: integer("last_reply_at"),
+    /**
+     * When the user shelved this task, unix seconds. Null means not archived.
+     * Daemon-owned: only the explicit archive command writes it, never a
+     * whole-snapshot save.
+     */
+    archivedAt: integer("archived_at"),
   },
   (table) => [
     index("sessions_by_project").on(table.projectId, table.updatedAt),

@@ -47,7 +47,17 @@ updated_at: number,
  * Activity time of the newest turn. Set as soon as the user submits it,
  * then refreshed when the turn settles, whatever its outcome.
  */
-last_reply_at?: number | null, provider_cursor: ProviderResumeCursor | null,
+last_reply_at?: number | null,
+/**
+ * When the user shelved this Task, unix seconds. `None` means the Task is
+ * not archived.
+ *
+ * Daemon-owned. Clients read it and render; only the explicit archive
+ * command writes it. A whole-snapshot save never carries the mark, so a
+ * client holding a stale snapshot cannot clear one another client just
+ * set (see `docs/adr/0002-explicit-archive-command.md`).
+ */
+archived_at?: number | null, provider_cursor: ProviderResumeCursor | null,
 /**
  * Slash commands the provider reported for this session's live process,
  * kept so a resumed session still completes them before its next

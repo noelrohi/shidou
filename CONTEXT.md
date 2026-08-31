@@ -1,7 +1,8 @@
 # Shidou
 
-A native client for coding-agent sessions: a macOS GPUI app and an iOS SwiftUI
-app that connect to a per-user daemon owning the provider processes.
+A native client for coding-agent tasks: a macOS GPUI app, an iOS SwiftUI app,
+and a browser client that connect to a per-user daemon owning the provider
+processes.
 
 ## Language
 
@@ -78,9 +79,10 @@ the Grace Window; from a non-visible session in the foreground, the blocking
 two (permission, question) show an in-app banner.
 _Avoid_: alert, push
 
-**Waiting Session**:
-A session blocked on the user — a pending permission or question. Marked in
-the session list; reopening the app restores its pending prompt via replay.
+**Waiting Task**:
+A Task blocked on the user — a pending permission or question. Marked in
+the task list; reopening the app restores its pending prompt via replay.
+_Avoid_: waiting session, blocked task
 
 **App Reload**:
 The desktop recovery command (debug builds): rebuilding the app's entire UI
@@ -103,7 +105,29 @@ applying the surviving tail onto a projection with a hole in it. A phone
 backgrounded through a long run is the ordinary way to get here.
 _Avoid_: desync, missed events
 
-### Session
+### Task
+
+**Task**:
+One conversation with one coding agent in one project. It is the unit the
+sidebar lists and the daemon owns.
+_Avoid_: session, thread, chat, conversation
+
+**Provider Session**:
+The coding agent's own conversation record, owned and named by the provider —
+Claude's session file, Codex's resume cursor. One Task drives one at a time,
+and it is the only thing the word "session" may still name.
+_Avoid_: task, agent session
+
+**Archived Task**:
+A Task the user has marked as finished with. It leaves the main sidebar list
+for the Task Shelf, and the daemon clears the mark when the Task becomes
+active again.
+_Avoid_: settled, done, closed, hidden, deleted
+
+**Task Shelf**:
+The collapsed section at the foot of the sidebar that holds every Archived
+Task, newest first, revealed in pages.
+_Avoid_: archive folder, trash, history
 
 **Projection**:
 A session's reduced transcript — turns, messages, and activity — built by
