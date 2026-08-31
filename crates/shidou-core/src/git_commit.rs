@@ -704,6 +704,26 @@ mod tests {
     }
 
     #[test]
+    fn inspect_counts_untracked_lines_across_the_repository_from_a_subdirectory() {
+        let root = repository();
+        let nested = root.join("crates").join("app");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("tracked.rs"), "one\n").unwrap();
+        run_git(&root, &["add", "."]);
+        run_git(&root, &["commit", "-m", "nested"]);
+        fs::write(root.join("root-new.txt"), "one\ntwo\nthree\n").unwrap();
+        fs::write(nested.join("nested-new.rs"), "one\ntwo\n").unwrap();
+
+        // Sessions run from a subdirectory of the checkout, and the compact
+        // count must still describe the whole worktree the review view shows.
+        let snapshot = inspect(&nested).unwrap();
+
+        assert!(snapshot.has_unstaged);
+        assert_eq!(snapshot.additions, 5);
+        assert_eq!(snapshot.deletions, 0);
+    }
+
+    #[test]
     fn staged_only_commit_leaves_later_worktree_edit() {
         let root = repository();
         fs::write(root.join("README.md"), "one\ntwo\n").unwrap();

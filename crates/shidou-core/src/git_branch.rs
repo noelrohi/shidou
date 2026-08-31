@@ -116,16 +116,18 @@ pub fn inspect(cwd: &Path) -> anyhow::Result<Option<BranchSnapshot>> {
     }))
 }
 
-fn worktree_line_counts(cwd: &Path) -> (u64, u64) {
+fn worktree_line_counts(repository: &Path) -> (u64, u64) {
     let tracked = crate::command_env::plain_command("git")
         .args(["diff", "--numstat", "HEAD", "--"])
-        .current_dir(cwd)
+        .current_dir(repository)
         .output()
         .ok()
         .filter(|output| output.status.success())
         .map_or((0, 0), |output| numstat_line_counts(&output.stdout));
     (
-        tracked.0.saturating_add(untracked_line_additions(cwd)),
+        tracked
+            .0
+            .saturating_add(untracked_line_additions_in(repository)),
         tracked.1,
     )
 }
@@ -148,11 +150,41 @@ fn numstat_line_counts(output: &[u8]) -> (u64, u64) {
         })
 }
 
+/// The worktree root that owns `cwd`, or `None` when `cwd` is not in a
+/// repository.
+fn repository_root(cwd: &Path) -> Option<PathBuf> {
+    let output = crate::command_env::plain_command("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if root.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(root))
+}
+
 /// `git diff --numstat` deliberately omits untracked files. Count their text
 /// lines as additions so the compact status agrees with the Uncommitted review
 /// source that opens when it is clicked. Bounds keep generated trees from
 /// turning a background metadata refresh into unbounded work.
-pub(crate) fn untracked_line_additions(repository: &Path) -> u64 {
+///
+/// `cwd` may be any directory inside the checkout; the count always describes
+/// the whole worktree, matching the `git diff` it is added to. Callers that
+/// already hold the worktree root use [`untracked_line_additions_in`] instead
+/// of paying for a second `rev-parse`.
+pub(crate) fn untracked_line_additions(cwd: &Path) -> u64 {
+    repository_root(cwd).map_or(0, |repository| untracked_line_additions_in(&repository))
+}
+
+fn untracked_line_additions_in(repository: &Path) -> u64 {
+    // `--full-name` reports paths from the worktree root, and the `:/` pathspec
+    // widens the walk to that root, so a session running in a subdirectory
+    // still sees — and can resolve — every untracked file.
     let Ok(output) = crate::command_env::plain_command("git")
         .args([
             "ls-files",
@@ -161,6 +193,7 @@ pub(crate) fn untracked_line_additions(repository: &Path) -> u64 {
             "--full-name",
             "-z",
             "--",
+            ":/",
         ])
         .current_dir(repository)
         .output()
