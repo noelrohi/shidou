@@ -1237,7 +1237,7 @@ impl Shidou {
         self.state.sessions.iter().find(|session| session.id == id)
     }
 
-    fn active_turn_finished_event(
+    pub(super) fn active_turn_finished_event(
         &self,
         session_id: Uuid,
         outcome: crate::analytics::TurnOutcome,
@@ -1260,7 +1260,9 @@ impl Shidou {
     }
 
     /// Completes a persisted turn and emits its anonymous outcome exactly
-    /// once. All production turn-settlement paths go through this seam.
+    /// once. Settlement paths outside the driver-event stream go through this
+    /// seam; the streaming handler settles through the shared Reducer and
+    /// replicates the same capture-then-confirm analytics order around it.
     pub(super) fn finish_active_turn_with_analytics(
         &mut self,
         session_id: Uuid,
@@ -2509,7 +2511,7 @@ impl Shidou {
                 .pending_events
                 .retain(|event| matches!(event, DriverEvent::BackgroundWork(_)));
             runtime.stream_remeasure_pending = false;
-            runtime.stream_phase = None;
+            runtime.reducer.reset();
             runtime.pending_permission = None;
             runtime.pending_user_input = None;
             runtime.pending_computer_approval = None;
@@ -2748,7 +2750,7 @@ impl Shidou {
                 events: prepared.events,
                 pending_events: VecDeque::new(),
                 pending_steers: VecDeque::new(),
-                stream_phase: None,
+                reducer: crate::reducer::Reducer::default(),
                 stream_remeasure_pending: false,
                 pending_permission: None,
                 pending_user_input: None,
@@ -3289,7 +3291,7 @@ impl Shidou {
                 .retain(|event| matches!(event, DriverEvent::BackgroundWork(_)));
             runtime.pending_steers.clear();
             runtime.stream_remeasure_pending = false;
-            runtime.stream_phase = None;
+            runtime.reducer.reset();
             runtime.pending_permission = None;
             runtime.pending_user_input = None;
             runtime.pending_computer_approval = None;

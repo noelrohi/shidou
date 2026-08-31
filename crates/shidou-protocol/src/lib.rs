@@ -41,6 +41,7 @@ pub mod model_catalog;
 pub mod persistence;
 pub mod projectless;
 pub mod provider_session;
+pub mod reducer;
 pub mod settings;
 pub mod skills;
 pub mod theme;

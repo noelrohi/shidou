@@ -1381,7 +1381,7 @@ impl Shidou {
         self.complete_turn_blocks(session_id);
         self.settle_foreground_work(session_id, BackgroundWorkStatus::Stopped);
         if let Some(runtime) = runtime.as_mut() {
-            runtime.stream_phase = None;
+            runtime.reducer.reset();
             runtime.pending_permission = None;
             runtime.pending_user_input = None;
             runtime.pending_computer_approval = None;

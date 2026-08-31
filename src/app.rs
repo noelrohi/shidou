@@ -30,7 +30,7 @@ use crate::git_branch::BranchSnapshot;
 use crate::input::{ComposerAttachmentPaste, ComposerEvent, ComposerInput, InputEvent, TextInput};
 use crate::md;
 use crate::model::{
-    ActivityItem, ActivityKind, AgentSession, AgentTurn, BackgroundWorkEvent, BackgroundWorkItem,
+    ActivityItem, ActivityKind, AgentSession, BackgroundWorkEvent, BackgroundWorkItem,
     BackgroundWorkKey, BackgroundWorkKind, BackgroundWorkStatus, Checkpoint, CheckpointStatus,
     ContextUsage, DriverEvent, FavoriteModel, InteractionMode, Message, MessageAttachment,
     MessageRole, PendingPermission, Project, ProjectWorkspaceDefault, ProviderKind, ProviderModel,
@@ -38,6 +38,7 @@ use crate::model::{
     SessionWorkspace, TranscriptBlock, TurnStatus, UserInputAnswer, UserInputQuestion,
     compact_path, unix_time, unix_time_millis,
 };
+pub(crate) use crate::reducer::StreamPhase;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::md::render::{
@@ -179,13 +180,6 @@ const LIVE_REASONING_WINDOW_TARGET: usize = 6 * 1024;
 /// a slide costs a full window rebuild, and sliding every commit would pay
 /// it at commit rate.
 const LIVE_REASONING_WINDOW_MAX: usize = 18 * 1024;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StreamPhase {
-    Text,
-    Reasoning,
-    Activity,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StreamDeltaKind {
@@ -976,7 +970,10 @@ struct SessionRuntime {
     /// Presentation metadata for steering messages awaiting the provider's
     /// accepted/rejected acknowledgement, in transport order.
     pending_steers: VecDeque<ComposerSubmission>,
-    stream_phase: Option<StreamPhase>,
+    /// The canonical projection fold for this runtime's event stream — the
+    /// same Reducer the daemon runs, holding the stream phase and pending
+    /// interactions between events.
+    reducer: crate::reducer::Reducer,
     stream_remeasure_pending: bool,
     pending_permission: Option<PendingPermission>,
     pending_user_input: Option<PendingUserInput>,

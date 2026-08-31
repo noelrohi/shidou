@@ -1873,7 +1873,7 @@ impl Shidou {
             .unwrap_or(live_group);
         let live_reasoning_id = (self
             .selected_runtime()
-            .is_some_and(|runtime| runtime.stream_phase == Some(StreamPhase::Reasoning))
+            .is_some_and(|runtime| runtime.reducer.stream_phase() == Some(StreamPhase::Reasoning))
             && self
                 .selected_session()
                 .is_some_and(|session| session.status == SessionStatus::Working)

@@ -1,183 +1,21 @@
 use super::*;
 
+use crate::reducer::{ReduceContext, Reduction, SteerPresentation};
+
+// The projection fold itself lives in the shared canonical Reducer; these
+// re-exports keep the app-local seam names for the rest of the module tree.
+pub(super) use crate::reducer::{compact_driver_error, session_accepts_turn_output};
+
 impl Shidou {
     pub(super) fn finish_streaming_assistant(&mut self, session_id: Uuid) {
         if let Some(session) = self.state.session_mut(session_id) {
-            for message in &mut session.messages {
-                if message.role == MessageRole::Assistant && message.streaming {
-                    message.streaming = false;
-                }
-            }
+            crate::reducer::finish_streaming_assistant(session);
         }
-    }
-
-    pub(super) fn append_text_delta(
-        &mut self,
-        session_id: Uuid,
-        runtime: &mut SessionRuntime,
-        delta: String,
-    ) {
-        let previous_phase = runtime.stream_phase;
-        if previous_phase == Some(StreamPhase::Reasoning) {
-            self.complete_reasoning_activity(session_id);
-        }
-        let continuing = previous_phase == Some(StreamPhase::Text);
-        append_text_delta_to_session(&mut self.state.sessions, session_id, continuing, delta);
-        self.state.mark_session_dirty(session_id);
-        runtime.stream_phase = Some(StreamPhase::Text);
-    }
-
-    fn complete_reasoning_activity(&mut self, session_id: Uuid) {
-        let Some(session) = self.state.session_mut(session_id) else {
-            return;
-        };
-        let reasoning = session
-            .transcript_blocks
-            .iter_mut()
-            .rev()
-            .flat_map(|block| block.activities.iter_mut().rev())
-            .find(|activity| activity.reasoning.is_some() && !activity.complete);
-        if let Some(reasoning) = reasoning {
-            reasoning.complete = true;
-            session.updated_at = unix_time();
-        }
-    }
-
-    pub(super) fn append_reasoning_delta(
-        &mut self,
-        session_id: Uuid,
-        runtime: &mut SessionRuntime,
-        delta: String,
-    ) {
-        let previous_phase = runtime.stream_phase;
-        let continuing = previous_phase == Some(StreamPhase::Reasoning);
-        if !continuing && delta.trim().is_empty() {
-            return;
-        }
-        let now = unix_time_millis();
-        if !continuing {
-            self.finish_streaming_assistant(session_id);
-        }
-        if let Some(session) = self.state.session_mut(session_id) {
-            if continuing
-                && let Some(reasoning) = session
-                    .transcript_blocks
-                    .last_mut()
-                    .and_then(|block| block.activities.last_mut())
-                    .and_then(|activity| activity.reasoning.as_mut())
-            {
-                reasoning.content.push_str(&delta);
-                reasoning.finished_at_ms = now;
-            } else {
-                push_transcript_activity(
-                    session,
-                    ActivityItem::from_reasoning(
-                        ReasoningBlock {
-                            content: delta,
-                            started_at_ms: now,
-                            finished_at_ms: now,
-                        },
-                        false,
-                    ),
-                    matches!(
-                        previous_phase,
-                        Some(StreamPhase::Reasoning | StreamPhase::Activity)
-                    ),
-                );
-            }
-            session.updated_at = unix_time();
-        }
-        runtime.stream_phase = Some(StreamPhase::Reasoning);
-    }
-
-    pub(super) fn update_activity(
-        &mut self,
-        session_id: Uuid,
-        runtime: &mut SessionRuntime,
-        item: ActivityItem,
-    ) {
-        let previous_phase = runtime.stream_phase;
-        if previous_phase == Some(StreamPhase::Text) {
-            self.finish_streaming_assistant(session_id);
-        }
-        if previous_phase == Some(StreamPhase::Reasoning) {
-            self.complete_reasoning_activity(session_id);
-        }
-
-        let continuing_work = matches!(
-            previous_phase,
-            Some(StreamPhase::Reasoning | StreamPhase::Activity)
-        );
-        if let Some(session) = self.state.session_mut(session_id) {
-            for block in session.transcript_blocks.iter_mut().rev() {
-                let matching = block.activities.iter_mut().rev().find(|activity| {
-                    item.source_id
-                        .as_ref()
-                        .is_some_and(|id| activity.source_id.as_ref() == Some(id))
-                        || (item.source_id.is_none()
-                            && activity.title == item.title
-                            && !activity.complete)
-                });
-                if let Some(activity) = matching {
-                    let has_arguments = item.arguments.is_some();
-                    let replaces_changes = !item.file_changes.is_empty();
-                    let activity_id = activity.id;
-                    activity.kind = item.kind;
-                    activity.title = item.title;
-                    activity.complete = item.complete;
-                    activity.failed = item.failed;
-                    if item.detail.is_some() {
-                        activity.detail = item.detail;
-                    }
-                    if item.arguments.is_some() {
-                        activity.arguments = item.arguments;
-                    }
-                    if item.output.is_some() {
-                        activity.output = item.output;
-                    }
-                    if !item.image_urls.is_empty() {
-                        activity.image_urls = item.image_urls;
-                    }
-                    if !item.file_changes.is_empty() {
-                        activity.file_changes = item.file_changes;
-                    }
-                    if item.display_target.is_some()
-                        && (activity.display_target.is_none() || has_arguments)
-                    {
-                        activity.display_target = item.display_target;
-                    }
-                    if item.display_description.is_some()
-                        && (activity.display_description.is_none() || has_arguments)
-                    {
-                        activity.display_description = item.display_description;
-                    }
-                    if item.reasoning.is_some() {
-                        activity.reasoning = item.reasoning;
-                    }
-                    session.updated_at = unix_time();
-                    runtime.stream_phase = Some(StreamPhase::Activity);
-                    if replaces_changes {
-                        // The rows this activity's diff was built from are gone;
-                        // an expanded card rebuilds from the new ones.
-                        self.activity_diffs.borrow_mut().remove(&activity_id);
-                    }
-                    return;
-                }
-            }
-
-            push_transcript_activity(session, item, continuing_work);
-            session.updated_at = unix_time();
-        }
-        runtime.stream_phase = Some(StreamPhase::Activity);
     }
 
     pub(super) fn complete_turn_blocks(&mut self, session_id: Uuid) {
         if let Some(session) = self.state.session_mut(session_id) {
-            for block in &mut session.transcript_blocks {
-                for activity in &mut block.activities {
-                    activity.complete = true;
-                }
-            }
+            crate::reducer::complete_turn_blocks(session);
         }
     }
 
@@ -186,14 +24,7 @@ impl Shidou {
             .sessions
             .iter()
             .find(|session| session.id == session_id)
-            .is_some_and(|session| {
-                let Some(turn_id) = session.active_turn_id() else {
-                    return false;
-                };
-                session.messages.iter().any(|message| {
-                    message.role == MessageRole::Assistant && message.turn_id == Some(turn_id)
-                })
-            })
+            .is_some_and(crate::reducer::active_turn_has_assistant_message)
     }
 
     pub(super) fn accepts_turn_output(&mut self, session_id: Uuid) -> bool {
@@ -209,7 +40,37 @@ impl Shidou {
             .is_some_and(session_accepts_turn_output)
     }
 
+    /// Fold `event` into the session projection through the shared Reducer.
+    /// The submission-preparation gate travels in the context so the reducer
+    /// applies the same turn-output suppression `accepts_turn_output` does.
+    fn reduce_with(
+        &mut self,
+        session_id: Uuid,
+        runtime: &mut SessionRuntime,
+        event: DriverEvent,
+        mut ctx: ReduceContext,
+    ) -> Reduction {
+        ctx.suppress_turn_output = self.submission_preparations.contains(&session_id);
+        let Some(session) = self.state.session_mut(session_id) else {
+            return Reduction::default();
+        };
+        runtime.reducer.apply(session, event, ctx)
+    }
+
+    fn reduce(
+        &mut self,
+        session_id: Uuid,
+        runtime: &mut SessionRuntime,
+        event: DriverEvent,
+    ) -> Reduction {
+        self.reduce_with(session_id, runtime, event, ReduceContext::default())
+    }
+
     /// Returns whether the runtime should remain attached after this event.
+    ///
+    /// The shared Reducer owns every projection mutation; this handler layers
+    /// the desktop-only side effects around it — pending-interaction UI,
+    /// notifications, analytics, caches, checkpoints, and queue drains.
     ///
     /// `allow_queue_drain` is false when the caller is flushing buffered
     /// events for a turn the user just stopped: a settling event must not
@@ -225,74 +86,36 @@ impl Shidou {
     ) -> bool {
         runtime.last_active_at = Instant::now();
         match event {
-            DriverEvent::RuntimeEventCursorAdvanced(cursor) => {
-                if let Some(session) = self.state.session_mut(session_id) {
-                    session.runtime_event_cursor = Some(cursor);
-                }
+            DriverEvent::RuntimeEventCursorAdvanced(_)
+            | DriverEvent::AgentPresetSelected(_)
+            | DriverEvent::AutoTitleUpdated(_)
+            | DriverEvent::TurnAccepted { .. } => {
+                self.reduce(session_id, runtime, event);
             }
-            DriverEvent::Connected { provider_cursor } => {
+            DriverEvent::Connected { .. } => {
                 runtime.last_driver_error = None;
                 runtime.last_background_refresh_at = Instant::now();
                 runtime.driver.refresh_background_work();
-                if let Some(session) = self.state.session_mut(session_id) {
-                    if let Some(ProviderResumeCursor::Claude {
-                        resume_at: Some(message_id),
-                        ..
-                    }) = &provider_cursor
-                    {
-                        session.mark_active_turn_provider_resume_at(message_id.clone());
-                    }
-                    session.provider_cursor = provider_cursor;
-                    if session.status == SessionStatus::Connecting {
-                        session.status = SessionStatus::Working;
-                    }
-                }
+                self.reduce(session_id, runtime, event);
             }
-            DriverEvent::AgentPresetSelected(agent_preset) => {
-                if let Some(session) = self.state.session_mut(session_id) {
-                    session.agent_preset = agent_preset;
-                }
-            }
-            DriverEvent::AutoTitleUpdated(title) => {
-                if let Some(session) = self.state.session_mut(session_id) {
-                    session.set_auto_title(title);
-                }
-            }
-            DriverEvent::AvailableCommands(names) => {
-                if let Some(session) = self
-                    .state
-                    .session_mut(session_id)
-                    .filter(|session| session.available_commands != names)
-                {
-                    session.available_commands = names;
+            DriverEvent::AvailableCommands(_) => {
+                if self.reduce(session_id, runtime, event).commands_changed {
                     // The drain has no `Context`; the frame loop rebuilds the
                     // drawn index when it sees this.
                     self.composer_sources_stale = true;
                 }
             }
-            DriverEvent::TurnAccepted { turn, messages } => {
-                if let Some(session) = self.state.session_mut(session_id) {
-                    accept_remote_turn(session, turn, messages);
-                }
-            }
             DriverEvent::TurnStarted => {
                 runtime.last_driver_error = None;
-                if let Some(session) = self.state.session_mut(session_id)
-                    && session.active_turn_id().is_some()
-                {
-                    session.mark_active_turn_provider_started();
-                    session.status = SessionStatus::Working;
+                self.reduce(session_id, runtime, event);
+            }
+            DriverEvent::TextDelta(_) => {
+                if self.reduce(session_id, runtime, event).applied {
+                    self.state.mark_session_dirty(session_id);
                 }
             }
-            DriverEvent::TextDelta(delta) => {
-                if self.accepts_turn_output(session_id) {
-                    self.append_text_delta(session_id, runtime, delta);
-                }
-            }
-            DriverEvent::ReasoningDelta(delta) => {
-                if self.accepts_turn_output(session_id) {
-                    self.append_reasoning_delta(session_id, runtime, delta);
-                }
+            DriverEvent::ReasoningDelta(_) => {
+                self.reduce(session_id, runtime, event);
             }
             DriverEvent::Activity {
                 id,
@@ -301,33 +124,18 @@ impl Shidou {
                 detail,
                 complete,
             } => {
-                if self.accepts_turn_output(session_id) {
-                    let refresh_branch = should_refresh_branch_after_activity(kind, complete)
-                        && self.state.selected_session == Some(session_id);
-                    let item = ActivityItem::new(id, kind, title, detail, complete);
-                    self.observe_foreground_command_activity(session_id, &item);
-                    self.update_activity(session_id, runtime, item);
-                    if refresh_branch {
-                        self.refresh_selected_branch_snapshot(cx);
-                    }
-                }
+                // Built here rather than inside the reducer so the observed
+                // item and the stored activity share one identity.
+                let item = ActivityItem::new(id, kind, title, detail, complete);
+                self.handle_activity_event(session_id, runtime, item, cx);
             }
             DriverEvent::RichActivity(item) => {
-                if self.accepts_turn_output(session_id) {
-                    let refresh_branch =
-                        should_refresh_branch_after_activity(item.kind, item.complete)
-                            && self.state.selected_session == Some(session_id);
-                    self.observe_foreground_command_activity(session_id, &item);
-                    self.update_activity(session_id, runtime, item);
-                    if refresh_branch {
-                        self.refresh_selected_branch_snapshot(cx);
-                    }
-                }
+                self.handle_activity_event(session_id, runtime, item, cx);
             }
             DriverEvent::BackgroundWork(event) => {
                 // Background work is session state, not turn output. It must
                 // survive a settled or rewound turn and therefore bypasses
-                // `accepts_turn_output` deliberately.
+                // the reducer's turn-output gate deliberately.
                 self.handle_background_work_event(session_id, event);
             }
             DriverEvent::Permission {
@@ -336,43 +144,49 @@ impl Shidou {
                 detail,
                 options,
             } => {
-                if self.accepts_turn_output(session_id) {
-                    runtime.pending_permission = Some(PendingPermission {
-                        request_id,
-                        title,
-                        detail,
-                        options,
-                    });
-                    if let Some(session) = self.state.session_mut(session_id) {
-                        session.status = SessionStatus::Waiting;
-                    }
+                let pending = PendingPermission {
+                    request_id: request_id.clone(),
+                    title: title.clone(),
+                    detail: detail.clone(),
+                    options: options.clone(),
+                };
+                let event = DriverEvent::Permission {
+                    request_id,
+                    title,
+                    detail,
+                    options,
+                };
+                if self.reduce(session_id, runtime, event).applied {
+                    runtime.pending_permission = Some(pending);
                 }
             }
             DriverEvent::UserInputRequested {
                 request_id,
                 questions,
             } => {
-                if self.accepts_turn_output(session_id) && !questions.is_empty() {
-                    runtime.pending_user_input = Some(PendingUserInput::new(request_id, questions));
+                let pending = (request_id.clone(), questions.clone());
+                let event = DriverEvent::UserInputRequested {
+                    request_id,
+                    questions,
+                };
+                if self.reduce(session_id, runtime, event).applied {
+                    runtime.pending_user_input = Some(PendingUserInput::new(pending.0, pending.1));
                     if self.state.selected_session == Some(session_id) {
                         self.user_input_answer
                             .update(cx, |input, cx| input.clear(cx));
                     }
-                    if let Some(session) = self.state.session_mut(session_id) {
-                        session.status = SessionStatus::Waiting;
-                    }
                 }
             }
             DriverEvent::InteractionResolved { request_id } => {
-                let permission_matches = runtime
-                    .pending_permission
-                    .as_ref()
-                    .is_some_and(|pending| pending.request_id == request_id);
                 let user_input_matches = runtime
                     .pending_user_input
                     .as_ref()
                     .is_some_and(|pending| pending.request_id == request_id);
-                if permission_matches {
+                if runtime
+                    .pending_permission
+                    .as_ref()
+                    .is_some_and(|pending| pending.request_id == request_id)
+                {
                     runtime.pending_permission = None;
                 }
                 if user_input_matches {
@@ -382,11 +196,11 @@ impl Shidou {
                             .update(cx, |input, cx| input.clear(cx));
                     }
                 }
-                if (permission_matches || user_input_matches)
-                    && let Some(session) = self.state.session_mut(session_id)
-                {
-                    session.status = SessionStatus::Working;
-                }
+                self.reduce(
+                    session_id,
+                    runtime,
+                    DriverEvent::InteractionResolved { request_id },
+                );
             }
             DriverEvent::ComputerUseUpdated(state) => {
                 if self.accepts_turn_output(session_id) {
@@ -404,17 +218,18 @@ impl Shidou {
                     // steer. Preserve its attachment presentation metadata.
                     .or_else(|| runtime.pending_steers.pop_front())
                     .unwrap_or_else(|| ComposerSubmission::plain(message.clone()));
-                // The provider folded the message into the live turn. Append
-                // it to the same turn so the transcript mirrors the provider
-                // conversation (no new turn boundary).
-                if let Some(session) = self.state.session_mut(session_id) {
-                    session.push_user_message_with_presentation(
-                        message,
-                        submission.display_content,
-                        submission.attachments,
-                    );
-                    session.updated_at = unix_time();
-                }
+                self.reduce_with(
+                    session_id,
+                    runtime,
+                    DriverEvent::SteerAccepted { message },
+                    ReduceContext {
+                        steer_presentation: Some(SteerPresentation {
+                            display_content: submission.display_content,
+                            attachments: submission.attachments,
+                        }),
+                        ..ReduceContext::default()
+                    },
+                );
             }
             DriverEvent::SteerRejected { message, reason } => {
                 let submission = runtime
@@ -479,20 +294,8 @@ impl Shidou {
                     self.plan_usage.insert(provider, usage);
                 }
             }
-            DriverEvent::UsageUpdated {
-                context_tokens,
-                context_window,
-            } => {
-                // Meta about the conversation, not turn output: it applies
-                // even while a rewound or cancelled turn's tail drains.
-                if let Some(session) = self.state.session_mut(session_id) {
-                    let usage = session.context_usage.get_or_insert(ContextUsage::default());
-                    if let Some(tokens) = context_tokens {
-                        usage.tokens = tokens;
-                    }
-                    if let Some(window) = context_window {
-                        usage.window = Some(window);
-                    }
+            DriverEvent::UsageUpdated { .. } => {
+                if self.reduce(session_id, runtime, event).applied {
                     self.state.mark_session_dirty(session_id);
                 }
             }
@@ -549,42 +352,29 @@ impl Shidou {
                             (title, body)
                         })
                 });
-                self.finish_streaming_assistant(session_id);
-                self.complete_turn_blocks(session_id);
-                runtime.stream_phase = None;
-                let needs_fallback = !self.turn_has_assistant_message(session_id);
-                if let Some(session) = self.state.session_mut(session_id) {
-                    session.status = if success {
-                        SessionStatus::Idle
-                    } else {
-                        SessionStatus::Failed
-                    };
-                    if needs_fallback {
-                        session.push_message(
-                            MessageRole::Assistant,
-                            summary.unwrap_or_else(|| {
-                                if success {
-                                    tr!("session.turn_completed")
-                                } else {
-                                    tr!("session.stopped_before_response")
-                                }
-                            }),
-                        );
-                    }
-                }
-                self.finish_active_turn_with_analytics(
+                // The analytics event reads the still-running turn, so it is
+                // captured before the reducer settles it and emitted only if
+                // the settlement really happened — the same
+                // capture-then-confirm order `finish_active_turn_with_analytics`
+                // uses on the other settlement paths.
+                let analytics_event = self.active_turn_finished_event(
                     session_id,
-                    if success {
-                        TurnStatus::Completed
-                    } else {
-                        TurnStatus::Failed
-                    },
                     if success {
                         crate::analytics::TurnOutcome::Completed
                     } else {
                         crate::analytics::TurnOutcome::Failed
                     },
                 );
+                let reduction = self.reduce(
+                    session_id,
+                    runtime,
+                    DriverEvent::TurnFinished { success, summary },
+                );
+                if reduction.finished_turn.is_some()
+                    && let Some(event) = analytics_event
+                {
+                    self.analytics.track(event);
+                }
                 runtime.pending_permission = None;
                 runtime.pending_user_input = None;
                 runtime.pending_computer_approval = None;
@@ -616,76 +406,39 @@ impl Shidou {
                 }
             }
             DriverEvent::Error(error) => {
-                let error = compact_driver_error(&error);
-                runtime.last_driver_error = Some(error.clone());
+                let compact = compact_driver_error(&error);
+                runtime.last_driver_error = Some(compact.clone());
                 if self.state.selected_session == Some(session_id) {
-                    self.show_toast(error.clone());
+                    self.show_toast(compact);
                 }
-                let has_active_turn = self
-                    .state
-                    .sessions
-                    .iter()
-                    .find(|session| session.id == session_id)
-                    .and_then(AgentSession::active_turn_id)
-                    .is_some();
-                let should_append = has_active_turn
-                    && !self.turn_has_assistant_message(session_id)
-                    && self
-                        .state
-                        .sessions
-                        .iter()
-                        .find(|session| session.id == session_id)
-                        .is_some_and(|session| session.status != SessionStatus::Working);
-                if let Some(session) = self.state.session_mut(session_id)
-                    && has_active_turn
-                {
-                    if session.status != SessionStatus::Working {
-                        session.status = SessionStatus::Failed;
-                    }
-                    if should_append {
-                        session.push_message(MessageRole::Assistant, error);
-                    }
-                }
+                self.reduce(session_id, runtime, DriverEvent::Error(error));
             }
             DriverEvent::ProcessExited => {
                 self.mark_background_work_lost(session_id);
                 let previous_kinds = self.snapshot_selected_transcript_rows(session_id);
-                self.finish_streaming_assistant(session_id);
-                self.complete_turn_blocks(session_id);
-                runtime.stream_phase = None;
                 runtime.pending_permission = None;
                 runtime.pending_user_input = None;
                 runtime.pending_computer_approval = None;
                 runtime.driver.cancel_computer_use();
                 runtime.computer_use_previews.clear();
-                let needs_fallback = !self.turn_has_assistant_message(session_id);
-                let failure_message = runtime
-                    .last_driver_error
-                    .take()
-                    .unwrap_or_else(|| tr!("session.codex_exited_before_response"));
-                let should_finish_turn = if let Some(session) = self.state.session_mut(session_id)
-                    && matches!(
-                        session.status,
-                        SessionStatus::Connecting | SessionStatus::Working | SessionStatus::Waiting
-                    ) {
-                    session.status = SessionStatus::Failed;
-                    session.updated_at = unix_time();
-                    if needs_fallback {
-                        session.push_message(MessageRole::Assistant, failure_message);
+                let analytics_event = self.active_turn_finished_event(
+                    session_id,
+                    crate::analytics::TurnOutcome::ProcessExited,
+                );
+                let process_exit_error = runtime.last_driver_error.take();
+                let reduction = self.reduce_with(
+                    session_id,
+                    runtime,
+                    DriverEvent::ProcessExited,
+                    ReduceContext {
+                        process_exit_error,
+                        ..ReduceContext::default()
+                    },
+                );
+                if reduction.finished_turn.is_some() {
+                    if let Some(event) = analytics_event {
+                        self.analytics.track(event);
                     }
-                    true
-                } else {
-                    false
-                };
-                let finished_turn = should_finish_turn
-                    && self
-                        .finish_active_turn_with_analytics(
-                            session_id,
-                            TurnStatus::Failed,
-                            crate::analytics::TurnOutcome::ProcessExited,
-                        )
-                        .is_some();
-                if finished_turn {
                     self.capture_latest_turn_checkpoint_for(session_id);
                 }
                 if let Some(previous_kinds) = previous_kinds.as_deref() {
@@ -695,6 +448,31 @@ impl Shidou {
             }
         }
         true
+    }
+
+    fn handle_activity_event(
+        &mut self,
+        session_id: Uuid,
+        runtime: &mut SessionRuntime,
+        item: ActivityItem,
+        cx: &mut Context<Self>,
+    ) {
+        let refresh_branch = should_refresh_branch_after_activity(item.kind, item.complete)
+            && self.state.selected_session == Some(session_id);
+        let observed = item.clone();
+        let reduction = self.reduce(session_id, runtime, DriverEvent::RichActivity(item));
+        if !reduction.applied {
+            return;
+        }
+        self.observe_foreground_command_activity(session_id, &observed);
+        if let Some(activity_id) = reduction.replaced_activity_diff {
+            // The rows this activity's diff was built from are gone;
+            // an expanded card rebuilds from the new ones.
+            self.activity_diffs.borrow_mut().remove(&activity_id);
+        }
+        if refresh_branch {
+            self.refresh_selected_branch_snapshot(cx);
+        }
     }
 
     fn upsert_computer_use_preview(runtime: &mut SessionRuntime, state: ComputerUseState) {
@@ -727,55 +505,6 @@ impl Shidou {
     }
 }
 
-/// Incorporate the turn another client persisted before it prompted the
-/// shared runtime. IDs come from the daemon's canonical projection, so source
-/// clients no-op while observers gain the exact turn needed to reduce the
-/// provider events that follow.
-pub(super) fn accept_remote_turn(
-    session: &mut AgentSession,
-    turn: AgentTurn,
-    messages: Vec<Message>,
-) {
-    let known_turn = session.turns.iter().any(|existing| existing.id == turn.id);
-    for message in messages {
-        if !session
-            .messages
-            .iter()
-            .any(|existing| existing.id == message.id)
-        {
-            session.messages.push(message);
-        }
-    }
-    session.updated_at = session.updated_at.max(turn.started_at);
-    if turn.status == TurnStatus::Running && !session.status.is_busy() {
-        session.status = SessionStatus::Connecting;
-    }
-    if known_turn {
-        return;
-    }
-    session.turns.push(turn);
-}
-
-/// Foreground output is stronger evidence of a started provider turn than a
-/// replayed lifecycle cursor. Repair both pieces of transient state here so a
-/// runtime attachment that missed `TurnStarted` cannot leave Cmd-Enter
-/// permanently falling back to the follow-up queue while output is visible.
-pub(super) fn session_accepts_turn_output(session: &mut AgentSession) -> bool {
-    if session.active_turn_id().is_none()
-        || !matches!(
-            session.status,
-            SessionStatus::Connecting | SessionStatus::Working | SessionStatus::Waiting
-        )
-    {
-        return false;
-    }
-    session.mark_active_turn_provider_started();
-    if session.status == SessionStatus::Connecting {
-        session.status = SessionStatus::Working;
-    }
-    true
-}
-
 /// A completed edit or shell command is the earliest provider-neutral point at
 /// which its filesystem effects are stable enough to re-read. The actual Git
 /// work remains behind the branch cache's background fetch.
@@ -788,28 +517,6 @@ pub(super) fn should_refresh_branch_after_activity(
             kind,
             crate::model::ActivityKind::Command | crate::model::ActivityKind::FileChange
         )
-}
-
-pub(super) fn push_transcript_activity(
-    session: &mut AgentSession,
-    item: ActivityItem,
-    continuing_work: bool,
-) {
-    let after_message = session.messages.len();
-    let turn_id = session.active_turn_id();
-    if continuing_work
-        && let Some(block) = session.transcript_blocks.last_mut()
-        && block.after_message == after_message
-        && block.turn_id == turn_id
-    {
-        block.activities.push(item);
-    } else {
-        session.transcript_blocks.push(TranscriptBlock {
-            after_message,
-            turn_id,
-            activities: vec![item],
-        });
-    }
 }
 
 pub(super) fn stream_delta_kind(event: &DriverEvent) -> Option<StreamDeltaKind> {
@@ -826,27 +533,6 @@ pub(super) fn stream_delta_text(event: &DriverEvent, kind: StreamDeltaKind) -> O
         | (StreamDeltaKind::Reasoning, DriverEvent::ReasoningDelta(text)) => Some(text),
         _ => None,
     }
-}
-
-pub(super) fn compact_driver_error(error: &str) -> String {
-    const MAX_LINES: usize = 6;
-    const MAX_CHARS: usize = 800;
-
-    let lines = error.lines().collect::<Vec<_>>();
-    let mut compact = lines
-        .iter()
-        .take(MAX_LINES)
-        .copied()
-        .collect::<Vec<_>>()
-        .join("\n");
-    if lines.len() > MAX_LINES {
-        compact.push_str("\n…");
-    }
-    if compact.chars().count() > MAX_CHARS {
-        compact = compact.chars().take(MAX_CHARS - 1).collect();
-        compact.push('…');
-    }
-    compact
 }
 
 /// Coalesce every adjacent delta of one kind while retaining provider order.
@@ -884,40 +570,4 @@ pub(super) fn pop_stream_batch(
         StreamDeltaKind::Text => Some(DriverEvent::TextDelta(chunk)),
         StreamDeltaKind::Reasoning => Some(DriverEvent::ReasoningDelta(chunk)),
     }
-}
-
-pub(super) fn append_text_delta_to_session(
-    sessions: &mut [AgentSession],
-    session_id: Uuid,
-    continuing: bool,
-    delta: String,
-) {
-    let Some(session) = sessions.iter_mut().find(|session| session.id == session_id) else {
-        return;
-    };
-    if !continuing {
-        for message in &mut session.messages {
-            if message.role == MessageRole::Assistant && message.streaming {
-                message.streaming = false;
-            }
-        }
-    }
-    let existing = continuing.then(|| {
-        session
-            .messages
-            .iter_mut()
-            .rev()
-            .find(|message| message.role == MessageRole::Assistant && message.streaming)
-    });
-    if let Some(Some(message)) = existing {
-        message.content.push_str(&delta);
-    } else {
-        let mut message = session
-            .active_turn_id()
-            .map(|turn_id| Message::new_for_turn(MessageRole::Assistant, delta.clone(), turn_id))
-            .unwrap_or_else(|| Message::new(MessageRole::Assistant, delta));
-        message.streaming = true;
-        session.messages.push(message);
-    }
-    session.updated_at = unix_time();
 }
