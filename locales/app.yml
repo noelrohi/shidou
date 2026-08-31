@@ -506,9 +506,9 @@ common.remove:
 common.rename:
   en: Rename
 common.archive:
-  en: Archive
+  en: Archive Task
 common.unarchive:
-  en: Unarchive
+  en: Unarchive Task
 
 session.new_task:
   en: New task
@@ -524,15 +524,15 @@ session.remove_overflow:
 session.remove_count:
   en: Remove %{count} Tasks
 session.archive:
-  en: Move to Task Shelf
+  en: Archive Task
 session.unarchive:
-  en: Take Off Task Shelf
+  en: Unarchive Task
 session.archive_count:
-  en: Move %{count} Tasks to the Task Shelf
+  en: Archive %{count} Tasks
 session.unarchive_count:
-  en: Take %{count} Tasks Off the Task Shelf
+  en: Unarchive %{count} Tasks
 session.archive_refused_busy:
-  en: "%{count} Tasks stayed off the Task Shelf while they are working or waiting for you"
+  en: "%{count} Tasks were not archived while they are working or waiting for you"
 
 sidebar.today:
   en: Today
@@ -595,7 +595,7 @@ sidebar.status_waiting:
 sidebar.status_failed:
   en: Failed
 sidebar.task_shelf:
-  en: "Task Shelf (%{count})"
+  en: "Archived (%{count})"
 sidebar.task_shelf_hint:
   en: Archived Tasks
 

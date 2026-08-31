@@ -247,19 +247,19 @@ common.settings: 设置
 common.copy: 复制
 common.remove: 移除
 common.rename: 重命名
-common.archive: 归档
-common.unarchive: 取消归档
+common.archive: 归档任务
+common.unarchive: 取消归档任务
 session.new_task: 新任务
 session.remove_one_title: "移除此任务？"
 session.remove_many_title: "移除 %{count} 个任务？"
 session.remove_body: "这将永久删除记录及其保存的状态，且无法撤销。"
 session.remove_overflow: "还有 %{count} 个"
 session.remove_count: "移除 %{count} 个任务"
-session.archive: 移入任务架
-session.unarchive: 移出任务架
-session.archive_count: "将 %{count} 个任务移入任务架"
-session.unarchive_count: "将 %{count} 个任务移出任务架"
-session.archive_refused_busy: "%{count} 个任务正在运行或等待你处理，未能移入任务架"
+session.archive: 归档任务
+session.unarchive: 取消归档任务
+session.archive_count: "归档 %{count} 个任务"
+session.unarchive_count: "取消归档 %{count} 个任务"
+session.archive_refused_busy: "%{count} 个任务正在运行或等待你处理，未被归档"
 sidebar.today: 今天
 sidebar.search: 搜索
 sidebar.options: 侧边栏选项
@@ -290,7 +290,7 @@ sidebar.resize: 调整侧边栏宽度
 sidebar.status_working: 正在工作
 sidebar.status_waiting: 正在等待
 sidebar.status_failed: 失败
-sidebar.task_shelf: "任务架 (%{count})"
+sidebar.task_shelf: "已归档 (%{count})"
 sidebar.task_shelf_hint: 已归档任务
 project.new_project: 新建项目…
 project.no_project: 不使用项目

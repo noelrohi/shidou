@@ -707,24 +707,24 @@
         }
       }
     },
-    "Archive": {
+    "Archive Task": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーカイブ"
+            "value": "タスクをアーカイブ"
           }
         },
         "tl": {
           "stringUnit": {
             "state": "translated",
-            "value": "I-archive"
+            "value": "I-archive ang Gawain"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档"
+            "value": "归档任务"
           }
         }
       }
@@ -9018,24 +9018,24 @@
         }
       }
     },
-    "Task Shelf (%lld)": {
+    "Archived (%lld)": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タスクシェルフ (%lld)"
+            "value": "アーカイブ済み (%lld)"
           }
         },
         "tl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Istante ng Gawain (%lld)"
+            "value": "Naka-archive (%lld)"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "任务架 (%lld)"
+            "value": "已归档 (%lld)"
           }
         }
       }
@@ -9943,24 +9943,24 @@
         }
       }
     },
-    "Unarchive": {
+    "Unarchive Task": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーカイブ解除"
+            "value": "タスクのアーカイブを解除"
           }
         },
         "tl": {
           "stringUnit": {
             "state": "translated",
-            "value": "I-unarchive"
+            "value": "I-unarchive ang Gawain"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "取消归档"
+            "value": "取消归档任务"
           }
         }
       }

@@ -229,8 +229,8 @@ struct SessionListView: View {
                 setArchived(item.session, archived: !item.session.isArchived)
             } label: {
                 item.session.isArchived
-                    ? Label("Unarchive", systemImage: "tray.and.arrow.up")
-                    : Label("Archive", systemImage: "archivebox")
+                    ? Label("Unarchive Task", systemImage: "tray.and.arrow.up")
+                    : Label("Archive Task", systemImage: "archivebox")
             }
             .tint(.gray)
         }
@@ -423,7 +423,7 @@ private struct GroupHeader: View {
     private var title: String {
         switch group.kind {
         case .date(let bucket): bucket.title
-        case .shelf: String(localized: "Task Shelf (\(group.totalCount))")
+        case .shelf: String(localized: "Archived (\(group.totalCount))")
         case .project, .projectless: group.folderName ?? ""
         }
     }

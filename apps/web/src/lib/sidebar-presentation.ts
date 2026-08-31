@@ -56,7 +56,7 @@ export const PROJECT_REVEAL_BATCH = 30
 export const SHELF_GROUP_KEY = 'shelf'
 
 function defaultShelfLabel(count: number): string {
-  return `Task Shelf (${count})`
+  return `Archived (${count})`
 }
 
 export function sidebarRows(
