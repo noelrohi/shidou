@@ -62,6 +62,6 @@ pub use protocol::{
     SequencedEvent, ServerMessage, WireComputerToolRequest, WireDriverEvent,
     WireDriverStartOptions, WireSessionOptions,
 };
-pub use server::{Backend, EventSink, ServerOptions, serve};
+pub use server::{Backend, EventSink, RuntimeEventOutcome, ServerOptions, serve};
 pub use settings::{DaemonSettings, DaemonSettingsStore};
 pub use workspace::{WorkspaceOperation, WorkspaceResult};

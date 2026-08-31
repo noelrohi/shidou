@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use crate::{
-    Backend, Command, EventSink, Request, ResponsePayload, SequencedEvent, WireDriverEvent,
-    WorkspaceOperation, WorkspaceResult,
+    Backend, Command, EventSink, Request, ResponsePayload, RuntimeEventOutcome, SequencedEvent,
+    WireDriverEvent, WorkspaceOperation, WorkspaceResult,
 };
 use anyhow::{Context as _, anyhow, bail};
 use parking_lot::Mutex;
@@ -92,6 +92,20 @@ impl ShidouBackend {
         self.active_runtime_overrides
             .lock()
             .insert(session_id, runtime_id);
+    }
+
+    /// Installs a driver as the task's live runtime, so a test can drive the
+    /// daemon's own command handling without a provider process behind it.
+    #[cfg(test)]
+    pub(crate) fn set_running_driver_for_test(
+        &self,
+        session_id: Uuid,
+        runtime_id: Uuid,
+        driver: DriverHandle,
+    ) {
+        self.sessions
+            .lock()
+            .insert(session_id, (runtime_id, driver));
     }
 
     /// Capture and persist one ending checkpoint exactly once per daemon.
@@ -782,7 +796,7 @@ impl Backend for ShidouBackend {
         }
     }
 
-    fn handle_runtime_event(&self, event: &SequencedEvent) -> anyhow::Result<()> {
+    fn handle_runtime_event(&self, event: &SequencedEvent) -> anyhow::Result<RuntimeEventOutcome> {
         let driver_event = event_from_wire(event.event.clone())?;
         let mut state = self.task_state.lock();
         let index = state
@@ -804,6 +818,8 @@ impl Backend for ShidouBackend {
         );
         let accepted_turn = matches!(&driver_event, DriverEvent::TurnAccepted { .. });
         let process_exited = matches!(&driver_event, DriverEvent::ProcessExited);
+        let becomes_active = returns_an_archived_task(&driver_event);
+        let was_failed = state.sessions[index].status == SessionStatus::Failed;
         let reduction = self
             .reducers
             .lock()
@@ -820,7 +836,21 @@ impl Backend for ShidouBackend {
             sequence: event.sequence,
         });
 
-        if accepted_turn || provider_cursor_changed || reduction.finished_turn.is_some() {
+        // An Archived Task comes back the moment it becomes active again, so
+        // the shelf can never hide something that needs attention. The mark is
+        // deleted rather than suppressed, so a returned Task must be archived
+        // again on purpose. Only a reduction the projection accepted counts:
+        // output the reducer discarded — a permission from a turn that has
+        // already been rewound away — is not the Task becoming active.
+        let returned = state.sessions[index].archived_at.is_some()
+            && reduction.applied
+            && (becomes_active
+                || (!was_failed && state.sessions[index].status == SessionStatus::Failed));
+        if returned {
+            state.sessions[index].archived_at = None;
+        }
+        if accepted_turn || provider_cursor_changed || reduction.finished_turn.is_some() || returned
+        {
             state.mark_session_dirty(event.session_id);
             self.task_store.save(&mut state)?;
         }
@@ -829,7 +859,9 @@ impl Backend for ShidouBackend {
                 .lock()
                 .remove(&(event.session_id, event.runtime_id));
         }
-        Ok(())
+        Ok(RuntimeEventOutcome {
+            task_catalog_changed: returned,
+        })
     }
 
     fn runtime_ended(&self, session_id: Uuid, runtime_id: Uuid) {
@@ -853,6 +885,24 @@ impl Backend for ShidouBackend {
             .iter()
             .any(|session| session.id == session_id && session.active_turn_id().is_some())
     }
+}
+
+/// Whether reducing this event is a Task becoming active again, which returns
+/// it from the Task Shelf. Activity is the user speaking to a Task — the turn
+/// the daemon accepts on their behalf — a turn starting on it, and the agent
+/// blocking on the user. A runtime failure returns a Task too, but it is read
+/// from the status the reducer lands on rather than named here, because
+/// several events can fail a turn. Everything else is bookkeeping: an
+/// automatic title, a cursor advance, provider chatter. It leaves a Task on
+/// the shelf.
+fn returns_an_archived_task(event: &DriverEvent) -> bool {
+    matches!(
+        event,
+        DriverEvent::TurnAccepted { .. }
+            | DriverEvent::TurnStarted
+            | DriverEvent::Permission { .. }
+            | DriverEvent::UserInputRequested { .. }
+    )
 }
 
 fn accept_prompt_turn(session: &mut AgentSession, prompt: &str) -> DriverEvent {

@@ -60,13 +60,24 @@ impl Drop for ConnectionPermit {
     }
 }
 
+/// What reducing one runtime event changed beyond the session projection each
+/// client reduces for itself. A client learns the projection from the event it
+/// is already receiving; catalog state it holds a snapshot of, so it has to be
+/// told the snapshot is stale.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RuntimeEventOutcome {
+    /// The daemon changed the Task catalog while reducing — it cleared an
+    /// archive mark because the Task became active again.
+    pub task_catalog_changed: bool,
+}
+
 pub trait Backend: Send + Sync + 'static {
     fn handle(&self, request: Request, events: EventSink) -> anyhow::Result<ResponsePayload>;
 
     /// Fold one sequenced replayable event into backend-owned state. The
     /// default keeps lightweight test backends and non-session runtimes inert.
-    fn handle_runtime_event(&self, _event: &SequencedEvent) -> anyhow::Result<()> {
-        Ok(())
+    fn handle_runtime_event(&self, _event: &SequencedEvent) -> anyhow::Result<RuntimeEventOutcome> {
+        Ok(RuntimeEventOutcome::default())
     }
 
     fn runtime_ended(&self, _session_id: Uuid, _runtime_id: Uuid) {}
@@ -333,17 +344,26 @@ impl Hub {
             }
             event
         };
-        if replayable
-            && let Some(backend) = backend.and_then(Weak::upgrade)
-            && let Err(error) = backend.handle_runtime_event(&event)
-        {
-            eprintln!("shidou-daemon could not reduce runtime event: {error:#}");
+        let mut task_catalog_changed = false;
+        if replayable && let Some(backend) = backend.and_then(Weak::upgrade) {
+            match backend.handle_runtime_event(&event) {
+                Ok(outcome) => task_catalog_changed = outcome.task_catalog_changed,
+                Err(error) => {
+                    eprintln!("shidou-daemon could not reduce runtime event: {error:#}")
+                }
+            }
         }
         let message = ServerMessage::Event(event);
-        self.state
-            .lock()
+        let mut state = self.state.lock();
+        state
             .subscribers
             .retain(|_, subscriber| subscriber.send(message.clone()).is_ok());
+        if task_catalog_changed {
+            // The daemon changed the catalog on its own, so no client already
+            // knows: every one of them hears about it, including whichever is
+            // prompting.
+            Self::broadcast_task_state_changed(&mut state, None);
+        }
     }
 
     fn subscribe(&self, resume_from: &[ReplayCursor], sender: Sender<ServerMessage>) -> u64 {
@@ -388,7 +408,7 @@ impl Hub {
 
     fn task_state_changed(&self, source_subscriber_id: u64) {
         let mut state = self.state.lock();
-        Self::broadcast_task_state_changed(&mut state, source_subscriber_id);
+        Self::broadcast_task_state_changed(&mut state, Some(source_subscriber_id));
     }
 
     fn replace_task_catalog(&self, projects: &[Project], sessions: &[AgentSession]) {
@@ -426,17 +446,20 @@ impl Hub {
                 .is_none_or(|previous| previous != next);
         }
         if changed {
-            Self::broadcast_task_state_changed(&mut state, source_subscriber_id);
+            Self::broadcast_task_state_changed(&mut state, Some(source_subscriber_id));
         }
     }
 
-    fn broadcast_task_state_changed(state: &mut HubState, source_subscriber_id: u64) {
+    /// Tells every client but the one that caused the change that its Task
+    /// catalog snapshot is stale. `None` is a change the daemon made itself,
+    /// which no client knows about yet.
+    fn broadcast_task_state_changed(state: &mut HubState, source_subscriber_id: Option<u64>) {
         state.task_state_revision = state.task_state_revision.saturating_add(1);
         let message = ServerMessage::TaskStateChanged {
             revision: state.task_state_revision,
         };
         state.subscribers.retain(|subscriber_id, subscriber| {
-            *subscriber_id == source_subscriber_id || subscriber.send(message.clone()).is_ok()
+            Some(*subscriber_id) == source_subscriber_id || subscriber.send(message.clone()).is_ok()
         });
     }
 
@@ -1162,6 +1185,7 @@ mod tests {
     struct ShidouTestDaemon {
         root: PathBuf,
         address: std::net::SocketAddr,
+        provider: Arc<ScriptedProvider>,
         shutdown_client: DaemonClient,
         server: Option<std::thread::JoinHandle<()>>,
     }
@@ -1171,10 +1195,11 @@ mod tests {
         fn new(label: &str, configure: impl FnOnce(&ShidouBackend)) -> Self {
             let root = std::env::temp_dir().join(format!("shidou-{label}-{}", Uuid::new_v4()));
             std::fs::create_dir_all(&root).unwrap();
-            let (address, shutdown_client, server) = Self::start(&root, configure);
+            let (address, provider, shutdown_client, server) = Self::start(&root, configure);
             Self {
                 root,
                 address,
+                provider,
                 shutdown_client,
                 server: Some(server),
             }
@@ -1185,6 +1210,7 @@ mod tests {
             configure: impl FnOnce(&ShidouBackend),
         ) -> (
             std::net::SocketAddr,
+            Arc<ScriptedProvider>,
             DaemonClient,
             std::thread::JoinHandle<()>,
         ) {
@@ -1194,15 +1220,20 @@ mod tests {
             )
             .unwrap();
             configure(&backend);
+            let provider = Arc::new(ScriptedProvider {
+                daemon: backend,
+                sinks: Mutex::new(HashMap::new()),
+            });
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let shutdown = Arc::new(AtomicBool::new(false));
             let server_shutdown = shutdown.clone();
+            let server_provider = provider.clone();
             let server = std::thread::spawn(move || {
                 serve(
                     listener,
                     "secret".into(),
-                    Arc::new(backend),
+                    server_provider,
                     server_shutdown,
                     ServerOptions {
                         allow_shutdown: true,
@@ -1213,7 +1244,7 @@ mod tests {
             });
             let shutdown_client =
                 DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
-            (address, shutdown_client, server)
+            (address, provider, shutdown_client, server)
         }
 
         /// Stops the daemon and starts a fresh one over the same state
@@ -1222,14 +1253,112 @@ mod tests {
         fn restart(&mut self) {
             self.shutdown_client.shutdown();
             self.server.take().unwrap().join().unwrap();
-            let (address, shutdown_client, server) = Self::start(&self.root, |_| {});
+            let (address, provider, shutdown_client, server) = Self::start(&self.root, |_| {});
             self.address = address;
+            self.provider = provider;
             self.shutdown_client = shutdown_client;
             self.server = Some(server);
         }
 
         fn connect(&self) -> DaemonClient {
             DaemonClient::connect(&self.address.to_string(), "secret".into()).unwrap()
+        }
+
+        /// Attaches a runtime to the task the way a client does, and returns
+        /// the runtime the test then speaks as.
+        fn start_runtime(&self, client: &DaemonClient, session_id: Uuid) -> Uuid {
+            let runtime_id = Uuid::new_v4();
+            client
+                .request(
+                    session_id,
+                    runtime_id,
+                    Command::Start {
+                        options: test_start_options(),
+                    },
+                )
+                .unwrap();
+            runtime_id
+        }
+
+        /// Emits one provider event on the task's runtime, exactly where its
+        /// driver would, so the daemon reduces it through its own event pump.
+        fn emit(&self, session_id: Uuid, event: WireDriverEvent) {
+            let sink = self
+                .provider
+                .sinks
+                .lock()
+                .get(&session_id)
+                .cloned()
+                .expect("the task has a runtime");
+            sink.send(event).unwrap();
+        }
+    }
+
+    /// The real daemon with its provider process replaced by the test. Every
+    /// command, reduction, and broadcast below is the daemon's own; only
+    /// `Start` is intercepted, because a test cannot run a provider, and the
+    /// events one would emit arrive through [`ShidouTestDaemon::emit`].
+    #[cfg(unix)]
+    struct ScriptedProvider {
+        daemon: ShidouBackend,
+        sinks: Mutex<HashMap<Uuid, EventSink>>,
+    }
+
+    #[cfg(unix)]
+    impl Backend for ScriptedProvider {
+        fn handle(&self, request: Request, events: EventSink) -> anyhow::Result<ResponsePayload> {
+            if matches!(request.command, Command::Start { .. }) {
+                self.daemon.set_running_driver_for_test(
+                    request.session_id,
+                    request.runtime_id,
+                    crate::driver::DriverHandle::from_control(Arc::new(SilentProvider)),
+                );
+                self.sinks.lock().insert(request.session_id, events);
+                return Ok(ResponsePayload::Started {
+                    supports_steer: false,
+                });
+            }
+            self.daemon.handle(request, events)
+        }
+
+        fn handle_runtime_event(
+            &self,
+            event: &SequencedEvent,
+        ) -> anyhow::Result<RuntimeEventOutcome> {
+            self.daemon.handle_runtime_event(event)
+        }
+
+        fn runtime_ended(&self, session_id: Uuid, runtime_id: Uuid) {
+            self.daemon.runtime_ended(session_id, runtime_id);
+        }
+
+        fn session_has_active_turn(&self, session_id: Uuid) -> bool {
+            self.daemon.session_has_active_turn(session_id)
+        }
+
+        fn shutdown(&self) {
+            self.daemon.shutdown();
+        }
+    }
+
+    /// A provider that accepts every instruction and volunteers nothing. What
+    /// it would have said comes from the test instead.
+    #[cfg(unix)]
+    struct SilentProvider;
+
+    #[cfg(unix)]
+    impl crate::driver::DriverControl for SilentProvider {
+        fn prompt(&self, _prompt: String) {}
+
+        fn cancel(&self) {}
+
+        fn respond(&self, _request_id: String, _option_id: String) {}
+
+        fn rollback(
+            &self,
+            _turns: usize,
+        ) -> anyhow::Result<Option<crate::model::ProviderResumeCursor>> {
+            Ok(None)
         }
     }
 
@@ -1800,6 +1929,234 @@ mod tests {
 
         try_archive(&client, session.id, false).expect("unarchiving a Working task is allowed");
         assert_eq!(archived_at(&client, session.id), None);
+    }
+
+    /// Reports the task as Working the way the client driving it does. An
+    /// archived task reaches this state through the race the guard cannot
+    /// prevent: the archive landed in the instant between another client
+    /// starting a turn and the daemon hearing the runtime's first word.
+    #[cfg(unix)]
+    fn report_working(client: &DaemonClient, project: &Project, session: &AgentSession) {
+        let mut working = session.clone();
+        working.status = SessionStatus::Working;
+        working.updated_at = working.updated_at.saturating_add(1);
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project.clone()],
+                    live_session_ids: vec![working.id],
+                    sessions: vec![working],
+                },
+            )
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_user_prompt_returns_an_archived_task() {
+        let daemon = ShidouTestDaemon::new("archive-prompt", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        let runtime_id = daemon.start_runtime(&client, session.id);
+
+        client
+            .request(
+                session.id,
+                runtime_id,
+                Command::Prompt {
+                    prompt: "carry on".into(),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            archived_at(&client, session.id),
+            None,
+            "resuming work brings the task back with it"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_turn_start_returns_an_archived_task() {
+        let daemon = ShidouTestDaemon::new("archive-turn-start", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        daemon.start_runtime(&client, session.id);
+
+        daemon.emit(session.id, WireDriverEvent::new("turnStarted", json!(null)));
+
+        assert_eq!(archived_at(&client, session.id), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_permission_request_returns_an_archived_task() {
+        let daemon = ShidouTestDaemon::new("archive-permission", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        daemon.start_runtime(&client, session.id);
+        report_working(&client, &project, &session);
+
+        daemon.emit(
+            session.id,
+            WireDriverEvent::new(
+                "permission",
+                json!({
+                    "requestId": "permission-1",
+                    "title": "Run the tests",
+                    "detail": "cargo test",
+                    "options": [{ "id": "allow", "label": "Allow", "allow": true }]
+                }),
+            ),
+        );
+
+        assert_eq!(
+            archived_at(&client, session.id),
+            None,
+            "blocked work can never sit unseen in the shelf"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_question_returns_an_archived_task() {
+        let daemon = ShidouTestDaemon::new("archive-question", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        daemon.start_runtime(&client, session.id);
+        report_working(&client, &project, &session);
+
+        daemon.emit(
+            session.id,
+            WireDriverEvent::new(
+                "userInputRequested",
+                json!({
+                    "requestId": "question-1",
+                    "questions": [{
+                        "id": "direction",
+                        "header": "Direction",
+                        "question": "Which way?",
+                        "options": [{ "label": "Left" }],
+                        "multiSelect": false
+                    }]
+                }),
+            ),
+        );
+
+        assert_eq!(archived_at(&client, session.id), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_runtime_failure_returns_an_archived_task() {
+        let daemon = ShidouTestDaemon::new("archive-failure", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        daemon.start_runtime(&client, session.id);
+
+        daemon.emit(
+            session.id,
+            WireDriverEvent::new("error", json!("the provider gave up")),
+        );
+
+        assert_eq!(
+            archived_at(&client, session.id),
+            None,
+            "a failure is never silent"
+        );
+    }
+
+    /// Bookkeeping is not activity. A user renaming a shelved task is tidying
+    /// it, not returning to it.
+    #[cfg(unix)]
+    #[test]
+    fn a_rename_leaves_a_task_archived() {
+        let daemon = ShidouTestDaemon::new("archive-rename", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        let marked_at = archived_at(&client, session.id).expect("the task is archived");
+
+        let mut renamed = session.clone();
+        renamed.title = "Renamed on the shelf".into();
+        renamed.updated_at = renamed.updated_at.saturating_add(1);
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![renamed.id],
+                    sessions: vec![renamed],
+                },
+            )
+            .unwrap();
+
+        assert_eq!(archived_at(&client, session.id), Some(marked_at));
+    }
+
+    /// The provider retitling a shelved task is the same kind of background
+    /// bookkeeping, and it must not drag old work back either.
+    #[cfg(unix)]
+    #[test]
+    fn an_automatic_title_leaves_a_task_archived() {
+        let daemon = ShidouTestDaemon::new("archive-auto-title", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        archive(&client, session.id, true);
+        let marked_at = archived_at(&client, session.id).expect("the task is archived");
+        daemon.start_runtime(&client, session.id);
+
+        daemon.emit(
+            session.id,
+            WireDriverEvent::new("autoTitleUpdated", json!("A better title")),
+        );
+
+        assert_eq!(archived_at(&client, session.id), Some(marked_at));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_returning_task_reaches_a_second_client() {
+        let daemon = ShidouTestDaemon::new("archive-return-broadcast", |_| {});
+        let client = daemon.connect();
+        let observer = daemon.connect();
+        let observed_revisions = observer.subscribe_task_state();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let session = persist_task(&client, &project);
+        observed_revisions
+            .recv_timeout(Duration::from_secs(1))
+            .expect("the save reaches the observer");
+        archive(&client, session.id, true);
+        let archived_revision = observed_revisions
+            .recv_timeout(Duration::from_secs(1))
+            .expect("the archive reaches the observer");
+        daemon.start_runtime(&client, session.id);
+
+        daemon.emit(session.id, WireDriverEvent::new("turnStarted", json!(null)));
+
+        assert!(
+            observed_revisions
+                .recv_timeout(Duration::from_secs(1))
+                .is_ok_and(|revision| revision > archived_revision),
+            "the clear invalidates the observer's task catalog"
+        );
+        assert_eq!(archived_at(&observer, session.id), None);
     }
 
     #[cfg(unix)]
