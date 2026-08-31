@@ -766,8 +766,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             [session.id]: publicRuntime(runtime!),
           }))
         }
+        const submissionId = session.turns.at(-1)?.id
+        if (!submissionId) throw new Error('prepared submission has no running turn')
         await client.request(
-          { type: 'prompt', prompt: providerPrompt },
+          { type: 'prompt', prompt: providerPrompt, submissionId },
           session.id,
           runtime.runtimeId,
         )

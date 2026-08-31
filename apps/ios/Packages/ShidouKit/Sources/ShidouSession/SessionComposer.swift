@@ -718,8 +718,14 @@ extension SessionStore {
                 runtimeId = id
             }
             guard let runtimeId else { throw ShidouSessionError.noLiveRuntime }
+            guard let submissionId = session.turns.last?.id else {
+                throw ShidouSessionError.noLiveRuntime
+            }
             _ = try await request(
-                .prompt(providerPrompt), sessionId: session.id, runtimeId: runtimeId)
+                .prompt(providerPrompt, submissionId: submissionId),
+                sessionId: session.id,
+                runtimeId: runtimeId
+            )
         } catch {
             model.clearRuntime()
             failTurn(model, summary: error.localizedDescription)

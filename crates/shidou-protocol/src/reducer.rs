@@ -144,8 +144,12 @@ impl Reducer {
                     reduction.applied = true;
                 }
             }
-            DriverEvent::TurnAccepted { turn, messages } => {
-                accept_remote_turn(session, turn, messages);
+            DriverEvent::TurnAccepted {
+                submission_id,
+                turn,
+                messages,
+            } => {
+                accept_remote_turn(session, submission_id, turn, messages);
                 reduction.applied = true;
             }
             DriverEvent::TurnStarted => {
@@ -477,17 +481,21 @@ impl Reducer {
 /// Incorporate the daemon's canonical record of a submitted prompt.
 ///
 /// The submitting client may already show a locally-created running turn. In
-/// that case the canonical identities replace the temporary identities in
-/// place, while the local message keeps presentation data that is not part of
-/// the prompt command. Observers without an optimistic turn append the record.
-pub fn accept_remote_turn(session: &mut AgentSession, turn: AgentTurn, messages: Vec<Message>) {
+/// that case `submission_id` finds the temporary turn and the canonical
+/// identities replace it in place. The local message keeps presentation data
+/// that is not part of the prompt command. Observers without that temporary
+/// turn append the record.
+pub fn accept_remote_turn(
+    session: &mut AgentSession,
+    submission_id: Uuid,
+    turn: AgentTurn,
+    messages: Vec<Message>,
+) {
     let known_turn = session.turns.iter().any(|existing| existing.id == turn.id);
     let provisional = (!known_turn)
         .then(|| {
             session.turns.iter().position(|existing| {
-                existing.id != turn.id
-                    && existing.turn_count == turn.turn_count
-                    && existing.status == TurnStatus::Running
+                existing.id == submission_id && existing.status == TurnStatus::Running
             })
         })
         .flatten();
@@ -949,10 +957,12 @@ mod tests {
             &mut session,
             [
                 DriverEvent::TurnAccepted {
+                    submission_id: turn_id,
                     turn: turn.clone(),
                     messages: vec![message.clone()],
                 },
                 DriverEvent::TurnAccepted {
+                    submission_id: turn_id,
                     turn,
                     messages: vec![message],
                 },
@@ -997,6 +1007,7 @@ mod tests {
             &mut reducer,
             &mut session,
             [DriverEvent::TurnAccepted {
+                submission_id: optimistic_turn_id,
                 turn,
                 messages: vec![message],
             }],
@@ -1014,6 +1025,41 @@ mod tests {
             session.messages[0].display_content.as_deref(),
             Some("visible prompt")
         );
+    }
+
+    #[test]
+    fn accepted_turn_replaces_optimistic_ids_when_turn_counts_differ() {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let optimistic_turn_id = session.begin_turn("hello");
+        let canonical_turn_id = Uuid::new_v4();
+        let turn = AgentTurn {
+            id: canonical_turn_id,
+            turn_count: 5,
+            status: TurnStatus::Running,
+            provider_turn_started: false,
+            provider_resume_at: None,
+            started_at: unix_time(),
+            completed_at: None,
+            checkpoint: None,
+        };
+        let message = Message::new_for_turn(MessageRole::User, "hello", canonical_turn_id);
+
+        Reducer::default().apply(
+            &mut session,
+            DriverEvent::TurnAccepted {
+                submission_id: optimistic_turn_id,
+                turn,
+                messages: vec![message],
+            },
+            ReduceContext::default(),
+        );
+
+        assert_ne!(optimistic_turn_id, canonical_turn_id);
+        assert_eq!(session.turns.len(), 1);
+        assert_eq!(session.turns[0].id, canonical_turn_id);
+        assert_eq!(session.turns[0].turn_count, 5);
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].turn_id, Some(canonical_turn_id));
     }
 
     #[test]

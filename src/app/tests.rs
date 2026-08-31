@@ -148,7 +148,7 @@ fn remote_follow_up_reaches_an_attached_desktop_transcript() {
     let mut catalog = vec![desktop];
     merge_remote_session_catalog(&mut catalog, vec![web.list_projection()], |_| true);
     let desktop = &mut catalog[0];
-    accept_remote_turn(desktop, accepted_turn, accepted_messages);
+    accept_remote_turn(desktop, turn_id, accepted_turn, accepted_messages);
     let session_id = desktop.id;
     let accepted_output = session_accepts_turn_output(desktop);
     if accepted_output {
@@ -195,7 +195,7 @@ fn accepted_remote_turn_repairs_stale_desktop_working_indicators() {
     // its transient busy status. Replaying turnAccepted must repair the UI
     // even though the turn ID is already known.
     desktop.status = SessionStatus::Idle;
-    accept_remote_turn(&mut desktop, accepted_turn, accepted_messages);
+    accept_remote_turn(&mut desktop, turn_id, accepted_turn, accepted_messages);
 
     assert_eq!(desktop.status, SessionStatus::Connecting);
     assert_eq!(

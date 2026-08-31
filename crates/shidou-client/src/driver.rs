@@ -45,6 +45,10 @@ impl DriverHandle {
         self.inner.prompt(prompt);
     }
 
+    pub fn prompt_with_submission_id(&self, prompt: String, submission_id: uuid::Uuid) {
+        self.inner.prompt_with_submission_id(prompt, submission_id);
+    }
+
     pub fn supports_steer(&self) -> bool {
         self.inner.supports_steer()
     }
@@ -104,6 +108,9 @@ impl DriverHandle {
 
 pub trait DriverControl: Send + Sync {
     fn prompt(&self, prompt: String);
+    fn prompt_with_submission_id(&self, prompt: String, _submission_id: uuid::Uuid) {
+        self.prompt(prompt);
+    }
     fn supports_steer(&self) -> bool {
         false
     }

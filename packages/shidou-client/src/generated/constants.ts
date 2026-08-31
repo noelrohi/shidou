@@ -1,5 +1,5 @@
 // Generated from shidou-protocol. Do not edit.
-export const PROTOCOL_VERSION = 5 as const;
+export const PROTOCOL_VERSION = 6 as const;
 export const MAX_WIRE_MESSAGE_BYTES = 50331648 as const;
 export const VISUAL_IMAGE_EXTENSIONS = ["gif","jpeg","jpg","png","svg","webp"] as const;
 export const VISUAL_COMPACT_COLUMN_WIDTH = 112 as const;

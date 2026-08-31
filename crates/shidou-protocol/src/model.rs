@@ -1638,8 +1638,11 @@ pub enum DriverEvent {
     AvailableCommands(Vec<ReportedCommand>),
     /// A client persisted and dispatched a new turn against the shared
     /// runtime. This precedes provider output so every other client can append
-    /// the exact user message and turn IDs before reducing that output.
+    /// the exact user message and turn IDs before reducing that output. The
+    /// submission id lets the sender replace its optimistic turn without
+    /// relying on a locally derived turn count.
     TurnAccepted {
+        submission_id: Uuid,
         turn: AgentTurn,
         messages: Vec<Message>,
     },

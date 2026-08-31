@@ -728,13 +728,17 @@ impl Backend for ShidouBackend {
                     }
                     driver.clone()
                 };
-                if let Command::Prompt { prompt } = &command {
+                if let Command::Prompt {
+                    prompt,
+                    submission_id,
+                } = &command
+                {
                     let accepted = {
                         let mut state = self.task_state.lock();
                         let session = state.session_mut(session_id).ok_or_else(|| {
                             anyhow!("daemon session {session_id} has no saved projection")
                         })?;
-                        let accepted = accept_prompt_turn(session, prompt);
+                        let accepted = accept_prompt_turn(session, prompt, *submission_id);
                         self.task_store.save(&mut state)?;
                         accepted
                     };
@@ -818,7 +822,11 @@ impl Backend for ShidouBackend {
     }
 }
 
-fn accept_prompt_turn(session: &mut AgentSession, prompt: &str) -> DriverEvent {
+fn accept_prompt_turn(
+    session: &mut AgentSession,
+    prompt: &str,
+    submission_id: Uuid,
+) -> DriverEvent {
     let turn_id = session
         .active_turn_id()
         .unwrap_or_else(|| session.begin_turn(prompt));
@@ -834,7 +842,11 @@ fn accept_prompt_turn(session: &mut AgentSession, prompt: &str) -> DriverEvent {
         .filter(|message| message.turn_id == Some(turn_id))
         .cloned()
         .collect();
-    DriverEvent::TurnAccepted { turn, messages }
+    DriverEvent::TurnAccepted {
+        submission_id,
+        turn,
+        messages,
+    }
 }
 
 fn merge_saved_session(
@@ -1809,7 +1821,7 @@ fn handle_driver_command(
     command: Command,
 ) -> anyhow::Result<ResponsePayload> {
     match command {
-        Command::Prompt { prompt } => driver.prompt(prompt),
+        Command::Prompt { prompt, .. } => driver.prompt(prompt),
         Command::Steer { prompt } => driver.steer(prompt),
         Command::Cancel => driver.cancel(),
         Command::CancelComputerUse => driver.cancel_computer_use(),
@@ -1944,9 +1956,13 @@ fn event_to_wire(event: DriverEvent) -> anyhow::Result<WireDriverEvent> {
         DriverEvent::AvailableCommands(commands) => {
             ("availableCommands", serde_json::to_value(commands)?)
         }
-        DriverEvent::TurnAccepted { turn, messages } => (
+        DriverEvent::TurnAccepted {
+            submission_id,
+            turn,
+            messages,
+        } => (
             "turnAccepted",
-            json!({ "turn": turn, "messages": messages }),
+            json!({ "submissionId": submission_id, "turn": turn, "messages": messages }),
         ),
         DriverEvent::TurnStarted => ("turnStarted", Value::Null),
         DriverEvent::TextDelta(text) => ("textDelta", Value::String(text)),
@@ -2043,6 +2059,7 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
         "turnAccepted" => {
             let accepted: TurnAcceptedWire = serde_json::from_value(payload)?;
             DriverEvent::TurnAccepted {
+                submission_id: accepted.submission_id,
                 turn: accepted.turn,
                 messages: accepted.messages,
             }
@@ -2128,7 +2145,9 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TurnAcceptedWire {
+    submission_id: Uuid,
     turn: crate::model::AgentTurn,
     messages: Vec<crate::model::Message>,
 }
@@ -2474,13 +2493,19 @@ mod tests {
         let turn_id = session.begin_turn("shown to the user");
         let message_id = session.messages[0].id;
 
-        let accepted = accept_prompt_turn(&mut session, "expanded provider prompt");
+        let accepted = accept_prompt_turn(&mut session, "expanded provider prompt", turn_id);
 
         assert_eq!(session.turns.len(), 1);
         assert_eq!(session.messages.len(), 1);
-        let DriverEvent::TurnAccepted { turn, messages } = accepted else {
+        let DriverEvent::TurnAccepted {
+            submission_id,
+            turn,
+            messages,
+        } = accepted
+        else {
             panic!("expected an accepted turn");
         };
+        assert_eq!(submission_id, turn_id);
         assert_eq!(turn.id, turn_id);
         assert_eq!(messages[0].id, message_id);
         assert_eq!(messages[0].content, "shown to the user");
@@ -2490,13 +2515,20 @@ mod tests {
     fn prompt_synthesizes_a_running_turn_when_the_client_did_not() {
         let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
 
-        let accepted = accept_prompt_turn(&mut session, "author this turn");
+        let submission_id = Uuid::new_v4();
+        let accepted = accept_prompt_turn(&mut session, "author this turn", submission_id);
 
         assert_eq!(session.turns.len(), 1);
         assert_eq!(session.messages.len(), 1);
-        let DriverEvent::TurnAccepted { turn, messages } = accepted else {
+        let DriverEvent::TurnAccepted {
+            submission_id: accepted_submission_id,
+            turn,
+            messages,
+        } = accepted
+        else {
             panic!("expected an accepted turn");
         };
+        assert_eq!(accepted_submission_id, submission_id);
         assert_eq!(session.active_turn_id(), Some(turn.id));
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].id, session.messages[0].id);
