@@ -1037,6 +1037,27 @@ impl StateStore {
             .map_err(to_io_error)
     }
 
+    /// Set or clear the archive mark on one daemon-owned task.
+    ///
+    /// Unlike a save this is a request rather than a notify, and it is handed
+    /// back as a closure to run off the UI thread: the daemon refuses to
+    /// archive a Task that is still running or waiting for the user, and the
+    /// caller has to see that refusal rather than assume it away.
+    pub fn archive_session(
+        &self,
+        session_id: Uuid,
+        archived: bool,
+    ) -> impl FnOnce() -> io::Result<()> + Send + 'static {
+        let daemon = self.daemon.clone();
+        move || {
+            daemon
+                .client()
+                .request(session_id, Uuid::nil(), Command::ArchiveSession { archived })
+                .map(|_| ())
+                .map_err(to_io_error)
+        }
+    }
+
     pub fn remove_project(&self, project_id: Uuid) -> io::Result<()> {
         self.daemon
             .client()

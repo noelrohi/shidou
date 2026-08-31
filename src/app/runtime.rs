@@ -133,6 +133,10 @@ pub(super) fn merge_remote_session_catalog(
             local.model = remote.model;
             local.created_at = remote.created_at;
             local.last_reply_at = remote.last_reply_at;
+            // The archive mark is daemon-owned, so the catalog is the only
+            // thing that moves it — an archive gesture lands here, and a
+            // refusal simply never does.
+            local.archived_at = remote.archived_at;
             if !has_local_runtime(local.id) {
                 local.status = remote.status;
                 local.updated_at = remote.updated_at;

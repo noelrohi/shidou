@@ -7,6 +7,7 @@ menu.quit: "%{app} を終了"
 menu.file: ファイル
 menu.new_task: 新規タスク
 menu.new_project: 新規プロジェクト…
+menu.toggle_archive_task: タスクのアーカイブ/解除
 menu.edit: 編集
 menu.undo: 取り消す
 menu.redo: やり直す
@@ -267,6 +268,11 @@ session.remove_many_title: "%{count} 件のタスクを削除しますか？"
 session.remove_body: "記録と保存された状態を完全に削除します。元に戻せません。"
 session.remove_overflow: "他 %{count} 件"
 session.remove_count: "%{count} 件のタスクを削除"
+session.archive: タスクシェルフへ移動
+session.unarchive: タスクシェルフから戻す
+session.archive_count: "%{count} 件のタスクをタスクシェルフへ移動"
+session.unarchive_count: "%{count} 件のタスクをタスクシェルフから戻す"
+session.archive_refused_busy: "%{count} 件のタスクは作業中または応答待ちのため、タスクシェルフに移動できませんでした"
 
 sidebar.today: 今日
 sidebar.search: 検索

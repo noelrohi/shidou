@@ -1902,12 +1902,97 @@ impl Shidou {
         cx.notify();
     }
 
-    /// The tasks a removal gesture on `session_id` applies to.
+    /// The archive gesture a menu or shortcut on `session_id` should offer.
+    ///
+    /// Reads only fields the catalog already loaded, so it is safe from a row
+    /// builder: the mark and the status, nothing else.
+    pub(super) fn session_archive_action(&self, session_id: Uuid) -> SessionArchiveAction {
+        self.state
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(session_archive_action)
+            .unwrap_or(SessionArchiveAction::Blocked)
+    }
+
+    /// Ask the Daemon to shelve `targets`, or take them back off the shelf.
+    ///
+    /// Nothing is mutated locally. The Daemon owns `archived_at` and
+    /// broadcasts a catalog change on success, which the task-state sync
+    /// worker already refetches; a refusal therefore leaves the sidebar
+    /// exactly as it was rather than stranding a row in the wrong section.
+    pub(super) fn archive_sessions(
+        &mut self,
+        targets: &[Uuid],
+        archived: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let sessions = targets
+            .iter()
+            .filter_map(|target| {
+                self.state
+                    .sessions
+                    .iter()
+                    .find(|session| session.id == *target)
+            })
+            .collect::<Vec<_>>();
+        let (targets, refused) = sessions_to_archive(&sessions, archived);
+        if refused > 0 {
+            self.show_toast(tr!("session.archive_refused_busy", count = refused));
+        }
+        if targets.is_empty() {
+            cx.notify();
+            return;
+        }
+        for session_id in targets {
+            let send = self.store.archive_session(session_id, archived);
+            cx.spawn(async move |shidou, cx| {
+                let result = cx.background_executor().spawn(async move { send() }).await;
+                if let Err(error) = result {
+                    let _ = shidou.update(cx, |shidou, cx| {
+                        // The Daemon's own refusal text; it knows why.
+                        shidou.show_toast(if archived {
+                            tr!("errors.archive_task", error = error)
+                        } else {
+                            tr!("errors.unarchive_task", error = error)
+                        });
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+    }
+
+    /// The archive gesture on one row, applied to whatever that row's gesture
+    /// covers — the marked set when it lands inside one, that row alone
+    /// otherwise.
+    pub(super) fn archive_sidebar_session(&mut self, session_id: Uuid, cx: &mut Context<Self>) {
+        let Some(archived) = self.session_archive_action(session_id).archived() else {
+            return;
+        };
+        let targets = self.sidebar_gesture_targets(session_id);
+        self.archive_sessions(&targets, archived, cx);
+    }
+
+    pub(super) fn toggle_archive_task_action(
+        &mut self,
+        _: &crate::ToggleArchiveTask,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session_id) = self.state.selected_session else {
+            return;
+        };
+        self.archive_sidebar_session(session_id, cx);
+    }
+
+    /// The tasks a removal or archive gesture on `session_id` applies to.
     ///
     /// A gesture that lands inside the marked set acts on the whole set;
     /// anywhere else it acts on that one row, so a stale selection can never
-    /// widen a removal the user aimed at a single task.
-    pub(super) fn session_removal_targets(&self, session_id: Uuid) -> Vec<Uuid> {
+    /// widen a gesture the user aimed at a single task.
+    pub(super) fn sidebar_gesture_targets(&self, session_id: Uuid) -> Vec<Uuid> {
         if self.sidebar_selection.len() > 1 && self.sidebar_selection.contains(&session_id) {
             self.marked_sessions_in_row_order()
         } else {
@@ -2196,12 +2281,24 @@ impl Shidou {
                 .into_any_element()
         };
         let shidou = cx.entity().downgrade();
-        let marked_count = self.session_removal_targets(session_id).len();
+        let marked_count = self.sidebar_gesture_targets(session_id).len();
         let remove_label = if marked_count > 1 {
             tr!("session.remove_count", count = marked_count)
         } else {
             tr!("common.remove")
         };
+        // One item whose label flips with the row's own state, so the gesture
+        // reads the same whether it shelves or brings back.
+        let archive_action = self.session_archive_action(session_id);
+        let archive_label = match (archive_action, marked_count > 1) {
+            (SessionArchiveAction::Unarchive, false) => tr!("session.unarchive"),
+            (SessionArchiveAction::Unarchive, true) => {
+                tr!("session.unarchive_count", count = marked_count)
+            }
+            (_, false) => tr!("session.archive"),
+            (_, true) => tr!("session.archive_count", count = marked_count),
+        };
+        let archive_disabled = archive_action == SessionArchiveAction::Blocked;
         let menu = self.menu_handle(format!("session-{session_id}"), cx);
         let row_focus = menu.trigger_focus_handle().clone();
         let keyboard_menu = menu.clone();
@@ -2238,8 +2335,18 @@ impl Shidou {
                             keyboard_menu.open_context_menu(window, cx);
                             cx.stop_propagation();
                         } else if key == "backspace" && event.keystroke.modifiers.secondary() {
-                            let targets = this.session_removal_targets(session_id);
+                            let targets = this.sidebar_gesture_targets(session_id);
                             this.confirm_session_removal(targets, window, cx);
+                            cx.stop_propagation();
+                        } else if key == "a"
+                            && event.keystroke.modifiers.secondary()
+                            && event.keystroke.modifiers.shift
+                        {
+                            // The same gesture the window-wide shortcut runs,
+                            // aimed at the focused row rather than the
+                            // selected Task, so a row reached by Tab is
+                            // operable without first activating it.
+                            this.archive_sidebar_session(session_id, cx);
                             cx.stop_propagation();
                         }
                     }))
@@ -2264,7 +2371,9 @@ impl Shidou {
                 &menu,
                 move |_| {
                     let rename_shidou = shidou.clone();
+                    let archive_shidou = shidou.clone();
                     let remove_shidou = shidou.clone();
+                    let archive_label = archive_label.clone();
                     let remove_label = remove_label.clone();
                     vec![
                         MenuItem::new(tr!("common.rename"), move |window, cx| {
@@ -2272,10 +2381,16 @@ impl Shidou {
                                 shidou.begin_session_rename(session_id, window, cx);
                             });
                         }),
+                        MenuItem::new(archive_label, move |_, cx| {
+                            let _ = archive_shidou.update(cx, |shidou, cx| {
+                                shidou.archive_sidebar_session(session_id, cx);
+                            });
+                        })
+                        .disabled(archive_disabled),
                         MenuItem::Separator,
                         MenuItem::new(remove_label, move |window, cx| {
                             let _ = remove_shidou.update(cx, |shidou, cx| {
-                                let targets = shidou.session_removal_targets(session_id);
+                                let targets = shidou.sidebar_gesture_targets(session_id);
                                 shidou.confirm_session_removal(targets, window, cx);
                             });
                         }),
@@ -2668,6 +2783,70 @@ pub(super) fn localized_session_title(session: &AgentSession) -> String {
 /// The inclusive run of rows between `anchor` and `target` in draw order.
 /// `None` when either row has scrolled out of the snapshot, in which case the
 /// existing selection is better left alone than replaced with a guess.
+/// What an archive gesture on one Task should do.
+///
+/// The Daemon owns the decision and refuses to shelve a Task that is still
+/// running or waiting for the user; this mirrors that guard so the control is
+/// drawn inert rather than offering a gesture that can only come back refused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SessionArchiveAction {
+    /// Put the Task on the Task Shelf.
+    Archive,
+    /// Take an Archived Task back off the shelf.
+    Unarchive,
+    /// Working or Waiting: the Daemon would refuse, so the control is inert.
+    Blocked,
+}
+
+impl SessionArchiveAction {
+    /// The mark the Daemon is being asked to write, or `None` when the gesture
+    /// is inert.
+    fn archived(self) -> Option<bool> {
+        match self {
+            Self::Archive => Some(true),
+            Self::Unarchive => Some(false),
+            Self::Blocked => None,
+        }
+    }
+}
+
+fn session_archive_action(session: &AgentSession) -> SessionArchiveAction {
+    // Unarchiving can only bring a Task back into view, so it is always
+    // allowed — exactly the Daemon's rule. Archiving a busy Task would hide
+    // work that needs the user, and `is_busy` also covers Connecting: a turn
+    // already on its way, about to raise the permission request that must not
+    // be hidden.
+    if session.archived_at.is_some() {
+        SessionArchiveAction::Unarchive
+    } else if session.is_busy() {
+        SessionArchiveAction::Blocked
+    } else {
+        SessionArchiveAction::Archive
+    }
+}
+
+/// The Tasks a bulk archive gesture actually sends for, and how many it had to
+/// leave behind because the Daemon would refuse them.
+///
+/// `archived` is the direction the gesture took from the row it landed on, so
+/// a mixed selection moves one way rather than each row flipping its own. A
+/// Task already in the target state is neither sent nor counted as skipped —
+/// it is simply already where the user asked it to be.
+fn sessions_to_archive(sessions: &[&AgentSession], archived: bool) -> (Vec<Uuid>, usize) {
+    let mut targets = Vec::new();
+    let mut refused = 0usize;
+    for session in sessions {
+        if session.archived_at.is_some() == archived {
+            continue;
+        }
+        match session_archive_action(session).archived() {
+            Some(action) if action == archived => targets.push(session.id),
+            _ => refused = refused.saturating_add(1),
+        }
+    }
+    (targets, refused)
+}
+
 fn sidebar_selection_range(order: &[Uuid], anchor: Uuid, target: Uuid) -> Option<HashSet<Uuid>> {
     let from = order.iter().position(|id| *id == anchor)?;
     let to = order.iter().position(|id| *id == target)?;
@@ -3183,6 +3362,97 @@ mod tests {
                 SidebarRow::GroupSpacer,
             ]
         );
+    }
+
+    fn archive_test_session(status: SessionStatus, archived_at: Option<u64>) -> AgentSession {
+        let mut session = AgentSession::new(Uuid::from_u128(1), ProviderKind::Codex);
+        session.status = status;
+        session.archived_at = archived_at;
+        session
+    }
+
+    #[test]
+    fn archive_controls_mirror_the_daemon_busy_guard() {
+        // Exactly the statuses `SessionStatus::is_busy` covers, which is the
+        // guard the daemon refuses on.
+        for busy in [
+            SessionStatus::Connecting,
+            SessionStatus::Working,
+            SessionStatus::Waiting,
+        ] {
+            assert_eq!(
+                session_archive_action(&archive_test_session(busy, None)),
+                SessionArchiveAction::Blocked
+            );
+            // Coming back off the shelf is always allowed: it can only bring a
+            // Task into view, never hide one.
+            assert_eq!(
+                session_archive_action(&archive_test_session(busy, Some(10))),
+                SessionArchiveAction::Unarchive
+            );
+        }
+
+        for idle in [SessionStatus::Idle, SessionStatus::Failed] {
+            assert_eq!(
+                session_archive_action(&archive_test_session(idle, None)),
+                SessionArchiveAction::Archive
+            );
+            assert_eq!(
+                session_archive_action(&archive_test_session(idle, Some(10))),
+                SessionArchiveAction::Unarchive
+            );
+        }
+    }
+
+    #[test]
+    fn blocked_archive_gestures_carry_no_mark_to_send() {
+        assert_eq!(SessionArchiveAction::Archive.archived(), Some(true));
+        assert_eq!(SessionArchiveAction::Unarchive.archived(), Some(false));
+        assert_eq!(SessionArchiveAction::Blocked.archived(), None);
+    }
+
+    #[test]
+    fn bulk_archive_skips_busy_tasks_and_counts_them() {
+        let idle = archive_test_session(SessionStatus::Idle, None);
+        let working = archive_test_session(SessionStatus::Working, None);
+        let waiting = archive_test_session(SessionStatus::Waiting, None);
+        let sessions = [&idle, &working, &waiting];
+
+        let (targets, refused) = sessions_to_archive(&sessions, true);
+
+        assert_eq!(targets, vec![idle.id]);
+        assert_eq!(refused, 2);
+    }
+
+    #[test]
+    fn bulk_archive_moves_one_way_and_leaves_tasks_already_there_alone() {
+        let unarchived = archive_test_session(SessionStatus::Idle, None);
+        let archived = archive_test_session(SessionStatus::Idle, Some(10));
+        let sessions = [&unarchived, &archived];
+
+        // Shelving a mixed set touches only what is not already shelved, and
+        // the Task already there is not reported as refused.
+        let (targets, refused) = sessions_to_archive(&sessions, true);
+        assert_eq!(targets, vec![unarchived.id]);
+        assert_eq!(refused, 0);
+
+        // The other direction is the mirror image.
+        let (targets, refused) = sessions_to_archive(&sessions, false);
+        assert_eq!(targets, vec![archived.id]);
+        assert_eq!(refused, 0);
+    }
+
+    #[test]
+    fn bulk_unarchive_is_never_refused_for_a_busy_task() {
+        // A Working Task can still be brought back off the shelf — the daemon
+        // guards only the direction that hides work.
+        let working = archive_test_session(SessionStatus::Working, Some(10));
+        let sessions = [&working];
+
+        let (targets, refused) = sessions_to_archive(&sessions, false);
+
+        assert_eq!(targets, vec![working.id]);
+        assert_eq!(refused, 0);
     }
 
     #[test]

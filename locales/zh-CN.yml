@@ -7,6 +7,7 @@ menu.quit: 退出 %{app}
 menu.file: 文件
 menu.new_task: 新建任务
 menu.new_project: 新建项目…
+menu.toggle_archive_task: 归档或取消归档任务
 menu.edit: 编辑
 menu.undo: 撤销
 menu.redo: 重做
@@ -254,6 +255,11 @@ session.remove_many_title: "移除 %{count} 个任务？"
 session.remove_body: "这将永久删除记录及其保存的状态，且无法撤销。"
 session.remove_overflow: "还有 %{count} 个"
 session.remove_count: "移除 %{count} 个任务"
+session.archive: 移入任务架
+session.unarchive: 移出任务架
+session.archive_count: "将 %{count} 个任务移入任务架"
+session.unarchive_count: "将 %{count} 个任务移出任务架"
+session.archive_refused_busy: "%{count} 个任务正在运行或等待你处理，未能移入任务架"
 sidebar.today: 今天
 sidebar.search: 搜索
 sidebar.options: 侧边栏选项

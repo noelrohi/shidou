@@ -67,6 +67,7 @@ actions!(
         CloseWindow,
         NewSession,
         NewProject,
+        ToggleArchiveTask,
         OpenSettings,
         CheckForUpdates,
         ToggleSidebar,
@@ -239,6 +240,7 @@ pub fn run() {
                 KeyBinding::new("secondary-w", CloseWindow, None),
                 KeyBinding::new("secondary-n", NewSession, None),
                 KeyBinding::new("secondary-o", NewProject, None),
+                KeyBinding::new("secondary-shift-a", ToggleArchiveTask, Some("Shidou")),
                 KeyBinding::new("secondary-,", OpenSettings, None),
                 KeyBinding::new("secondary-b", ToggleSidebar, None),
                 KeyBinding::new("secondary-shift-b", ToggleRightPanel, None),
@@ -448,6 +450,8 @@ pub(crate) fn set_app_menus(cx: &mut App, updater_available: bool) {
             items: vec![
                 MenuItem::action(tr!("menu.new_task"), NewSession),
                 MenuItem::action(tr!("menu.new_project"), NewProject),
+                MenuItem::separator(),
+                MenuItem::action(tr!("menu.toggle_archive_task"), ToggleArchiveTask),
             ],
         },
         Menu {

@@ -14,6 +14,8 @@ menu.new_task:
   en: New Task
 menu.new_project:
   en: New Project…
+menu.toggle_archive_task:
+  en: Archive or Unarchive Task
 menu.edit:
   en: Edit
 menu.undo:
@@ -521,6 +523,16 @@ session.remove_overflow:
   en: and %{count} more
 session.remove_count:
   en: Remove %{count} Tasks
+session.archive:
+  en: Move to Task Shelf
+session.unarchive:
+  en: Take Off Task Shelf
+session.archive_count:
+  en: Move %{count} Tasks to the Task Shelf
+session.unarchive_count:
+  en: Take %{count} Tasks Off the Task Shelf
+session.archive_refused_busy:
+  en: "%{count} Tasks stayed off the Task Shelf while they are working or waiting for you"
 
 sidebar.today:
   en: Today
