@@ -1,10 +1,9 @@
 import Foundation
 import ShidouProtocol
 
-// Byte-faithful port of `apps/web/src/lib/event-reducer.ts`. Both clients
-// persist the projection they compute via `saveTaskState`, so any divergence
-// from the web reducer shows up as transcript flapping between clients —
-// change this file only in lockstep with the web reducer.
+// Byte-faithful port of `apps/web/src/lib/event-reducer.ts`. The daemon owns
+// the persisted Projection; the clients keep faithful reducer ports for live
+// rendering, or a refetch makes the transcript flap between two shapes.
 
 public struct PendingPermission: Hashable, Sendable {
     public var requestId: String
@@ -101,15 +100,7 @@ public func reduceRuntimeEvent(
         }
     case "turnAccepted":
         guard let accepted = try? payload.decode(as: TurnAcceptedPayload.self) else { break }
-        let knownTurn = session.turns.contains { $0.id == accepted.turn.id }
-        for message in accepted.messages where !session.messages.contains(where: { $0.id == message.id }) {
-            session.messages.append(message)
-        }
-        if accepted.turn.status == .running, !session.status.isBusy {
-            session.status = .connecting
-        }
-        session.updatedAt = max(session.updatedAt, accepted.turn.startedAt)
-        if !knownTurn { session.turns.append(accepted.turn) }
+        acceptTurn(&session, accepted)
     case "turnStarted":
         if let index = activeTurnIndex(session) {
             session.turns[index].providerTurnStarted = true
@@ -371,6 +362,56 @@ private func lastReasoningLocation(_ session: AgentSession) -> (block: Int, acti
 private struct TurnAcceptedPayload: Decodable {
     var turn: AgentTurn
     var messages: [Message]
+}
+
+/// Incorporate the daemon's canonical record of a submitted prompt. A local
+/// running turn is the instant echo shown before the daemon answers, so adopt
+/// the canonical identities in place and retain its presentation data.
+private func acceptTurn(_ session: inout AgentSession, _ accepted: TurnAcceptedPayload) {
+    let knownTurn = session.turns.contains { $0.id == accepted.turn.id }
+    let provisionalIndex = knownTurn ? nil : session.turns.firstIndex {
+        $0.id != accepted.turn.id
+            && $0.turnCount == accepted.turn.turnCount
+            && $0.status == .running
+    }
+
+    if let provisionalIndex {
+        let provisionalTurnId = session.turns[provisionalIndex].id
+        session.turns[provisionalIndex] = accepted.turn
+        var availableMessageIndices = session.messages.indices.filter {
+            session.messages[$0].turnId == provisionalTurnId
+        }
+        for message in accepted.messages {
+            guard !session.messages.contains(where: { $0.id == message.id }) else { continue }
+            if let position = availableMessageIndices.firstIndex(where: {
+                session.messages[$0].role == message.role
+            }) {
+                let index = availableMessageIndices.remove(at: position)
+                session.messages[index].id = message.id
+                session.messages[index].turnId = accepted.turn.id
+            } else {
+                session.messages.append(message)
+            }
+        }
+        for index in availableMessageIndices {
+            session.messages[index].turnId = accepted.turn.id
+        }
+        for index in session.transcriptBlocks.indices
+        where session.transcriptBlocks[index].turnId == provisionalTurnId {
+            session.transcriptBlocks[index].turnId = accepted.turn.id
+        }
+    } else {
+        for message in accepted.messages
+        where !session.messages.contains(where: { $0.id == message.id }) {
+            session.messages.append(message)
+        }
+        if !knownTurn { session.turns.append(accepted.turn) }
+    }
+
+    if accepted.turn.status == .running, !session.status.isBusy {
+        session.status = .connecting
+    }
+    session.updatedAt = max(session.updatedAt, accepted.turn.startedAt)
 }
 
 private func activeTurnIndex(_ session: AgentSession) -> Int? {

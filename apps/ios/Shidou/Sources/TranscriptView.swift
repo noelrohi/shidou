@@ -327,6 +327,7 @@ struct TranscriptView: View {
                 .onScrolledAwayFromBottom(threshold: 100) { isAwayFromLatest = $0 }
                 .onAppear { anchorSubmittedMessage(in: rows, with: proxy) }
                 .onChange(of: latestUserMessageId(in: model.session)) {
+                    reconcileSubmittedMessageAnchor(in: rows)
                     anchorSubmittedMessage(in: rows, with: proxy)
                 }
                 .onChange(of: currentMatch) { _, index in
@@ -390,6 +391,21 @@ struct TranscriptView: View {
             }
             // Keeps the last row clear of the composer's top edge.
             Color.clear.frame(height: 8).id("transcript-tail")
+        }
+    }
+
+    /// Accepted Turn replaces the optimistic message id. Carry the scroll
+    /// anchor and its measured height to the canonical row so the prompt does
+    /// not jump when its identity converges.
+    private func reconcileSubmittedMessageAnchor(in rows: [TranscriptRow]) {
+        guard pendingSubmissionAnchor == nil,
+            let submittedMessageAnchor,
+            !rows.contains(where: { $0.id == submittedMessageAnchor }),
+            let latest = latestUserMessage(in: rows)
+        else { return }
+        self.submittedMessageAnchor = latest.rowId
+        if let height = anchoredRowHeights.removeValue(forKey: submittedMessageAnchor) {
+            anchoredRowHeights[latest.rowId] = height
         }
     }
 

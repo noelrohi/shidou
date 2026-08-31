@@ -508,8 +508,15 @@ public final class SessionStore {
     }
 
     func persistAndWait(_ session: AgentSession) async throws {
+        var metadata = session
+        // The daemon owns the canonical Projection. Phone saves still create
+        // sessions and reconcile metadata and queue state, but never carry the
+        // locally reduced transcript.
+        metadata.messages = []
+        metadata.transcriptBlocks = []
+        metadata.turns = []
         _ = try await request(
-            .saveTaskState(projects: [], liveSessionIds: [session.id], sessions: [session]),
+            .saveTaskState(projects: [], liveSessionIds: [session.id], sessions: [metadata]),
             sessionId: session.id
         )
     }

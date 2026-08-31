@@ -5,8 +5,8 @@ import XCTest
 @testable import ShidouSession
 
 /// Port of `apps/web/src/lib/event-reducer.test.ts`. Keep the cases in sync:
-/// both clients persist the projection they compute, so behavioral drift
-/// between the two reducers corrupts shared sessions.
+/// both clients reduce the live stream, so behavioral drift appears as a
+/// transcript change when the daemon's canonical Projection is refetched.
 final class SessionProjectionTests: XCTestCase {
     private let sessionId = UUID(uuidString: "00000000-0000-4000-8000-0000000000aa")!
     private let runtimeId = UUID(uuidString: "00000000-0000-4000-8000-0000000000bb")!
@@ -246,6 +246,47 @@ final class SessionProjectionTests: XCTestCase {
         ))
         XCTAssertNil(model.pendingUserInput)
         XCTAssertEqual(model.currentProjection.status, .working)
+    }
+
+    func testAcceptedTurnAdoptsCanonicalIdsWithoutDuplicatingTheOptimisticPrompt() {
+        let clock = makeClock()
+        var session = runningSession()
+        session.messages[0].displayContent = "Visible prompt"
+        session.transcriptBlocks = [TranscriptBlock(
+            afterMessage: 1,
+            turnId: turnId,
+            activities: []
+        )]
+        let canonicalTurnId = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        let canonicalMessageId = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
+        let accepted: JSONValue = [
+            "turn": [
+                "id": .string(canonicalTurnId.uuidString.lowercased()),
+                "turn_count": 1,
+                "status": "running",
+                "provider_turn_started": false,
+                "started_at": 101,
+                "completed_at": nil,
+                "checkpoint": nil,
+            ],
+            "messages": [[
+                "id": .string(canonicalMessageId.uuidString.lowercased()),
+                "turn_id": .string(canonicalTurnId.uuidString.lowercased()),
+                "role": "user",
+                "content": "Daemon prompt",
+                "created_at": 101,
+                "streaming": false,
+            ]],
+        ]
+
+        session = apply(session, "turnAccepted", accepted, clock: clock)
+
+        XCTAssertEqual(session.turns.map(\.id), [canonicalTurnId])
+        XCTAssertEqual(session.messages.map(\.id), [canonicalMessageId])
+        XCTAssertEqual(session.messages[0].turnId, canonicalTurnId)
+        XCTAssertEqual(session.messages[0].content, "Go")
+        XCTAssertEqual(session.messages[0].displayContent, "Visible prompt")
+        XCTAssertEqual(session.transcriptBlocks[0].turnId, canonicalTurnId)
     }
 
     func testIncorporatesFollowUpAcceptedByAnotherClientBeforeItsOutput() {
