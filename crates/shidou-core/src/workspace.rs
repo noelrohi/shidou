@@ -19,6 +19,13 @@ pub use shidou_protocol::workspace::{
 };
 
 pub fn execute(operation: WorkspaceOperation) -> anyhow::Result<WorkspaceResult> {
+    execute_with_provider_binary(operation, None)
+}
+
+pub fn execute_with_provider_binary(
+    operation: WorkspaceOperation,
+    provider_binary: Option<&Path>,
+) -> anyhow::Result<WorkspaceResult> {
     Ok(match operation {
         WorkspaceOperation::ListTree {
             root,
@@ -70,9 +77,23 @@ pub fn execute(operation: WorkspaceOperation) -> anyhow::Result<WorkspaceResult>
         WorkspaceOperation::DiscoverSlashCommands {
             provider,
             project_root,
-        } => WorkspaceResult::SlashCommands {
-            commands: crate::composer_complete::discover_slash_commands(provider, &project_root),
-        },
+        } => {
+            let discovered =
+                crate::composer_complete::discover_slash_commands(provider, &project_root);
+            let commands = if provider == crate::model::ProviderKind::Pi {
+                provider_binary
+                    .and_then(|binary| {
+                        crate::driver::discover_pi_commands(binary, &project_root).ok()
+                    })
+                    .map(|reported| {
+                        crate::composer_complete::merge_reported_commands(&discovered, &reported)
+                    })
+                    .unwrap_or(discovered)
+            } else {
+                discovered
+            };
+            WorkspaceResult::SlashCommands { commands }
+        }
         WorkspaceOperation::CreateProjectlessWorkspace { prompt } => {
             WorkspaceResult::ProjectlessWorkspace {
                 cwd: crate::projectless::create_workspace(prompt.as_deref())?.cwd,

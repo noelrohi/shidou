@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{Context as _, anyhow, bail};
 use crossbeam_channel::{Sender, bounded, unbounded};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -367,7 +367,7 @@ impl PiDriver {
             .spawn(move || {
                 let mut stdin = stdin;
                 let mut next_request_id = 0_u64;
-                let initialize = (|| -> Result<Value, String> {
+                let initialize = (|| -> Result<(Value, Option<Vec<ReportedCommand>>), String> {
                     // Negotiate before anything else so a large first response
                     // arrives chunked rather than shrunk to an error frame.
                     if flavor.negotiates_protocol_v2() {
@@ -438,16 +438,29 @@ impl PiDriver {
                             json!({"type": "set_thinking_level", "level": level}),
                         )?;
                     }
-                    send_request(
+                    let commands = if flavor == PiFlavor::Pi {
+                        send_request(
+                            &mut stdin,
+                            &writer_pending,
+                            &mut next_request_id,
+                            json!({"type": "get_commands"}),
+                        )
+                        .ok()
+                        .map(|response| reported_commands_from_pi_response(&response))
+                    } else {
+                        None
+                    };
+                    let state = send_request(
                         &mut stdin,
                         &writer_pending,
                         &mut next_request_id,
                         json!({"type": "get_state"}),
-                    )
+                    )?;
+                    Ok((state, commands))
                 })();
 
-                let state = match initialize {
-                    Ok(state) => state,
+                let (state, reported_commands) = match initialize {
+                    Ok(initialized) => initialized,
                     Err(error) => {
                         let _ = writer_events.send(DriverEvent::Error(tr!(
                             "errors.initialize_provider",
@@ -490,6 +503,9 @@ impl PiDriver {
                 let _ = writer_events.send(DriverEvent::Connected {
                     provider_cursor: Some(cursor.clone()),
                 });
+                if let Some(commands) = reported_commands {
+                    let _ = writer_events.send(DriverEvent::AvailableCommands(commands));
+                }
                 if let Some((context_tokens, context_window)) = initial_usage {
                     let _ = writer_events.send(DriverEvent::UsageUpdated {
                         context_tokens,
@@ -835,7 +851,17 @@ fn send_request(
     stdin: &mut impl Write,
     pending: &PendingResponses,
     next_request_id: &mut u64,
+    request: Value,
+) -> Result<Value, String> {
+    send_request_with_timeout(stdin, pending, next_request_id, request, RPC_TIMEOUT)
+}
+
+fn send_request_with_timeout(
+    stdin: &mut impl Write,
+    pending: &PendingResponses,
+    next_request_id: &mut u64,
     mut request: Value,
+    timeout: Duration,
 ) -> Result<Value, String> {
     *next_request_id += 1;
     let id = format!("shidou-{}", next_request_id);
@@ -846,7 +872,7 @@ fn send_request(
         pending.lock().remove(&id);
         return Err(format!("transport write failed: {error}"));
     }
-    match response_rx.recv_timeout(RPC_TIMEOUT) {
+    match response_rx.recv_timeout(timeout) {
         Ok(response) => response,
         Err(_) => {
             pending.lock().remove(&id);
@@ -882,6 +908,86 @@ fn parse_model_slug(model: &str) -> anyhow::Result<(&str, &str)> {
         ));
     }
     Ok((provider, model_id))
+}
+
+pub(crate) fn discover_commands(binary: &Path, cwd: &Path) -> anyhow::Result<Vec<ReportedCommand>> {
+    let mut command = crate::command_env::command(binary);
+    command
+        .args(["--mode", "rpc", "--approve", "--no-session"])
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .env("PI_SKIP_VERSION_CHECK", "1");
+    let mut child = crate::command_env::spawn(&mut command)
+        .with_context(|| format!("failed to start {} for command discovery", binary.display()))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("Pi command discovery stdin unavailable"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("Pi command discovery stdout unavailable"))?;
+    write_json_line(
+        &mut stdin,
+        &json!({"id": "shidou-commands", "type": "get_commands"}),
+    )
+    .context("could not request Pi commands")?;
+    drop(stdin);
+
+    let (response_tx, response_rx) = bounded(1);
+    let reader = thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let Ok(response) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if response.get("id").and_then(Value::as_str) == Some("shidou-commands") {
+                let _ = response_tx.send(response);
+                break;
+            }
+        }
+    });
+    let response = response_rx
+        .recv_timeout(RPC_TIMEOUT)
+        .map_err(|_| anyhow!("Pi command discovery timed out"));
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader.join();
+    let response = response?;
+    if response.get("success").and_then(Value::as_bool) != Some(true) {
+        bail!(
+            "Pi command discovery failed: {}",
+            response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown RPC error")
+        );
+    }
+    Ok(reported_commands_from_pi_response(&response))
+}
+
+fn reported_commands_from_pi_response(response: &Value) -> Vec<ReportedCommand> {
+    response
+        .pointer("/data/commands")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|command| {
+            let name = command.get("name").and_then(Value::as_str)?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            Some(ReportedCommand {
+                name: name.to_owned(),
+                description: command
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn cursor_from_state(flavor: PiFlavor, response: &Value) -> Option<ProviderResumeCursor> {

@@ -196,6 +196,13 @@ pub struct SessionOptions {
     pub context_window: Option<String>,
 }
 
+pub(crate) fn discover_pi_commands(
+    binary: &std::path::Path,
+    cwd: &std::path::Path,
+) -> anyhow::Result<Vec<crate::model::ReportedCommand>> {
+    pi::discover_commands(binary, cwd)
+}
+
 pub(crate) fn start_local(
     provider: ProviderKind,
     options: DriverStartOptions,

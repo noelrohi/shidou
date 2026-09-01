@@ -1179,7 +1179,10 @@ mod tests {
     use crossbeam_channel::bounded;
     use serde_json::json;
     use shidou_client::DaemonClient;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt as _;
     use std::path::PathBuf;
+    use std::time::Instant;
 
     #[cfg(unix)]
     struct ShidouTestDaemon {
@@ -1369,6 +1372,222 @@ mod tests {
             self.server.take().unwrap().join().unwrap();
             std::fs::remove_dir_all(&self.root).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pi_composer_discovery_includes_extension_commands_before_the_first_turn() {
+        let daemon = ShidouTestDaemon::new("pi-composer-commands", |_| {});
+        let binary = daemon.root.join("pi-composer-fixture.py");
+        std::fs::write(
+            &binary,
+            r#"#!/usr/bin/env python3
+import json
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    command = request.get("type")
+    data = {"commands": [{
+        "name": "rpc-only-command",
+        "description": "Loaded only from the Pi RPC catalog",
+        "source": "extension",
+    }]} if command == "get_commands" else {}
+    print(json.dumps({
+        "id": request.get("id"),
+        "type": "response",
+        "command": command,
+        "success": True,
+        "data": data,
+    }), flush=True)
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&binary, permissions).unwrap();
+
+        let client = daemon.connect();
+        let mut settings = crate::DaemonSettings::default();
+        settings
+            .provider_binary_overrides
+            .insert(ProviderKind::Pi, binary.to_string_lossy().into_owned());
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::UpdateSettings { settings },
+            )
+            .unwrap();
+
+        let ResponsePayload::Workspace {
+            result: crate::WorkspaceResult::SlashCommands { commands },
+        } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::Workspace {
+                    operation: crate::WorkspaceOperation::DiscoverSlashCommands {
+                        provider: ProviderKind::Pi,
+                        project_root: daemon.root.clone(),
+                    },
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected Pi composer commands");
+        };
+
+        assert!(
+            commands.iter().any(|command| {
+                command.name == "rpc-only-command"
+                    && command.description == "Loaded only from the Pi RPC catalog"
+            }),
+            "Pi extension command was absent before the first turn: {commands:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pi_task_publishes_extension_commands_from_its_rpc_catalog() {
+        let root = std::env::temp_dir().join(format!("shidou-pi-commands-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("pi-fixture.py");
+        std::fs::write(
+            &binary,
+            r#"#!/usr/bin/env python3
+import json
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    command = request.get("type")
+    if command == "get_state":
+        data = {
+            "sessionId": "fixture-session",
+            "sessionFile": "/tmp/fixture-session.jsonl",
+            "model": None,
+            "isStreaming": False,
+        }
+    elif command == "get_commands":
+        data = {"commands": [{
+            "name": "handoff",
+            "description": "Hand work to another agent",
+            "source": "extension",
+            "path": "/tmp/handoff.ts",
+        }]}
+    elif command == "get_session_stats":
+        data = {}
+    else:
+        data = {}
+    print(json.dumps({
+        "id": request.get("id"),
+        "type": "response",
+        "command": command,
+        "success": True,
+        "data": data,
+    }), flush=True)
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&binary, permissions).unwrap();
+
+        let backend = ShidouBackend::new(
+            DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
+            StateStore::daemon(root.join("app.db")),
+        )
+        .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server_shutdown = shutdown.clone();
+        let server = std::thread::spawn(move || {
+            serve(
+                listener,
+                "secret".into(),
+                Arc::new(backend),
+                server_shutdown,
+                ServerOptions {
+                    allow_shutdown: true,
+                    ..ServerOptions::default()
+                },
+            )
+            .unwrap()
+        });
+        let client = DaemonClient::connect(&address.to_string(), "secret".into()).unwrap();
+        let session = AgentSession::new(Uuid::new_v4(), ProviderKind::Pi);
+        let session_id = session.id;
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: Vec::new(),
+                    live_session_ids: vec![session_id],
+                    sessions: vec![session],
+                },
+            )
+            .unwrap();
+
+        let runtime_id = Uuid::new_v4();
+        let events = client.subscribe(session_id, runtime_id);
+        client
+            .request(
+                session_id,
+                runtime_id,
+                Command::Start {
+                    options: WireDriverStartOptions {
+                        provider: "pi".into(),
+                        binary,
+                        cwd: root.clone(),
+                        mode: "fullAccess".into(),
+                        interaction_mode: "build".into(),
+                        model: None,
+                        reasoning_effort: None,
+                        service_tier: None,
+                        context_window: None,
+                        agent_preset: None,
+                        computer_use_enabled: false,
+                        provider_cursor: None,
+                    },
+                },
+            )
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if let Ok(event) = events.recv_timeout(Duration::from_millis(100))
+                && event.event.kind == "availableCommands"
+            {
+                break;
+            }
+        }
+        let ResponsePayload::Session {
+            session: Some(session),
+        } = client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::HydrateSession { session_id },
+            )
+            .unwrap()
+        else {
+            panic!("expected the Pi task projection");
+        };
+
+        assert!(
+            session.available_commands.iter().any(|command| {
+                command.name == "handoff" && command.description == "Hand work to another agent"
+            }),
+            "Pi extension command was not published: {:?}",
+            session.available_commands
+        );
+
+        client.shutdown();
+        server.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[derive(Default)]

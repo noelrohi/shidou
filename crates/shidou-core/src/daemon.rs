@@ -640,9 +640,21 @@ impl Backend for ShidouBackend {
                     checkpoint: self.capture_turn_checkpoint(cwd, session_id, turn_count)?,
                 },
             }),
-            Command::Workspace { operation } => Ok(ResponsePayload::Workspace {
-                result: crate::workspace::execute(operation)?,
-            }),
+            Command::Workspace { operation } => {
+                let provider_binary = match &operation {
+                    WorkspaceOperation::DiscoverSlashCommands {
+                        provider: ProviderKind::Pi,
+                        ..
+                    } => self.provider_binary(ProviderKind::Pi).ok(),
+                    _ => None,
+                };
+                Ok(ResponsePayload::Workspace {
+                    result: crate::workspace::execute_with_provider_binary(
+                        operation,
+                        provider_binary.as_deref(),
+                    )?,
+                })
+            }
             Command::OpenTerminal { cwd, cols, rows } => {
                 ensure_shell_environment();
                 let terminal = crate::terminal::DaemonTerminal::open(&cwd, cols, rows, events)?;
