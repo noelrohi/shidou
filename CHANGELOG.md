@@ -14,6 +14,19 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.13]
+
+- Archive finished tasks out of the sidebar: archived tasks gather in a
+  collapsed Archived section at the foot of the list, on desktop, phone, and
+  browser alike
+- Archive from a task's row menu, with Cmd+Shift+A to toggle the selected
+  task, and archive several marked rows in one action on desktop
+- Working and waiting tasks refuse to archive, and an archived task returns
+  by itself the moment it needs you — a prompt, a permission request, a
+  question, or a failure
+- Find archived tasks in the command palette, labeled with their state;
+  opening one to read it does not unarchive it
+
 ## [0.2.12]
 
 - Keep prompts and streaming replies in sync when sending from a client whose
