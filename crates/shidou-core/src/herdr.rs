@@ -43,16 +43,7 @@ fn load_state_result() -> anyhow::Result<HerdrState> {
 
 pub fn read_agent(terminal_id: &str, lines: u32) -> anyhow::Result<HerdrAgentOutput> {
     let target = resolve_terminal(terminal_id)?;
-    let result = request(
-        "agent.read",
-        json!({
-            "target": target,
-            "source": "recent-unwrapped",
-            "format": "text",
-            "strip_ansi": true,
-            "lines": lines.clamp(1, 2_000),
-        }),
-    )?;
+    let result = request("agent.read", agent_read_params(&target, lines))?;
     let read: ReadResult = serde_json::from_value(
         result
             .get("read")
@@ -119,6 +110,16 @@ pub fn start_agent(
     decode_agent(&started)
 }
 
+fn agent_read_params(target: &str, lines: u32) -> Value {
+    json!({
+        "target": target,
+        "source": "recent_unwrapped",
+        "format": "text",
+        "strip_ansi": true,
+        "lines": lines.clamp(1, 2_000),
+    })
+}
+
 fn snapshot() -> anyhow::Result<Snapshot> {
     let result = request("session.snapshot", json!({}))?;
     serde_json::from_value(
@@ -178,16 +179,21 @@ fn request(method: &str, params: Value) -> anyhow::Result<Value> {
     if line.is_empty() {
         bail!("Herdr closed the socket without replying to {method}");
     }
+    decode_response(&id, &line)
+}
+
+fn decode_response(expected_id: &str, line: &str) -> anyhow::Result<Value> {
     let response: RpcResponse =
-        serde_json::from_str(&line).context("Herdr returned invalid JSON")?;
-    if response.id != id {
+        serde_json::from_str(line).context("Herdr returned invalid JSON")?;
+    if let Some(error) = response.error {
+        bail!("{}: {}", error.code, error.message);
+    }
+    if response.id != expected_id {
         bail!("Herdr returned a response for a different request");
     }
-    match (response.result, response.error) {
-        (Some(result), None) => Ok(result),
-        (_, Some(error)) => bail!("{}: {}", error.code, error.message),
-        _ => bail!("Herdr returned an empty response"),
-    }
+    response
+        .result
+        .ok_or_else(|| anyhow!("Herdr returned an empty response"))
 }
 
 #[cfg(not(unix))]
@@ -363,6 +369,23 @@ mod tests {
         assert_eq!(agent.cwd.as_deref(), Some("/repo/worktree"));
         assert_eq!(agent.status, HerdrAgentStatus::Blocked);
         assert_eq!(agent.provider_session.unwrap().value, "abc");
+    }
+
+    #[test]
+    fn agent_read_uses_herdrs_wire_spelling() {
+        let params = agent_read_params("w1:p2", 240);
+        assert_eq!(params["source"], "recent_unwrapped");
+        assert_eq!(params["lines"], 240);
+    }
+
+    #[test]
+    fn protocol_errors_are_not_masked_by_their_empty_request_id() {
+        let error = decode_response(
+            "shidou_request",
+            r#"{"id":"","error":{"code":"invalid_request","message":"bad source"}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "invalid_request: bad source");
     }
 
     #[test]
