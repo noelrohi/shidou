@@ -51,9 +51,11 @@ describe('reduceRuntimeEvent', () => {
     }]
 
     const session = apply(optimistic, 'turnAccepted', {
+      submissionId: optimisticTurnId,
       turn: {
         ...optimistic.turns[0],
         id: 'canonical-turn',
+        turn_count: 5,
       },
       messages: [{
         ...optimistic.messages[0],
@@ -68,7 +70,7 @@ describe('reduceRuntimeEvent', () => {
     expect(optimisticTurnId).not.toBe('canonical-turn')
     expect(optimisticMessageId).not.toBe('canonical-message')
     expect(session.turns).toHaveLength(1)
-    expect(session.turns[0]?.id).toBe('canonical-turn')
+    expect(session.turns[0]).toMatchObject({ id: 'canonical-turn', turn_count: 5 })
     expect(session.messages).toHaveLength(1)
     expect(session.messages[0]).toMatchObject({
       id: 'canonical-message',
@@ -82,6 +84,7 @@ describe('reduceRuntimeEvent', () => {
   test('incorporates a follow-up accepted by another client before its output', () => {
     let session = apply(runningSession(), 'turnFinished', { success: true, summary: null })
     const accepted = {
+      submissionId: 'remote-submission',
       turn: {
         id: 'remote-turn',
         turn_count: 2,

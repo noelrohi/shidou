@@ -16,7 +16,7 @@ use crate::usage::PlanUsage;
 use crate::usage_history::{UsageHistory, UsageWindow};
 use crate::workspace::{WorkspaceOperation, WorkspaceResult};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 pub const MAX_WIRE_MESSAGE_BYTES: usize = 48 * 1024 * 1024;
 
 // Shared presentation values used by both native and web gallery clients.
@@ -93,6 +93,7 @@ pub enum Command {
     },
     Prompt {
         prompt: String,
+        submission_id: Uuid,
     },
     Steer {
         prompt: String,
@@ -585,13 +586,28 @@ mod tests {
     }
 
     #[test]
+    fn prompt_command_carries_the_submission_id() {
+        let submission_id = Uuid::from_u128(13);
+        let json = serde_json::to_value(Command::Prompt {
+            prompt: "hello".into(),
+            submission_id,
+        })
+        .unwrap();
+
+        assert_eq!(json["type"], "prompt");
+        assert_eq!(json["prompt"], "hello");
+        assert_eq!(json["submissionId"], submission_id.to_string());
+        assert_eq!(PROTOCOL_VERSION, 6);
+    }
+
+    #[test]
     fn response_fork_command_uses_stable_camel_case_fields() {
         let json =
             serde_json::to_value(Command::ForkSessionFromResponse { turn_count: 7 }).unwrap();
 
         assert_eq!(json["type"], "forkSessionFromResponse");
         assert_eq!(json["turnCount"], 7);
-        assert_eq!(PROTOCOL_VERSION, 5);
+        assert_eq!(PROTOCOL_VERSION, 6);
     }
 
     #[test]
@@ -600,7 +616,7 @@ mod tests {
 
         assert_eq!(json["type"], "rewindSessionToMessage");
         assert_eq!(json["turnCount"], 4);
-        assert_eq!(PROTOCOL_VERSION, 5);
+        assert_eq!(PROTOCOL_VERSION, 6);
     }
 
     #[test]

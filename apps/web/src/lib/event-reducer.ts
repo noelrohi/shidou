@@ -95,15 +95,13 @@ export function reduceRuntimeEvent(
     case 'turnAccepted': {
       const value = asRecord(payload)
       const turn = asRecord(value?.turn)
-      if (!turn || typeof turn.id !== 'string') break
-      const accepted = clone(value!.turn as AgentTurn)
+      if (!turn || typeof turn.id !== 'string' || typeof value?.submissionId !== 'string') break
+      const accepted = clone(value.turn as AgentTurn)
       const knownTurn = session.turns.some((existing) => existing.id === accepted.id)
       const provisionalIndex = knownTurn
         ? -1
         : session.turns.findIndex((existing) =>
-            existing.id !== accepted.id
-            && existing.turn_count === accepted.turn_count
-            && existing.status === 'running',
+            existing.id === value.submissionId && existing.status === 'running',
           )
       const messages = Array.isArray(value?.messages) ? value.messages : []
 

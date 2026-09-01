@@ -34,9 +34,13 @@ pub fn event_to_wire(event: DriverEvent) -> anyhow::Result<WireDriverEvent> {
         DriverEvent::AvailableCommands(commands) => {
             ("availableCommands", serde_json::to_value(commands)?)
         }
-        DriverEvent::TurnAccepted { turn, messages } => (
+        DriverEvent::TurnAccepted {
+            submission_id,
+            turn,
+            messages,
+        } => (
             "turnAccepted",
-            json!({ "turn": turn, "messages": messages }),
+            json!({ "submissionId": submission_id, "turn": turn, "messages": messages }),
         ),
         DriverEvent::TurnStarted => ("turnStarted", Value::Null),
         DriverEvent::TextDelta(text) => ("textDelta", Value::String(text)),
@@ -133,6 +137,7 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
         "turnAccepted" => {
             let accepted: TurnAcceptedWire = serde_json::from_value(payload)?;
             DriverEvent::TurnAccepted {
+                submission_id: accepted.submission_id,
                 turn: accepted.turn,
                 messages: accepted.messages,
             }
@@ -218,7 +223,9 @@ pub fn event_from_wire(event: WireDriverEvent) -> anyhow::Result<DriverEvent> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TurnAcceptedWire {
+    submission_id: uuid::Uuid,
     turn: crate::model::AgentTurn,
     messages: Vec<crate::model::Message>,
 }
@@ -315,11 +322,23 @@ mod tests {
         let turn = session.turns.pop().unwrap();
         let messages = std::mem::take(&mut session.messages);
 
-        let wire = event_to_wire(DriverEvent::TurnAccepted { turn, messages }).unwrap();
+        let submission_id = Uuid::new_v4();
+        let wire = event_to_wire(DriverEvent::TurnAccepted {
+            submission_id,
+            turn,
+            messages,
+        })
+        .unwrap();
         assert_eq!(wire.kind, "turnAccepted");
-        let DriverEvent::TurnAccepted { turn, messages } = event_from_wire(wire).unwrap() else {
+        let DriverEvent::TurnAccepted {
+            submission_id: decoded_submission_id,
+            turn,
+            messages,
+        } = event_from_wire(wire).unwrap()
+        else {
             panic!("the event changed variants during its wire round trip");
         };
+        assert_eq!(decoded_submission_id, submission_id);
         assert_eq!(turn.id, turn_id);
         assert_eq!(messages[0].turn_id, Some(turn_id));
         assert_eq!(messages[0].content, "this works fine");

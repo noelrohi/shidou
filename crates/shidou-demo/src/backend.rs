@@ -161,7 +161,7 @@ impl Backend for DemoBackend {
                 }
                 Ok(ResponsePayload::Ack)
             }
-            Command::Prompt { prompt } => {
+            Command::Prompt { prompt, .. } => {
                 let (turn, beats) = self.begin_turn(session_id, runtime_id, &prompt)?;
                 log::record(Record::Prompt {
                     session: &session_id.to_string(),

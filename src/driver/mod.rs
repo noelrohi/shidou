@@ -186,7 +186,14 @@ impl RemoteDriverControl {
 
 impl DriverControl for RemoteDriverControl {
     fn prompt(&self, prompt: String) {
-        self.notify(shidou_client::Command::Prompt { prompt });
+        self.prompt_with_submission_id(prompt, uuid::Uuid::new_v4());
+    }
+
+    fn prompt_with_submission_id(&self, prompt: String, submission_id: uuid::Uuid) {
+        self.notify(shidou_client::Command::Prompt {
+            prompt,
+            submission_id,
+        });
     }
 
     fn supports_steer(&self) -> bool {

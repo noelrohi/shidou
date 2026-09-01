@@ -360,6 +360,7 @@ private func lastReasoningLocation(_ session: AgentSession) -> (block: Int, acti
 }
 
 private struct TurnAcceptedPayload: Decodable {
+    var submissionId: UUID
     var turn: AgentTurn
     var messages: [Message]
 }
@@ -370,9 +371,7 @@ private struct TurnAcceptedPayload: Decodable {
 private func acceptTurn(_ session: inout AgentSession, _ accepted: TurnAcceptedPayload) {
     let knownTurn = session.turns.contains { $0.id == accepted.turn.id }
     let provisionalIndex = knownTurn ? nil : session.turns.firstIndex {
-        $0.id != accepted.turn.id
-            && $0.turnCount == accepted.turn.turnCount
-            && $0.status == .running
+        $0.id == accepted.submissionId && $0.status == .running
     }
 
     if let provisionalIndex {

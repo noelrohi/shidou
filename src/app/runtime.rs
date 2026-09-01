@@ -3327,9 +3327,16 @@ impl Shidou {
         // Claude's commands pass through untouched; its CLI owns expansion.
         let prompt = submission.prompt;
         let driver_prompt = self.resolve_provider_submission(provider, &prompt);
+        let submission_id = self
+            .state
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .and_then(AgentSession::active_turn_id)
+            .expect("a prepared submission has a running turn");
         let mut failed_to_start = false;
         match driver {
-            Ok(driver) => driver.prompt(driver_prompt),
+            Ok(driver) => driver.prompt_with_submission_id(driver_prompt, submission_id),
             Err(error) => {
                 failed_to_start = true;
                 let message = tr!("errors.start_agent", error = error);

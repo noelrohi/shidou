@@ -1394,7 +1394,7 @@ mod tests {
                     runtime_id: self.runtimes.lock().get(&session_id).copied(),
                     supports_steer: true,
                 }),
-                Command::Prompt { prompt } => {
+                Command::Prompt { prompt, .. } => {
                     if prompt == "__test_question__" {
                         events.send(WireDriverEvent::new(
                             "userInputRequested",
@@ -1969,6 +1969,7 @@ mod tests {
                 runtime_id,
                 Command::Prompt {
                     prompt: "carry on".into(),
+                    submission_id: Uuid::new_v4(),
                 },
             )
             .unwrap();
@@ -2612,6 +2613,7 @@ mod tests {
                 session_id,
                 runtime_id,
                 Command::Prompt {
+                    submission_id: Uuid::new_v4(),
                     prompt: "streamed from the first client".into(),
                 },
             )
@@ -2628,6 +2630,7 @@ mod tests {
                 session_id,
                 runtime_id,
                 Command::Prompt {
+                    submission_id: Uuid::new_v4(),
                     prompt: "__test_question__".into(),
                 },
             )
@@ -3335,6 +3338,7 @@ mod tests {
                 session_id: blocked_session_id,
                 runtime_id: blocked_runtime_id,
                 command: Command::Prompt {
+                    submission_id: Uuid::new_v4(),
                     prompt: "after start".into(),
                 },
             },

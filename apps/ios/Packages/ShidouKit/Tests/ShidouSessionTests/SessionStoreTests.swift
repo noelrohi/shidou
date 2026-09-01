@@ -264,7 +264,9 @@ final class SessionStoreTests: XCTestCase {
         model.replaceSession(beginTurn(model.currentProjection, prompt: text))
         let client = try await supervisor!.currentClient()
         _ = try await client.request(
-            .prompt(text), sessionId: model.session.id, runtimeId: runtimeId
+            .prompt(text, submissionId: UUID()),
+            sessionId: model.session.id,
+            runtimeId: runtimeId
         )
     }
 }

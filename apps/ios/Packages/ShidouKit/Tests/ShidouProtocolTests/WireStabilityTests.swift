@@ -53,7 +53,12 @@ final class WireStabilityTests: XCTestCase {
             requestId: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-00000000000a")),
             sessionId: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-00000000000b")),
             runtimeId: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-00000000000c")),
-            command: .prompt("hello")
+            command: .prompt(
+                "hello",
+                submissionId: try XCTUnwrap(
+                    UUID(uuidString: "00000000-0000-0000-0000-00000000000d")
+                )
+            )
         )
         let object = try json(ClientMessage.request(request))
         XCTAssertEqual(object["type"] as? String, "request")
@@ -63,6 +68,7 @@ final class WireStabilityTests: XCTestCase {
         let command = try XCTUnwrap(object["command"] as? [String: Any])
         XCTAssertEqual(command["type"] as? String, "prompt")
         XCTAssertEqual(command["prompt"] as? String, "hello")
+        XCTAssertEqual(command["submissionId"] as? String, "00000000-0000-0000-0000-00000000000d")
     }
 
     func testWorkspaceOperationFieldsStaySnakeCase() throws {

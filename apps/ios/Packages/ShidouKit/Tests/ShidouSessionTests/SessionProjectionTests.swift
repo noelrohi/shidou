@@ -260,9 +260,10 @@ final class SessionProjectionTests: XCTestCase {
         let canonicalTurnId = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
         let canonicalMessageId = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
         let accepted: JSONValue = [
+            "submissionId": .string(turnId.uuidString.lowercased()),
             "turn": [
                 "id": .string(canonicalTurnId.uuidString.lowercased()),
-                "turn_count": 1,
+                "turn_count": 5,
                 "status": "running",
                 "provider_turn_started": false,
                 "started_at": 101,
@@ -282,6 +283,7 @@ final class SessionProjectionTests: XCTestCase {
         session = apply(session, "turnAccepted", accepted, clock: clock)
 
         XCTAssertEqual(session.turns.map(\.id), [canonicalTurnId])
+        XCTAssertEqual(session.turns.map(\.turnCount), [5])
         XCTAssertEqual(session.messages.map(\.id), [canonicalMessageId])
         XCTAssertEqual(session.messages[0].turnId, canonicalTurnId)
         XCTAssertEqual(session.messages[0].content, "Go")
@@ -297,6 +299,7 @@ final class SessionProjectionTests: XCTestCase {
         let remoteTurn = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
         let remoteMessage = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
         let accepted: JSONValue = [
+            "submissionId": .string(remoteTurn.uuidString.lowercased()),
             "turn": [
                 "id": .string(remoteTurn.uuidString.lowercased()),
                 "turn_count": 2,

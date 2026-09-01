@@ -263,6 +263,7 @@ fn the_first_prompt_streams_the_whole_showcase() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "Why is the limiter letting too much through?".into(),
             },
         )
@@ -330,6 +331,7 @@ fn a_reconnecting_client_replays_exactly_the_tail_it_missed() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "Why is the limiter letting too much through?".into(),
             },
         )
@@ -408,6 +410,7 @@ fn a_later_prompt_is_answered_in_the_words_the_reviewer_typed() {
                 session_id,
                 runtime_id,
                 Command::Prompt {
+                    submission_id: Uuid::new_v4(),
                     prompt: prompt.into(),
                 },
             )
@@ -435,6 +438,7 @@ fn cancelling_settles_the_turn_instead_of_leaving_it_running() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "Why is the limiter letting too much through?".into(),
             },
         )
@@ -465,6 +469,7 @@ fn cancelling_settles_the_turn_instead_of_leaving_it_running() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "Are you still there?".into(),
             },
         )
@@ -492,6 +497,7 @@ fn a_prompt_sent_mid_turn_is_refused_rather_than_interleaved() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "Why is the limiter letting too much through?".into(),
             },
         )
@@ -501,6 +507,7 @@ fn a_prompt_sent_mid_turn_is_refused_rather_than_interleaved() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "And another thing".into(),
             },
         )
@@ -521,6 +528,7 @@ fn a_prompt_sent_mid_turn_is_refused_rather_than_interleaved() {
                 session_id,
                 runtime_id,
                 Command::Prompt {
+                    submission_id: Uuid::new_v4(),
                     prompt: "And another thing".into(),
                 },
             )
@@ -802,6 +810,7 @@ fn a_task_a_client_creates_is_accepted_and_never_stored() {
             session_id,
             runtime_id,
             Command::Prompt {
+                submission_id: Uuid::new_v4(),
                 prompt: "Show me what you can do.".into(),
             },
         )

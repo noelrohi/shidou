@@ -141,7 +141,7 @@ public struct SkillProjectRoot: Encodable, Hashable, Sendable {
 public enum Command: Sendable {
     case attachSession
     case start(options: DriverStartOptions)
-    case prompt(String)
+    case prompt(String, submissionId: UUID)
     case steer(String)
     case cancel
     case respond(requestId: String, optionId: String)
@@ -188,7 +188,7 @@ public enum Command: Sendable {
 
 extension Command: Encodable {
     enum CodingKeys: String, CodingKey {
-        case type, options, prompt, requestId, optionId, answers, provider
+        case type, options, prompt, submissionId, requestId, optionId, answers, provider
         case binaryOverride, discoverModels, probeVersion
         case projects, liveSessionIds, sessions, sessionId, reference, path
         case turnCount, operation, settings, key, controlId, window, projectRoots
@@ -205,9 +205,10 @@ extension Command: Encodable {
         case .start(let options):
             try container.encode("start", forKey: .type)
             try container.encode(options, forKey: .options)
-        case .prompt(let prompt):
+        case .prompt(let prompt, let submissionId):
             try container.encode("prompt", forKey: .type)
             try container.encode(prompt, forKey: .prompt)
+            try container.encode(submissionId.wireString, forKey: .submissionId)
         case .steer(let prompt):
             try container.encode("steer", forKey: .type)
             try container.encode(prompt, forKey: .prompt)
