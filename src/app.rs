@@ -2582,9 +2582,10 @@ impl Shidou {
             // and selection changes, and none of the app chrome depends on
             // those — re-rendering the window twice a second for a blinking
             // caret is exactly what the Performance guidance forbids.
-            cx.subscribe(
+            cx.subscribe_in(
                 &composer,
-                |this: &mut Self, _, event: &ComposerEvent, cx| match event {
+                window,
+                |this: &mut Self, _, event: &ComposerEvent, window, cx| match event {
                     ComposerEvent::Submit(prompt) => {
                         if let Some(session_id) = this.selected_session().and_then(|session| {
                             this.response_fork_preparations
@@ -2593,7 +2594,7 @@ impl Shidou {
                         }) {
                             this.defer_restore_composer_after_fork(session_id, prompt.clone(), cx);
                         } else if let Some(submission) =
-                            this.submission_with_attachments(prompt, cx)
+                            this.submission_with_attachments(prompt, window, cx)
                         {
                             this.submit_composer_submission(submission, cx);
                         }
@@ -2606,7 +2607,7 @@ impl Shidou {
                         }) {
                             this.defer_restore_composer_after_fork(session_id, prompt.clone(), cx);
                         } else if let Some(submission) =
-                            this.submission_with_attachments(prompt, cx)
+                            this.submission_with_attachments(prompt, window, cx)
                         {
                             this.submit_alternate_composer_submission(submission, cx);
                         }

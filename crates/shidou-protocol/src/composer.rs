@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::model::ProviderKind;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, TS)]
 pub enum CommandScope {
     Project,
@@ -45,4 +47,43 @@ pub struct SlashCommand {
 pub struct FileEntry {
     pub path: String,
     pub is_dir: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LocalComposerCommand {
+    NewSession,
+    CopyLastResponse,
+    RenameSession(String),
+    Compact(String),
+}
+
+/// Resolve a command that the client owns instead of sending it to the provider.
+pub fn local_composer_command(
+    provider: ProviderKind,
+    prompt: &str,
+    commands: &[SlashCommand],
+) -> Option<LocalComposerCommand> {
+    if provider != ProviderKind::Pi {
+        return None;
+    }
+    let prompt = prompt.trim_end();
+    let (name, action) = match prompt {
+        "/new" => ("new", LocalComposerCommand::NewSession),
+        "/copy" => ("copy", LocalComposerCommand::CopyLastResponse),
+        "/name" => ("name", LocalComposerCommand::RenameSession(String::new())),
+        "/compact" => ("compact", LocalComposerCommand::Compact(String::new())),
+        _ if let Some(name) = prompt.strip_prefix("/name ") => (
+            "name",
+            LocalComposerCommand::RenameSession(name.trim().to_owned()),
+        ),
+        _ if let Some(instructions) = prompt.strip_prefix("/compact ") => (
+            "compact",
+            LocalComposerCommand::Compact(instructions.trim().to_owned()),
+        ),
+        _ => return None,
+    };
+    commands
+        .iter()
+        .any(|command| command.name == name && command.scope == CommandScope::Builtin)
+        .then_some(action)
 }

@@ -545,12 +545,7 @@ impl Shidou {
         }
     }
 
-    pub(super) fn new_session_action(
-        &mut self,
-        _: &NewSession,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn start_new_session(&mut self, cx: &mut Context<Self>) {
         self.settings_page = None;
         let current_project = self
             .selected_project()
@@ -569,6 +564,15 @@ impl Shidou {
             }
             None => self.create_projectless_session(cx),
         }
+    }
+
+    pub(super) fn new_session_action(
+        &mut self,
+        _: &NewSession,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_new_session(cx);
         let focus_handle = self.composer_focus(cx);
         window.focus(&focus_handle, cx);
     }

@@ -2108,9 +2108,10 @@ impl Shidou {
     pub(super) fn submission_with_attachments(
         &mut self,
         prompt: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<ComposerSubmission> {
-        if self.execute_local_composer_command(prompt, cx) {
+        if self.execute_local_composer_command(prompt, window, cx) {
             return None;
         }
         // Nothing installed or switched on can run this. Refuse before the
@@ -2152,8 +2153,87 @@ impl Shidou {
     pub(super) fn execute_local_composer_command(
         &mut self,
         prompt: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // The selected Pi task commands are client-owned and never cross the
+        // prompt boundary.
+        let provider = self.selected_session().map(|session| session.provider);
+        let local_command = provider.and_then(|provider| {
+            crate::composer_complete::local_composer_command(
+                provider,
+                prompt,
+                &self.slash_command_index,
+            )
+        });
+        match local_command {
+            Some(crate::composer_complete::LocalComposerCommand::NewSession) => {
+                self.composer.update(cx, |input, cx| input.clear(cx));
+                self.start_new_session(cx);
+                return true;
+            }
+            Some(crate::composer_complete::LocalComposerCommand::CopyLastResponse) => {
+                let response = self.selected_session().and_then(|session| {
+                    session
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|message| {
+                            message.role == MessageRole::Assistant
+                                && !message.visible_content().trim().is_empty()
+                        })
+                        .map(|message| message.visible_content().to_owned())
+                });
+                self.composer.update(cx, |input, cx| input.clear(cx));
+                if let Some(response) = response {
+                    cx.write_to_clipboard(ClipboardItem::new_string(response));
+                } else {
+                    self.show_toast("No agent response to copy");
+                }
+                return true;
+            }
+            Some(crate::composer_complete::LocalComposerCommand::RenameSession(title)) => {
+                self.composer.update(cx, |input, cx| input.clear(cx));
+                if title.is_empty() {
+                    if let Some(session_id) = self.selected_session().map(|session| session.id) {
+                        self.set_sidebar_visible(true, cx);
+                        self.begin_session_rename(session_id, window, cx);
+                    }
+                } else if self
+                    .selected_session_mut()
+                    .is_some_and(|session| session.set_title(&title))
+                {
+                    self.save();
+                    cx.notify();
+                }
+                return true;
+            }
+            Some(crate::composer_complete::LocalComposerCommand::Compact(instructions)) => {
+                let session = self
+                    .selected_session()
+                    .map(|session| (session.id, session.is_busy()));
+                self.composer.update(cx, |input, cx| input.clear(cx));
+                match session {
+                    Some((_, true)) => self.show_toast("Wait for the current turn to finish"),
+                    Some((session_id, false)) => {
+                        let instructions = (!instructions.is_empty()).then_some(instructions);
+                        if self
+                            .runtimes
+                            .get(&session_id)
+                            .is_some_and(|runtime| runtime.driver.compact(instructions))
+                        {
+                            self.show_success_toast("Pi is compacting this session");
+                        } else {
+                            self.show_toast("Start a Pi turn before compacting the session");
+                        }
+                    }
+                    None => {}
+                }
+                return true;
+            }
+            None => {}
+        }
+
         let Some(next_tier) = self.selected_session().and_then(|session| {
             if !crate::composer_complete::is_fast_mode_toggle_submission(
                 session.provider,
@@ -2775,10 +2855,10 @@ impl Shidou {
                                 .when(no_providers, |element| {
                                     element.tooltip(Tooltip::text(tr!("composer.no_providers")))
                                 })
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     let prompt = this.composer.read(cx).content(cx).to_owned();
                                     if let Some(submission) =
-                                        this.submission_with_attachments(&prompt, cx)
+                                        this.submission_with_attachments(&prompt, window, cx)
                                     {
                                         this.composer.update(cx, |input, cx| input.clear(cx));
                                         this.submit_composer_submission(submission, cx);

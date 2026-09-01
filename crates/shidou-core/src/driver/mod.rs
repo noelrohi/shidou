@@ -131,6 +131,10 @@ impl DriverHandle {
         self.inner.apply_options(options)
     }
 
+    pub fn compact(&self, instructions: Option<String>) -> bool {
+        self.inner.compact(instructions)
+    }
+
     pub fn rollback(&self, turns: usize) -> anyhow::Result<Option<ProviderResumeCursor>> {
         self.inner.rollback(turns)
     }
@@ -161,6 +165,9 @@ pub trait DriverControl: Send + Sync {
     /// transport could do it without being restarted. A `false` answer is the
     /// driver asking to be torn down and recreated with the new options.
     fn apply_options(&self, _options: SessionOptions) -> bool {
+        false
+    }
+    fn compact(&self, _instructions: Option<String>) -> bool {
         false
     }
     fn rollback(&self, turns: usize) -> anyhow::Result<Option<ProviderResumeCursor>>;

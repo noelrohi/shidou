@@ -4,7 +4,9 @@ use std::ops::Range;
 
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Matcher, Utf32Str};
-pub use shidou_protocol::composer::{CommandScope, FileEntry, SlashCommand};
+pub use shidou_protocol::composer::{
+    CommandScope, FileEntry, LocalComposerCommand, SlashCommand, local_composer_command,
+};
 use shidou_protocol::model::{ProviderKind, ProviderModelOption, ReportedCommand};
 
 pub const FILTER_CAP: usize = 64;

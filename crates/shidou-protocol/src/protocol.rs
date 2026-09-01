@@ -123,6 +123,9 @@ pub enum Command {
     ApplyOptions {
         options: WireSessionOptions,
     },
+    Compact {
+        custom_instructions: Option<String>,
+    },
     Rollback {
         turns: usize,
     },

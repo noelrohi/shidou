@@ -1971,6 +1971,11 @@ fn handle_driver_command(
                 }),
             });
         }
+        Command::Compact {
+            custom_instructions,
+        } => {
+            driver.compact(custom_instructions);
+        }
         Command::Rollback { turns } => {
             let cursor = driver
                 .rollback(turns)?

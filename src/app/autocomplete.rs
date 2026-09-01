@@ -338,7 +338,7 @@ impl Shidou {
     pub(super) fn accept_autocomplete(
         &mut self,
         index: Option<usize>,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(trigger) = self.composer_trigger(window, cx) else {
@@ -364,7 +364,7 @@ impl Shidou {
         if matches!(row, AutocompleteRow::Command(_)) {
             let mut submission = self.composer.read(cx).content(cx).to_owned();
             submission.replace_range(trigger.range.clone(), &insert);
-            if self.execute_local_composer_command(&submission, cx) {
+            if self.execute_local_composer_command(&submission, window, cx) {
                 return;
             }
         }

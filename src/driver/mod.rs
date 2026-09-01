@@ -290,6 +290,19 @@ impl DriverControl for RemoteDriverControl {
         )
     }
 
+    fn compact(&self, custom_instructions: Option<String>) -> bool {
+        matches!(
+            self.client.request(
+                self.session_id,
+                self.runtime_id,
+                shidou_client::Command::Compact {
+                    custom_instructions,
+                },
+            ),
+            Ok(shidou_client::ResponsePayload::Ack)
+        )
+    }
+
     fn rollback(&self, turns: usize) -> anyhow::Result<Option<ProviderResumeCursor>> {
         match self.client.request(
             self.session_id,

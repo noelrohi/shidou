@@ -188,6 +188,7 @@ impl Backend for DemoBackend {
                 Ok(ResponsePayload::Ack)
             }
             Command::ApplyOptions { .. } => Ok(ResponsePayload::OptionsApplied { applied: true }),
+            Command::Compact { .. } => Ok(ResponsePayload::Ack),
 
             // ---- Background work -------------------------------------------------
             Command::RefreshBackgroundWork => {

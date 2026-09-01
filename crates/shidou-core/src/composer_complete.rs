@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use crate::model::{ProviderKind, ReportedCommand};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Matcher, Utf32Str};
-pub use shidou_protocol::composer::{CommandScope, FileEntry, SlashCommand};
+pub use shidou_protocol::composer::{
+    CommandScope, FileEntry, LocalComposerCommand, SlashCommand, local_composer_command,
+};
 
 /// How many rows a filter pass returns. The popup shows a screenful and the
 /// keyboard walks the rest; past this the tail is noise, not choice.
@@ -171,6 +173,24 @@ fn builtin_claude_commands() -> Vec<SlashCommand> {
         .collect()
 }
 
+fn builtin_pi_commands() -> Vec<SlashCommand> {
+    [
+        ("copy", "Copy last agent message to clipboard", None),
+        ("name", "Set task display name", None),
+        ("new", "Start a new session", None),
+        ("compact", "Manually compact the session context", None),
+    ]
+    .into_iter()
+    .map(|(name, description, argument_hint)| SlashCommand {
+        name: name.to_owned(),
+        description: description.to_owned(),
+        scope: CommandScope::Builtin,
+        argument_hint: argument_hint.map(str::to_owned),
+        template: None,
+    })
+    .collect()
+}
+
 /// Discover the slash commands available to `provider` inside `project_root`.
 ///
 /// Filesystem work throughout — background executor only. Sources follow each
@@ -184,7 +204,8 @@ fn builtin_claude_commands() -> Vec<SlashCommand> {
 ///   by Shidou — its server transport takes plain prompt text.
 /// - Cursor: `.cursor/commands` in the project and home, expanded by Shidou.
 /// - Pi: prompt templates in `.pi/prompts` and `~/.pi/agent/prompts`,
-///   expanded by Shidou, plus skills in `.pi/skills` and `~/.pi/agent/skills`.
+///   expanded by Shidou, skills in `.pi/skills` and `~/.pi/agent/skills`, and
+///   task-oriented TUI commands that Shidou can handle locally.
 /// - Oh My Pi: the same layout under its own root — commands in
 ///   `.omp/commands` and `~/.omp/agent/commands`, skills in `.omp/skills`
 ///   and `~/.omp/agent/skills`.
@@ -349,6 +370,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
                 );
                 scan_skill_files(provider, &home.join(".pi/agent/skills"), &mut commands);
             }
+            commands.extend(builtin_pi_commands());
         }
         ProviderKind::OhMyPi => {
             scan_command_files(
@@ -1079,6 +1101,118 @@ mod tests {
             expand_command_template("literal $x or $0", ""),
             "literal $x or $0"
         );
+    }
+
+    #[test]
+    fn pi_new_command_is_available_before_a_turn_and_runs_locally() {
+        let root = std::env::temp_dir().join(format!("shidou-pi-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let commands = discover_slash_commands(ProviderKind::Pi, &root);
+        assert!(commands.iter().any(|command| command.name == "new"));
+        assert_eq!(
+            local_composer_command(ProviderKind::Pi, "/new", &commands),
+            Some(LocalComposerCommand::NewSession)
+        );
+        assert_eq!(
+            local_composer_command(ProviderKind::Pi, "/new project", &commands),
+            None,
+            "Pi's /new command does not accept arguments"
+        );
+    }
+
+    #[test]
+    fn pi_copy_command_copies_the_latest_response_locally() {
+        let root = std::env::temp_dir().join(format!("shidou-pi-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let commands = discover_slash_commands(ProviderKind::Pi, &root);
+        assert_eq!(
+            local_composer_command(ProviderKind::Pi, "/copy", &commands),
+            Some(LocalComposerCommand::CopyLastResponse)
+        );
+    }
+
+    #[test]
+    fn pi_name_command_renames_shidous_current_task_locally() {
+        let root = std::env::temp_dir().join(format!("shidou-pi-name-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let commands = discover_slash_commands(ProviderKind::Pi, &root);
+        assert_eq!(
+            local_composer_command(ProviderKind::Pi, "/name Fix login", &commands),
+            Some(LocalComposerCommand::RenameSession("Fix login".to_owned()))
+        );
+        assert_eq!(
+            local_composer_command(ProviderKind::Pi, "/name", &commands),
+            Some(LocalComposerCommand::RenameSession(String::new()))
+        );
+    }
+
+    #[test]
+    fn pi_compact_command_runs_through_the_live_pi_session() {
+        let root = std::env::temp_dir().join(format!("shidou-pi-compact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let commands = discover_slash_commands(ProviderKind::Pi, &root);
+        assert_eq!(
+            local_composer_command(ProviderKind::Pi, "/compact focus on code", &commands),
+            Some(LocalComposerCommand::Compact("focus on code".to_owned()))
+        );
+    }
+
+    #[test]
+    fn pi_task_command_catalog_is_complete_before_a_turn() {
+        const PI_COMMANDS: [&str; 4] = ["new", "name", "copy", "compact"];
+        const EXCLUDED_COMMANDS: [&str; 19] = [
+            "tree",
+            "fork",
+            "clone",
+            "session",
+            "export",
+            "import",
+            "share",
+            "settings",
+            "model",
+            "thinking",
+            "scoped-models",
+            "changelog",
+            "hotkeys",
+            "trust",
+            "login",
+            "logout",
+            "resume",
+            "reload",
+            "quit",
+        ];
+        let root = std::env::temp_dir().join(format!("shidou-pi-catalog-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let commands = discover_slash_commands(ProviderKind::Pi, &root);
+        for name in PI_COMMANDS {
+            commands
+                .iter()
+                .find(|command| command.name == name)
+                .unwrap_or_else(|| panic!("Pi's task-related /{name} command is missing"));
+            let invocation = format!("/{name}");
+            assert!(
+                local_composer_command(ProviderKind::Pi, &invocation, &commands).is_some(),
+                "Pi's /{name} command is not locally handled"
+            );
+        }
+        for name in EXCLUDED_COMMANDS {
+            assert!(
+                commands.iter().all(|command| {
+                    command.name != name || command.scope != CommandScope::Builtin
+                }),
+                "non-task Pi command /{name} should not be listed"
+            );
+        }
     }
 
     #[test]

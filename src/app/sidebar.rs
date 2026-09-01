@@ -1839,7 +1839,7 @@ impl Shidou {
         cx.notify();
     }
 
-    fn begin_session_rename(
+    pub(super) fn begin_session_rename(
         &mut self,
         session_id: Uuid,
         window: &mut Window,

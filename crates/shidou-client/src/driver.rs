@@ -93,6 +93,10 @@ impl DriverHandle {
         self.inner.apply_options(options)
     }
 
+    pub fn compact(&self, instructions: Option<String>) -> bool {
+        self.inner.compact(instructions)
+    }
+
     pub fn rollback(&self, turns: usize) -> anyhow::Result<Option<ProviderResumeCursor>> {
         self.inner.rollback(turns)
     }
@@ -124,6 +128,9 @@ pub trait DriverControl: Send + Sync {
     fn run_computer_tool(&self, _request: ComputerToolRequest) {}
     fn reject_computer_tool(&self, _request: ComputerToolRequest, _reason: String) {}
     fn apply_options(&self, _options: SessionOptions) -> bool {
+        false
+    }
+    fn compact(&self, _instructions: Option<String>) -> bool {
         false
     }
     fn rollback(&self, turns: usize) -> anyhow::Result<Option<ProviderResumeCursor>>;

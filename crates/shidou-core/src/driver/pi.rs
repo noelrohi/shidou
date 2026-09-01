@@ -24,11 +24,12 @@ use crate::driver::{
     DriverControl, DriverEventSender, DriverEventSink, DriverStartOptions, SessionOptions,
 };
 use crate::model::{
-    ActivityKind, DriverEvent, InteractionMode, ProviderResumeCursor, RuntimeMode, UserInputAnswer,
-    UserInputOption, UserInputQuestion,
+    ActivityKind, DriverEvent, InteractionMode, ProviderResumeCursor, ReportedCommand, RuntimeMode,
+    UserInputAnswer, UserInputOption, UserInputQuestion,
 };
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+const COMPACTION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const SHIDOU_USER_INPUT_PREFIX: &str = "__SHIDOU_USER_INPUT_V1__";
 const SHIDOU_QUESTION_ID_PREFIX: &str = "shidou-question-";
 const OMP_HOST_ASK_REQUEST_PREFIX: &str = "omp-host-ask:";
@@ -170,6 +171,7 @@ enum CommandMessage {
     Cancel,
     RespondExtensionRequest(Value),
     Options(SessionOptions),
+    Compact(Option<String>),
     Rollback {
         turns: usize,
         response: Sender<Result<ProviderResumeCursor, String>>,
@@ -647,6 +649,24 @@ impl PiDriver {
                                 current_effort = options.reasoning_effort;
                             }
                         }
+                        CommandMessage::Compact(instructions) => {
+                            let mut request = json!({"type": "compact"});
+                            if let Some(instructions) = instructions {
+                                request["customInstructions"] = Value::String(instructions);
+                            }
+                            if let Err(error) = send_request_with_timeout(
+                                &mut stdin,
+                                &writer_pending,
+                                &mut next_request_id,
+                                request,
+                                COMPACTION_TIMEOUT,
+                            ) {
+                                let _ = writer_events.send(DriverEvent::Error(format!(
+                                    "{} could not compact the session: {error}",
+                                    flavor.display_name()
+                                )));
+                            }
+                        }
                         CommandMessage::RespondExtensionRequest(response) => {
                             if write_json_line(&mut stdin, &response).is_err() {
                                 break;
@@ -772,6 +792,12 @@ impl DriverControl for PiDriver {
         let _ = self.commands.send(CommandMessage::RespondExtensionRequest(
             extension_ui_response(request_id, &answers),
         ));
+    }
+
+    fn compact(&self, instructions: Option<String>) -> bool {
+        self.commands
+            .send(CommandMessage::Compact(instructions))
+            .is_ok()
     }
 
     fn apply_options(&self, options: SessionOptions) -> bool {

@@ -834,6 +834,7 @@ fn command_targets_runtime(command: &Command) -> bool {
             | Command::RunComputerTool { .. }
             | Command::RejectComputerTool { .. }
             | Command::ApplyOptions { .. }
+            | Command::Compact { .. }
             | Command::Rollback { .. }
             | Command::Fork { .. }
             | Command::ForkSessionFromResponse { .. }
