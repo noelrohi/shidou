@@ -213,9 +213,24 @@ enum SettingsPage {
     Skills,
     Usage,
     Daemon,
-    Herdr,
     ComputerUse,
     Appearance,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+enum MainDestination {
+    #[default]
+    Task,
+    HerdrTerminal(String),
+}
+
+impl MainDestination {
+    fn herdr_terminal_id(&self) -> Option<&str> {
+        match self {
+            Self::Task => None,
+            Self::HerdrTerminal(terminal_id) => Some(terminal_id),
+        }
+    }
 }
 
 impl SettingsPage {
@@ -1196,13 +1211,15 @@ pub struct Shidou {
     herdr_prompt_input: Entity<TextInput>,
     herdr_state: shidou_client::HerdrState,
     herdr_output: Option<shidou_client::HerdrAgentOutput>,
-    herdr_selected_terminal: Option<String>,
+    main_destination: MainDestination,
     herdr_agent_focuses: RefCell<HashMap<String, FocusHandle>>,
     herdr_refresh_focus: FocusHandle,
     herdr_escape_focus: FocusHandle,
     herdr_interrupt_focus: FocusHandle,
     herdr_send_focus: FocusHandle,
     herdr_output_generation: u64,
+    herdr_poll_generation: u64,
+    herdr_polling: bool,
     herdr_loading: bool,
     herdr_error: Option<String>,
     daemon_port_input: Entity<TextInput>,
@@ -2143,6 +2160,9 @@ impl Shidou {
             // And the header's "open project in app" targets, so its menu
             // lists installed apps and icons without ever probing on a frame.
             this.detect_open_in_apps(cx);
+            // Herdr agents are first-class sidebar destinations. Keep one
+            // daemon-backed snapshot warm without letting a row builder do I/O.
+            this.start_herdr_polling(cx);
         });
     }
 
@@ -3169,13 +3189,15 @@ impl Shidou {
                 settings_page: None,
                 herdr_state: shidou_client::HerdrState::default(),
                 herdr_output: None,
-                herdr_selected_terminal: None,
+                main_destination: MainDestination::Task,
                 herdr_agent_focuses: RefCell::new(HashMap::new()),
                 herdr_refresh_focus,
                 herdr_escape_focus,
                 herdr_interrupt_focus,
                 herdr_send_focus,
                 herdr_output_generation: 0,
+                herdr_poll_generation: 0,
+                herdr_polling: false,
                 herdr_loading: false,
                 herdr_error: None,
                 skills_catalog: None,

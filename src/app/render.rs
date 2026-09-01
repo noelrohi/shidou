@@ -272,9 +272,14 @@ impl Render for Shidou {
         self.schedule_time_label_wake(cx);
 
         let theme = Theme::current(cx);
-        let empty = should_render_empty_state(self.selected_session());
-        let permission = self.render_permission(cx);
-        let computer_use = self.render_computer_use_overlay(cx);
+        let herdr_active = self.main_destination.herdr_terminal_id().is_some();
+        let empty = !herdr_active && should_render_empty_state(self.selected_session());
+        let permission = (!herdr_active)
+            .then(|| self.render_permission(cx))
+            .flatten();
+        let computer_use = (!herdr_active)
+            .then(|| self.render_computer_use_overlay(cx))
+            .flatten();
         let command_palette = self.render_command_palette(window, cx);
         let commit_dialog = self.render_commit_dialog(cx);
         let session_delete_dialog = self.render_session_delete_dialog(cx);
@@ -358,7 +363,9 @@ impl Render for Shidou {
                         element.border_l_1().border_color(theme.sidebar_border)
                     })
                     .child(self.render_header(window, cx))
-                    .child(if empty {
+                    .child(if herdr_active {
+                        self.render_herdr_conversation(cx)
+                    } else if empty {
                         self.render_empty_state(cx).into_any_element()
                     } else {
                         self.transcript_pane
@@ -367,12 +374,15 @@ impl Render for Shidou {
                             .into_any_element()
                     })
                     .children(permission)
-                    .when(self.selected_project().is_some(), |element| {
-                        element
-                            .children(self.render_queued_messages(cx))
-                            .child(self.render_composer(window, cx))
-                            .child(self.render_workspace_footer(cx))
-                    })
+                    .when(
+                        !herdr_active && self.selected_project().is_some(),
+                        |element| {
+                            element
+                                .children(self.render_queued_messages(cx))
+                                .child(self.render_composer(window, cx))
+                                .child(self.render_workspace_footer(cx))
+                        },
+                    )
                     .relative()
                     .children(toast)
                     .children(computer_use)

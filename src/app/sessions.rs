@@ -166,6 +166,8 @@ impl Shidou {
     }
 
     fn activate_session(&mut self, session_id: Uuid, cx: &mut Context<Self>) {
+        let destination_changed = self.main_destination != MainDestination::Task;
+        self.main_destination = MainDestination::Task;
         let session_changed = self.state.selected_session != Some(session_id);
         if session_changed {
             self.capture_and_save_current_composer_draft(cx);
@@ -206,7 +208,7 @@ impl Shidou {
         {
             self.session_navigation.remember_new_task(session_id);
         }
-        if session_changed {
+        if session_changed || destination_changed {
             self.restore_selected_composer_draft(cx);
             self.sync_user_input_answer(cx);
             self.restore_right_panel_state(session_id, cx);
@@ -214,7 +216,7 @@ impl Shidou {
             self.ensure_right_panel_terminals(cx);
         }
         self.reset_visible_state();
-        if session_changed {
+        if session_changed || destination_changed {
             // Each materialized worktree has its own cache entry. A task that
             // finished while another session was selected could otherwise
             // retain the clean snapshot captured before its agent made edits.
@@ -860,7 +862,7 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) {
         if self.settings_page.take().is_some() {
-            let focus_handle = self.composer_focus(cx);
+            let focus_handle = self.main_composer_focus(cx);
             window.focus(&focus_handle, cx);
             cx.notify();
             return;
@@ -921,6 +923,13 @@ impl Shidou {
         }
     }
 
+    pub(super) fn main_composer_focus(&self, cx: &App) -> FocusHandle {
+        match self.main_destination {
+            MainDestination::Task => self.composer_focus(cx),
+            MainDestination::HerdrTerminal(_) => self.herdr_prompt_focus(cx),
+        }
+    }
+
     pub(super) fn focus_composer_action(
         &mut self,
         _: &FocusComposer,
@@ -928,7 +937,7 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) {
         self.settings_page = None;
-        let focus_handle = self.composer_focus(cx);
+        let focus_handle = self.main_composer_focus(cx);
         window.focus(&focus_handle, cx);
         cx.notify();
     }
@@ -947,7 +956,7 @@ impl Shidou {
             return;
         }
         if self.settings_page.take().is_some() {
-            let focus_handle = self.composer_focus(cx);
+            let focus_handle = self.main_composer_focus(cx);
             window.focus(&focus_handle, cx);
             cx.notify();
             return;

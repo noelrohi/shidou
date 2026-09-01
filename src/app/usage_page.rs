@@ -57,9 +57,6 @@ impl Shidou {
         if page == SettingsPage::Daemon {
             self.refresh_pairing_code(cx);
         }
-        if page == SettingsPage::Herdr {
-            self.refresh_herdr_state(cx);
-        }
         cx.notify();
     }
 

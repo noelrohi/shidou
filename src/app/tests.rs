@@ -6,7 +6,8 @@ use super::runtime::{merge_remote_session_catalog, session_has_active_provider_t
 use super::settings::visible_settings_pages;
 use super::{
     ESCAPE_STOP_CONFIRMATION_TIMEOUT, EscapeStopConfirmation, EscapeStopPress, EscapeStopTarget,
-    NAVIGATION_RAIL_TICK_HEIGHT, NAVIGATION_RAIL_TURN_HEIGHT, PendingUserInput, SessionNavigation,
+    MainDestination, NAVIGATION_RAIL_TICK_HEIGHT, NAVIGATION_RAIL_TURN_HEIGHT, PendingUserInput,
+    SessionNavigation,
     StreamDeltaKind, TranscriptRowKind::*, active_navigation_turn_index, assistant_response_footer,
     assistant_response_footer_index, assistant_response_footer_time,
     changed_files_inline_message_index, compact_driver_error, disclosure_leading_space,
@@ -1853,6 +1854,15 @@ fn model_picker_highlight_wraps_at_both_ends() {
 }
 
 #[test]
+fn herdr_destination_keeps_terminal_identity_separate_from_tasks() {
+    let task = MainDestination::Task;
+    let herdr = MainDestination::HerdrTerminal("terminal-42".into());
+
+    assert_eq!(task.herdr_terminal_id(), None);
+    assert_eq!(herdr.herdr_terminal_id(), Some("terminal-42"));
+}
+
+#[test]
 fn settings_search_filters_pages_for_arrow_cycling() {
     use super::SettingsPage;
 
@@ -1871,7 +1881,6 @@ fn settings_search_filters_pages_for_arrow_cycling() {
         SettingsPage::Skills,
         SettingsPage::Usage,
         SettingsPage::Daemon,
-        SettingsPage::Herdr,
     ];
     if cfg!(all(debug_assertions, target_os = "macos")) {
         all_pages.push(SettingsPage::ComputerUse);

@@ -457,17 +457,23 @@ pub(super) fn format_time_ago(seconds: u64) -> String {
 }
 
 /// One row of the virtualized sidebar session history.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum SidebarRow {
     /// Opens the window-wide command palette and scrolls with history.
     Search,
-    /// Group header; the first row also carries the sidebar actions.
+    /// Label for the terminal-backed agent destinations.
+    HerdrHeader,
+    /// A Herdr workspace label, keyed by Herdr's workspace id.
+    HerdrWorkspace(String),
+    /// A live Herdr agent, keyed by its durable terminal id.
+    HerdrAgent(String),
+    /// Group header; the first task header also carries the sidebar actions.
     Header(SidebarGroup),
     /// A started session.
     Session(Uuid),
     /// Reveals the next batch of older sessions in a project section.
     ShowMore(SidebarGroup),
-    /// Spacing between date groups.
+    /// Spacing between groups.
     GroupSpacer,
 }
 
@@ -1302,7 +1308,51 @@ impl Shidou {
             projectless_project_ids: &projectless_project_ids,
             fallback_group: self.sidebar_fallback_group(projectless_root.as_deref()),
         };
-        build_sidebar_rows(&sessions, &state, today, now)
+        let mut rows = build_sidebar_rows(&sessions, &state, today, now);
+        let mut herdr_rows = Vec::new();
+        if !self.herdr_state.agents.is_empty() {
+            herdr_rows.push(SidebarRow::HerdrHeader);
+            for workspace in &self.herdr_state.workspaces {
+                let agents = self
+                    .herdr_state
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.workspace_id == workspace.id)
+                    .collect::<Vec<_>>();
+                if agents.is_empty() {
+                    continue;
+                }
+                herdr_rows.push(SidebarRow::HerdrWorkspace(workspace.id.clone()));
+                herdr_rows.extend(
+                    agents
+                        .into_iter()
+                        .map(|agent| SidebarRow::HerdrAgent(agent.terminal_id.clone())),
+                );
+            }
+            let known_workspaces = self
+                .herdr_state
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.id.as_str())
+                .collect::<HashSet<_>>();
+            let ungrouped = self
+                .herdr_state
+                .agents
+                .iter()
+                .filter(|agent| !known_workspaces.contains(agent.workspace_id.as_str()))
+                .collect::<Vec<_>>();
+            if !ungrouped.is_empty() {
+                herdr_rows.push(SidebarRow::HerdrWorkspace(String::new()));
+                herdr_rows.extend(
+                    ungrouped
+                        .into_iter()
+                        .map(|agent| SidebarRow::HerdrAgent(agent.terminal_id.clone())),
+                );
+            }
+            herdr_rows.push(SidebarRow::GroupSpacer);
+        }
+        rows.splice(1..1, herdr_rows);
+        rows
     }
 
     /// How many Archived Tasks the shelf holds, for its header. An in-memory
@@ -1375,23 +1425,163 @@ impl Shidou {
         let Some(row) = rows.get(index) else {
             return div().into_any_element();
         };
-        match *row {
+        match row {
             SidebarRow::Search => self.render_sidebar_search(cx).into_any_element(),
+            SidebarRow::HerdrHeader => self.render_sidebar_herdr_header(cx).into_any_element(),
+            SidebarRow::HerdrWorkspace(workspace_id) => self
+                .render_sidebar_herdr_workspace(workspace_id, cx)
+                .into_any_element(),
+            SidebarRow::HerdrAgent(terminal_id) => self
+                .render_sidebar_herdr_agent(terminal_id, cx)
+                .into_any_element(),
             SidebarRow::Header(group) => {
                 let has_expanded_children = rows.get(index + 1).is_some_and(|row| {
                     matches!(row, SidebarRow::Session(_) | SidebarRow::ShowMore(_))
                 });
-                self.render_sidebar_group_header(group, index == 1, has_expanded_children, cx)
-                    .into_any_element()
+                let first_task_header = !rows[..index]
+                    .iter()
+                    .any(|row| matches!(row, SidebarRow::Header(_)));
+                self.render_sidebar_group_header(
+                    *group,
+                    first_task_header,
+                    has_expanded_children,
+                    cx,
+                )
+                .into_any_element()
             }
             SidebarRow::Session(session_id) => self
-                .render_sidebar_session_item(session_id, cx)
+                .render_sidebar_session_item(*session_id, cx)
                 .into_any_element(),
             SidebarRow::ShowMore(group) => {
-                self.render_sidebar_show_more(group, cx).into_any_element()
+                self.render_sidebar_show_more(*group, cx).into_any_element()
             }
             SidebarRow::GroupSpacer => div().w_full().h(px(10.0)).into_any_element(),
         }
+    }
+
+    fn render_sidebar_herdr_header(&self, cx: &mut Context<Self>) -> Div {
+        let theme = Theme::current(cx);
+        session_group_header(&theme).h(px(24.0)).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(icon("icons/terminal.svg", 13.0, theme.text_secondary))
+                .child("Herdr"),
+        )
+    }
+
+    fn render_sidebar_herdr_workspace(&self, workspace_id: &str, cx: &mut Context<Self>) -> Div {
+        let theme = Theme::current(cx);
+        let label = self
+            .herdr_state
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)
+            .map(|workspace| workspace.label.clone())
+            .unwrap_or_else(|| "Other".into());
+        div()
+            .h(px(24.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .text_size(sp(11.5))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme.text_tertiary)
+            .child(div().min_w_0().truncate().child(label))
+    }
+
+    fn render_sidebar_herdr_agent(&self, terminal_id: &str, cx: &mut Context<Self>) -> AnyElement {
+        let theme = Theme::current(cx);
+        let Some(agent) = self
+            .herdr_state
+            .agents
+            .iter()
+            .find(|agent| agent.terminal_id == terminal_id)
+        else {
+            return div().into_any_element();
+        };
+        let terminal_id = terminal_id.to_owned();
+        let click_terminal_id = terminal_id.clone();
+        let key_terminal_id = terminal_id.clone();
+        let focus = self
+            .herdr_agent_focuses
+            .borrow_mut()
+            .entry(terminal_id.clone())
+            .or_insert_with(|| cx.focus_handle())
+            .clone();
+        let selected = self.main_destination.herdr_terminal_id() == Some(terminal_id.as_str());
+        let status = agent.status;
+        let title = Self::herdr_agent_title(agent).to_owned();
+        let provider = agent.agent.clone();
+        div()
+            .id(SharedString::from(format!("herdr-agent-{terminal_id}")))
+            .track_focus(&focus)
+            .tab_index(0)
+            .tab_group()
+            .tab_stop(true)
+            .w_full()
+            .min_w_0()
+            .h(px(46.0))
+            .px(px(8.0))
+            .rounded(px(7.0))
+            .flex()
+            .flex_col()
+            .justify_center()
+            .gap(px(3.0))
+            .cursor_default()
+            .when(selected, |element| {
+                element.bg(theme.sidebar_item_background)
+            })
+            .focus_visible(|style| style.border_1().border_color(theme.accent))
+            .hover(|element| element.bg(theme.sidebar_item_background))
+            .active(|element| element.bg(theme.overlay_strong))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(7.0))
+                    .child(icon(
+                        super::herdr::herdr_status_icon(status),
+                        12.0,
+                        super::herdr::herdr_status_color(status, &theme),
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(sp(13.5))
+                            .text_color(theme.text)
+                            .child(title),
+                    ),
+            )
+            .child(
+                div()
+                    .pl(px(19.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(5.0))
+                    .text_size(sp(11.5))
+                    .text_color(theme.text_tertiary)
+                    .child(super::herdr::herdr_status_label(status))
+                    .child("·")
+                    .child(div().min_w_0().truncate().child(provider)),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.select_herdr_agent(click_terminal_id.clone(), cx);
+                let focus = this.herdr_prompt_focus(cx);
+                window.focus(&focus, cx);
+            }))
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
+                if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                    this.select_herdr_agent(key_terminal_id.clone(), cx);
+                    let focus = this.herdr_prompt_focus(cx);
+                    window.focus(&focus, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .into_any_element()
     }
 
     fn render_sidebar_group_header(
@@ -2108,12 +2298,13 @@ impl Shidou {
         else {
             return div().into_any_element();
         };
-        let selected = sidebar_session_selected(
-            self.state.selected_session,
-            self.pending_session_activation
-                .map(|pending| pending.session_id),
-            session_id,
-        );
+        let selected = self.main_destination == MainDestination::Task
+            && sidebar_session_selected(
+                self.state.selected_session,
+                self.pending_session_activation
+                    .map(|pending| pending.session_id),
+                session_id,
+            );
         let marked = self.sidebar_session_marked(session_id);
         let working = matches!(
             session.status,
@@ -2441,12 +2632,21 @@ impl Shidou {
     ) -> impl IntoElement {
         let theme = Theme::current(cx);
         let session = self.selected_session();
-        let title = session
-            .map(localized_session_title)
+        let herdr_agent = self.selected_herdr_agent();
+        let title = herdr_agent
+            .map(|agent| Self::herdr_agent_title(agent).to_owned())
+            .or_else(|| session.map(localized_session_title))
             .unwrap_or_else(|| tr!("session.new_task"));
-        let agent_preset_label = session
-            .filter(|session| session.provider == ProviderKind::DeepSeek && session.has_started())
-            .and_then(|session| self.agent_preset_label_for_session(session));
+        let agent_preset_label = (self.main_destination == MainDestination::Task)
+            .then(|| {
+                session
+                    .filter(|session| {
+                        session.provider == ProviderKind::DeepSeek && session.has_started()
+                    })
+                    .and_then(|session| self.agent_preset_label_for_session(session))
+            })
+            .flatten();
+        let herdr_status = herdr_agent.map(|agent| agent.status);
         let left_window_controls = (!self.sidebar_visible)
             .then(|| {
                 self.render_client_window_controls(
@@ -2559,6 +2759,26 @@ impl Shidou {
                                 .text_color(theme.text_secondary)
                                 .child(icon("icons/bot.svg", 10.5, theme.text_tertiary))
                                 .child(div().min_w_0().truncate().child(SharedString::from(label)))
+                        }))
+                        .children(herdr_status.map(|status| {
+                            div()
+                                .h(px(22.0))
+                                .px(px(6.0))
+                                .rounded(px(6.0))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .bg(theme.overlay)
+                                .text_size(sp(12.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme.text_secondary)
+                                .child(icon(
+                                    super::herdr::herdr_status_icon(status),
+                                    10.5,
+                                    super::herdr::herdr_status_color(status, &theme),
+                                ))
+                                .child(super::herdr::herdr_status_label(status))
                         })),
                     cx,
                 ),
@@ -2569,7 +2789,9 @@ impl Shidou {
                     cx,
                 ),
             )
-            .child(self.render_background_work_summary(cx))
+            .when(self.main_destination == MainDestination::Task, |element| {
+                element.child(self.render_background_work_summary(cx))
+            })
             .when(!self.right_panel_visible, |element| {
                 element
                     .when(self.fps_counter_visible, |element| {
@@ -3196,7 +3418,7 @@ mod tests {
                 rows[..shelf_start]
                     .iter()
                     .filter(|row| matches!(row, SidebarRow::Session(_)))
-                    .copied()
+                    .cloned()
                     .collect::<Vec<_>>(),
                 vec![SidebarRow::Session(active.id)]
             );
