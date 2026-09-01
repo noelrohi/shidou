@@ -19,7 +19,7 @@ const SETTINGS_SEARCH_CONTEXT: &str = "SettingsSidebar > TextInput";
 
 /// The sidebar's rows in display order, each with the keyword haystack the
 /// search field filters against.
-const SETTINGS_PAGES: [(SettingsPage, &str, &str, &str); 7] = [
+const SETTINGS_PAGES: [(SettingsPage, &str, &str, &str); 8] = [
     (
         SettingsPage::General,
         "settings.general",
@@ -55,6 +55,12 @@ const SETTINGS_PAGES: [(SettingsPage, &str, &str, &str); 7] = [
         "settings.daemon",
         "icons/server.svg",
         "settings.daemon_keywords",
+    ),
+    (
+        SettingsPage::Experiments,
+        "settings.experiments",
+        "icons/sparkle.svg",
+        "settings.experiments_keywords",
     ),
     (
         SettingsPage::ComputerUse,
@@ -360,6 +366,7 @@ impl Shidou {
                         SettingsPage::Skills => tr!("settings.skills"),
                         SettingsPage::Usage => tr!("settings.usage"),
                         SettingsPage::Daemon => tr!("settings.daemon"),
+                        SettingsPage::Experiments => tr!("settings.experiments"),
                         SettingsPage::ComputerUse => tr!("settings.computer_use"),
                         SettingsPage::Appearance => tr!("settings.appearance"),
                     }),
@@ -370,6 +377,7 @@ impl Shidou {
                 SettingsPage::Skills => self.render_skills_settings(cx),
                 SettingsPage::Usage => self.render_usage_settings(cx),
                 SettingsPage::Daemon => self.render_daemon_settings(cx),
+                SettingsPage::Experiments => self.render_experiments_settings(cx),
                 SettingsPage::ComputerUse => self.render_computer_use_settings(cx),
                 SettingsPage::Appearance => self.render_appearance_settings(cx),
             });
@@ -589,6 +597,103 @@ impl Shidou {
                 )
             })
             .into_any_element()
+    }
+
+    fn render_experiments_settings(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = Theme::current(cx);
+        let enabled = self.state.herdr_enabled;
+        let toggle = toggle_switch(
+            "herdr-experiment-toggle",
+            enabled,
+            false,
+            theme,
+            cx,
+            move |this, _, cx| this.set_herdr_enabled(!enabled, cx),
+        );
+        div()
+            .child(
+                div()
+                    .mt(px(15.0))
+                    .w_full()
+                    .px(px(20.0))
+                    .py(px(14.0))
+                    .rounded(px(13.0))
+                    .bg(theme.raised)
+                    .child(
+                        div()
+                            .text_size(sp(13.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.text)
+                            .child(tr!("settings.experiments_notice")),
+                    )
+                    .child(
+                        div()
+                            .mt(px(5.0))
+                            .text_size(sp(12.5))
+                            .line_height(sp(18.0))
+                            .text_color(theme.text_secondary)
+                            .child(tr!("settings.experiments_notice_description")),
+                    ),
+            )
+            .child(
+                div()
+                    .mt(px(15.0))
+                    .w_full()
+                    .min_h(px(60.0))
+                    .px(px(20.0))
+                    .py(px(12.0))
+                    .rounded(px(13.0))
+                    .bg(theme.raised)
+                    .flex()
+                    .items_center()
+                    .gap(px(24.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_size(sp(13.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.text)
+                                    .child("Herdr"),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(5.0))
+                                    .text_size(sp(12.5))
+                                    .line_height(sp(18.0))
+                                    .text_color(theme.text_secondary)
+                                    .child(tr!("settings.herdr_experiment_description")),
+                            ),
+                    )
+                    .child(toggle),
+            )
+            .into_any_element()
+    }
+
+    fn set_herdr_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.state.herdr_enabled == enabled {
+            return;
+        }
+        self.state.herdr_enabled = enabled;
+        self.sidebar_rows_fingerprint.set(None);
+        if enabled {
+            self.main_destination = self
+                .herdr_state
+                .agents
+                .first()
+                .map(|agent| MainDestination::HerdrTerminal(agent.terminal_id.clone()))
+                .unwrap_or_else(|| MainDestination::HerdrTerminal(String::new()));
+            self.start_herdr_polling(cx);
+            self.refresh_selected_herdr_output(cx);
+        } else {
+            self.main_destination = MainDestination::Task;
+            self.herdr_output = None;
+            self.stop_herdr_polling();
+        }
+        self.save();
+        cx.notify();
     }
 
     fn set_conventional_commit_messages(&mut self, enabled: bool, cx: &mut Context<Self>) {

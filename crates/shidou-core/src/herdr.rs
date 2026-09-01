@@ -43,7 +43,25 @@ fn load_state_result() -> anyhow::Result<HerdrState> {
 
 pub fn read_agent(terminal_id: &str, lines: u32) -> anyhow::Result<HerdrAgentOutput> {
     let target = resolve_terminal(terminal_id)?;
-    let result = request("agent.read", agent_read_params(&target, lines))?;
+    let source = agent_read_source(target.status);
+    let result = match request(
+        "agent.read",
+        agent_read_params(&target.pane_id, lines, source),
+    ) {
+        Ok(result) => result,
+        Err(error)
+            if source != "visible"
+                && error
+                    .downcast_ref::<RpcError>()
+                    .is_some_and(|error| error.code == "agent_not_idle") =>
+        {
+            request(
+                "agent.read",
+                agent_read_params(&target.pane_id, lines, "visible"),
+            )?
+        }
+        Err(error) => return Err(error),
+    };
     let read: ReadResult = serde_json::from_value(
         result
             .get("read")
@@ -61,7 +79,10 @@ pub fn read_agent(terminal_id: &str, lines: u32) -> anyhow::Result<HerdrAgentOut
 
 pub fn prompt_agent(terminal_id: &str, prompt: &str) -> anyhow::Result<HerdrAgent> {
     let target = resolve_terminal(terminal_id)?;
-    let result = request("agent.prompt", json!({ "target": target, "text": prompt }))?;
+    let result = request(
+        "agent.prompt",
+        json!({ "target": target.pane_id, "text": prompt }),
+    )?;
     decode_agent(&result)
 }
 
@@ -70,7 +91,10 @@ pub fn send_agent_keys(terminal_id: &str, keys: &[String]) -> anyhow::Result<()>
         bail!("at least one key is required");
     }
     let target = resolve_terminal(terminal_id)?;
-    request("agent.send_keys", json!({ "target": target, "keys": keys }))?;
+    request(
+        "agent.send_keys",
+        json!({ "target": target.pane_id, "keys": keys }),
+    )?;
     Ok(())
 }
 
@@ -110,14 +134,23 @@ pub fn start_agent(
     decode_agent(&started)
 }
 
-fn agent_read_params(target: &str, lines: u32) -> Value {
+fn agent_read_params(target: &str, lines: u32, source: &str) -> Value {
     json!({
         "target": target,
-        "source": "recent_unwrapped",
+        "source": source,
         "format": "text",
         "strip_ansi": true,
         "lines": lines.clamp(1, 2_000),
     })
+}
+
+fn agent_read_source(status: HerdrAgentStatus) -> &'static str {
+    match status {
+        HerdrAgentStatus::Idle | HerdrAgentStatus::Done => "recent_unwrapped",
+        HerdrAgentStatus::Working | HerdrAgentStatus::Blocked | HerdrAgentStatus::Unknown => {
+            "visible"
+        }
+    }
 }
 
 fn snapshot() -> anyhow::Result<Snapshot> {
@@ -131,13 +164,21 @@ fn snapshot() -> anyhow::Result<Snapshot> {
     .context("could not decode Herdr's session snapshot")
 }
 
-fn resolve_terminal(terminal_id: &str) -> anyhow::Result<String> {
+fn resolve_terminal(terminal_id: &str) -> anyhow::Result<ResolvedTerminal> {
     snapshot()?
         .agents
         .into_iter()
         .find(|agent| agent.terminal_id == terminal_id)
-        .map(|agent| agent.pane_id)
+        .map(|agent| ResolvedTerminal {
+            pane_id: agent.pane_id,
+            status: agent.agent_status,
+        })
         .ok_or_else(|| anyhow!("Herdr terminal {terminal_id} is no longer available"))
+}
+
+struct ResolvedTerminal {
+    pane_id: String,
+    status: HerdrAgentStatus,
 }
 
 fn nonempty(value: &str) -> Option<&str> {
@@ -186,7 +227,7 @@ fn decode_response(expected_id: &str, line: &str) -> anyhow::Result<Value> {
     let response: RpcResponse =
         serde_json::from_str(line).context("Herdr returned invalid JSON")?;
     if let Some(error) = response.error {
-        bail!("{}: {}", error.code, error.message);
+        return Err(error.into());
     }
     if response.id != expected_id {
         bail!("Herdr returned a response for a different request");
@@ -225,11 +266,19 @@ struct RpcResponse {
     error: Option<RpcError>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RpcError {
     code: String,
     message: String,
 }
+
+impl std::fmt::Display for RpcError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for RpcError {}
 
 #[derive(Deserialize)]
 struct Snapshot {
@@ -372,9 +421,18 @@ mod tests {
     }
 
     #[test]
-    fn agent_read_uses_herdrs_wire_spelling() {
-        let params = agent_read_params("w1:p2", 240);
+    fn idle_agent_read_uses_unwrapped_history() {
+        let source = agent_read_source(HerdrAgentStatus::Idle);
+        let params = agent_read_params("w1:p2", 240, source);
         assert_eq!(params["source"], "recent_unwrapped");
+        assert_eq!(params["lines"], 240);
+    }
+
+    #[test]
+    fn working_agent_read_uses_visible_output() {
+        let source = agent_read_source(HerdrAgentStatus::Working);
+        let params = agent_read_params("w1:p2", 240, source);
+        assert_eq!(params["source"], "visible");
         assert_eq!(params["lines"], 240);
     }
 
@@ -386,6 +444,12 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.to_string(), "invalid_request: bad source");
+        assert_eq!(
+            error
+                .downcast_ref::<RpcError>()
+                .map(|error| error.code.as_str()),
+            Some("invalid_request")
+        );
     }
 
     #[test]

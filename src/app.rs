@@ -213,6 +213,7 @@ enum SettingsPage {
     Skills,
     Usage,
     Daemon,
+    Experiments,
     ComputerUse,
     Appearance,
 }
@@ -1208,10 +1209,12 @@ pub struct Shidou {
     task_switcher: task_switcher::TaskSwitcherUi,
     model_search: Entity<TextInput>,
     settings_search: Entity<TextInput>,
-    herdr_prompt_input: Entity<TextInput>,
+    herdr_prompt_input: Entity<ComposerInput>,
     herdr_state: shidou_client::HerdrState,
     herdr_output: Option<shidou_client::HerdrAgentOutput>,
     main_destination: MainDestination,
+    herdr_collapsed_workspaces: HashSet<String>,
+    herdr_workspace_focuses: RefCell<HashMap<String, FocusHandle>>,
     herdr_agent_focuses: RefCell<HashMap<String, FocusHandle>>,
     herdr_refresh_focus: FocusHandle,
     herdr_escape_focus: FocusHandle,
@@ -2160,9 +2163,12 @@ impl Shidou {
             // And the header's "open project in app" targets, so its menu
             // lists installed apps and icons without ever probing on a frame.
             this.detect_open_in_apps(cx);
-            // Herdr agents are first-class sidebar destinations. Keep one
-            // daemon-backed snapshot warm without letting a row builder do I/O.
-            this.start_herdr_polling(cx);
+            if this.state.herdr_enabled {
+                // Herdr mode reads only daemon-backed snapshots. No sidebar
+                // row reaches the socket or probes the host.
+                this.main_destination = MainDestination::HerdrTerminal(String::new());
+                this.start_herdr_polling(cx);
+            }
         });
     }
 
@@ -2234,10 +2240,10 @@ impl Shidou {
                 .clear_on_escape()
                 .placeholder(tr!("settings.search"))
         });
-        let herdr_prompt_input = cx.new(|cx| {
-            TextInput::new(window, cx)
-                .clear_on_escape()
-                .placeholder("Prompt Herdr agent")
+        let herdr_prompt_input =
+            cx.new(|cx| ComposerInput::new(window, cx).padding_x(px(14.0), cx));
+        herdr_prompt_input.update(cx, |input, cx| {
+            input.set_placeholder("Message Herdr agent", cx);
         });
         let herdr_refresh_focus = cx.focus_handle();
         let herdr_escape_focus = cx.focus_handle();
@@ -2799,9 +2805,9 @@ impl Shidou {
             .detach();
             cx.subscribe(
                 &herdr_prompt_input,
-                |this: &mut Self, _, event: &InputEvent, cx| match event {
-                    InputEvent::Submit(_) => this.send_herdr_prompt(cx),
-                    InputEvent::Edited => cx.notify(),
+                |this: &mut Self, _, event: &ComposerEvent, cx| match event {
+                    ComposerEvent::Submit(prompt) => this.submit_herdr_prompt(prompt.clone(), cx),
+                    ComposerEvent::Edited => cx.notify(),
                     _ => {}
                 },
             )
@@ -3190,6 +3196,8 @@ impl Shidou {
                 herdr_state: shidou_client::HerdrState::default(),
                 herdr_output: None,
                 main_destination: MainDestination::Task,
+                herdr_collapsed_workspaces: HashSet::new(),
+                herdr_workspace_focuses: RefCell::new(HashMap::new()),
                 herdr_agent_focuses: RefCell::new(HashMap::new()),
                 herdr_refresh_focus,
                 herdr_escape_focus,

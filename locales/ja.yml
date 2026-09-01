@@ -90,6 +90,7 @@ settings.appearance: 外観
 settings.providers: プロバイダー
 settings.usage: 使用状況
 settings.daemon: デーモン
+settings.experiments: 実験的機能
 settings.computer_use: コンピュータ操作
 settings.general_keywords: 一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン Git コミット Conventional メッセージ
 settings.appearance_keywords: 外観 テーマ システム ライト ダーク 言語 英語 中国語 簡体字 日本語 フォント サイズ 文字 エディタ
@@ -98,6 +99,10 @@ settings.skills: スキル
 settings.skills_keywords: スキル ライブラリ エージェント 無効 有効 削除 claude codex cursor opencode pi amp 共有
 settings.usage_keywords: 使用状況 トークン コスト 支出 キャッシュ 日別 グラフ モデル 内訳 履歴 claude codex
 settings.daemon_keywords: デーモン サーバー リモート ウェブ ネットワーク 公開 オリジン トークン ポート websocket
+settings.experiments_keywords: 実験 プレビュー Herdr エージェント ターミナル ワークスペース
+settings.experiments_notice: 実験的機能
+settings.experiments_notice_description: これらの機能は開発中で、リリース間で動作が変わる場合があります。
+settings.herdr_experiment_description: Shidou のサイドバーを Herdr のワークスペースとエージェントに置き換えます。
 settings.herdr: Herdr
 settings.herdr_keywords: herdr エージェント ターミナル ワークスペース ペイン リモート 永続
 settings.computer_use_keywords: コンピュータ 操作 画面収録 アクセシビリティ アプリ 制御 codex
@@ -277,6 +282,10 @@ session.unarchive_count: "%{count} 件のタスクのアーカイブを解除"
 session.archive_refused_busy: "%{count} 件のタスクは作業中または応答待ちのため、アーカイブされませんでした"
 
 sidebar.today: 今日
+sidebar.other: その他
+sidebar.loading_herdr: Herdr エージェントを読み込み中...
+sidebar.herdr_unavailable: Herdr は利用できません
+sidebar.no_herdr_agents: 実行中の Herdr エージェントはありません
 sidebar.search: 検索
 sidebar.options: サイドバーオプション
 sidebar.grouping: グループ化

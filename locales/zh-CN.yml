@@ -85,6 +85,7 @@ settings.appearance: 外观
 settings.providers: 服务商
 settings.usage: 用量
 settings.daemon: 守护进程
+settings.experiments: 实验性功能
 settings.computer_use: 电脑操作
 settings.general_keywords: 通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 Git 提交 Conventional 信息
 settings.appearance_keywords: 外观 主题 系统 浅色 深色 语言 英语 中文 简体 字号 字体 大小 编辑器
@@ -93,6 +94,10 @@ settings.skills: 技能
 settings.skills_keywords: 技能 技能库 智能体 禁用 启用 删除 claude codex cursor opencode pi amp 共享
 settings.usage_keywords: 用量 令牌 费用 支出 缓存 每日 图表 模型 明细 历史 claude codex
 settings.daemon_keywords: 守护进程 服务 远程 网页 网络 暴露 来源 令牌 端口 websocket
+settings.experiments_keywords: 实验 预览 Herdr 智能体 终端 工作区
+settings.experiments_notice: 实验性功能
+settings.experiments_notice_description: 这些功能仍在开发中，不同版本之间的行为可能会发生变化。
+settings.herdr_experiment_description: 使用 Herdr 工作区和智能体替换 Shidou 侧边栏。
 settings.herdr: Herdr
 settings.herdr_keywords: herdr 智能体 终端 工作区 窗格 远程 持久
 settings.computer_use_keywords: 电脑操作 屏幕录制 辅助功能 应用 控制 codex
@@ -263,6 +268,10 @@ session.archive_count: "归档 %{count} 个任务"
 session.unarchive_count: "取消归档 %{count} 个任务"
 session.archive_refused_busy: "%{count} 个任务正在运行或等待你处理，未被归档"
 sidebar.today: 今天
+sidebar.other: 其他
+sidebar.loading_herdr: 正在加载 Herdr 智能体...
+sidebar.herdr_unavailable: Herdr 不可用
+sidebar.no_herdr_agents: 没有正在运行的 Herdr 智能体
 sidebar.search: 搜索
 sidebar.options: 侧边栏选项
 sidebar.grouping: 分组

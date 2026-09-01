@@ -263,6 +263,8 @@ pub struct AppSettings {
     /// applied.
     pub code_font_size: f32,
     pub daemon_exposure: DaemonExposureSettings,
+    /// Replaces the native task sidebar with Herdr workspaces and agents.
+    pub herdr_enabled: bool,
     /// Preferred target of the header's "open project in app" control, by
     /// catalog id. `None` — and an id no longer installed — fall back to the
     /// platform file manager.
@@ -279,6 +281,7 @@ impl Default for AppSettings {
             ui_font_size: DEFAULT_UI_FONT_SIZE,
             code_font_size: DEFAULT_CODE_FONT_SIZE,
             daemon_exposure: DaemonExposureSettings::default(),
+            herdr_enabled: false,
             open_in_app: None,
         }
     }
@@ -387,6 +390,8 @@ pub struct PersistedState {
     pub code_font_size: f32,
     #[serde(default)]
     pub daemon_exposure: DaemonExposureSettings,
+    #[serde(default)]
+    pub herdr_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_in_app: Option<String>,
     #[serde(default = "default_sidebar_visibility")]
@@ -468,6 +473,7 @@ impl PersistedState {
             ui_font_size: DEFAULT_UI_FONT_SIZE,
             code_font_size: DEFAULT_CODE_FONT_SIZE,
             daemon_exposure: DaemonExposureSettings::default(),
+            herdr_enabled: false,
             open_in_app: None,
             sidebar_visible: true,
             right_panel_visible: false,
@@ -596,6 +602,7 @@ impl PersistedState {
             ui_font_size: self.ui_font_size,
             code_font_size: self.code_font_size,
             daemon_exposure: self.daemon_exposure.clone(),
+            herdr_enabled: self.herdr_enabled,
             open_in_app: self.open_in_app.clone(),
         }
     }
@@ -634,6 +641,7 @@ impl PersistedState {
         self.ui_font_size = sanitized_ui_font_size(settings.ui_font_size);
         self.code_font_size = sanitized_code_font_size(settings.code_font_size);
         self.daemon_exposure = settings.daemon_exposure;
+        self.herdr_enabled = settings.herdr_enabled;
         self.open_in_app = settings.open_in_app;
     }
 
@@ -1056,7 +1064,11 @@ impl StateStore {
         move || {
             let client = daemon.client();
             client
-                .request(session_id, Uuid::nil(), Command::ArchiveSession { archived })
+                .request(
+                    session_id,
+                    Uuid::nil(),
+                    Command::ArchiveSession { archived },
+                )
                 .map_err(to_io_error)?;
             client
                 .request(Uuid::nil(), Uuid::nil(), Command::LoadTaskState)
@@ -1183,6 +1195,20 @@ mod tests {
                 [configuration_directory().join("settings.json")]
             );
         }
+    }
+
+    #[test]
+    fn herdr_experiment_setting_round_trips_and_defaults_off() {
+        let legacy: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.herdr_enabled);
+
+        let settings = AppSettings {
+            herdr_enabled: true,
+            ..AppSettings::default()
+        };
+        let restored: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(restored.herdr_enabled);
     }
 
     #[test]

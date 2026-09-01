@@ -108,6 +108,13 @@ fn sidebar_ordering_label(ordering: SidebarOrdering) -> String {
     }
 }
 
+fn mix_sidebar_text(mut fingerprint: u64, text: &str) -> u64 {
+    for byte in text.bytes() {
+        fingerprint = mix(fingerprint, u64::from(byte));
+    }
+    fingerprint
+}
+
 fn session_date_group(timestamp: u64, today: NaiveDate) -> SessionDateGroup {
     let session_date = i64::try_from(timestamp)
         .ok()
@@ -461,12 +468,12 @@ pub(super) fn format_time_ago(seconds: u64) -> String {
 pub(super) enum SidebarRow {
     /// Opens the window-wide command palette and scrolls with history.
     Search,
-    /// Label for the terminal-backed agent destinations.
-    HerdrHeader,
-    /// A Herdr workspace label, keyed by Herdr's workspace id.
+    /// A Herdr workspace, presented with the same hierarchy as a project.
     HerdrWorkspace(String),
-    /// A live Herdr agent, keyed by its durable terminal id.
+    /// A live Herdr agent, presented as a task inside its workspace.
     HerdrAgent(String),
+    /// Loading, unavailable, or empty state for Herdr mode.
+    HerdrEmpty,
     /// Group header; the first task header also carries the sidebar actions.
     Header(SidebarGroup),
     /// A started session.
@@ -1127,7 +1134,9 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = Theme::current(cx);
-        self.ensure_sidebar_branch_labels(cx);
+        if !self.state.herdr_enabled {
+            self.ensure_sidebar_branch_labels(cx);
+        }
         let is_resizing = self
             .panel_resize_drag
             .is_some_and(|drag| drag.target == PanelResizeTarget::Sidebar);
@@ -1150,12 +1159,14 @@ impl Shidou {
                 theme.sidebar
             })
             .child(self.render_sidebar_titlebar(window, cx))
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(10.0))
-                    .child(self.render_sidebar_new_session(cx)),
-            )
+            .when(!self.state.herdr_enabled, |sidebar| {
+                sidebar.child(
+                    div()
+                        .flex_none()
+                        .px(px(10.0))
+                        .child(self.render_sidebar_new_session(cx)),
+                )
+            })
             .child(
                 div()
                     .id("sidebar-scroll")
@@ -1210,6 +1221,31 @@ impl Shidou {
     /// recency, the presentation preferences, the collapsed-group set, and
     /// today's date and the moving project-recency boundary.
     fn sidebar_rows_cached(&self, today: NaiveDate, now: u64) -> Rc<Vec<SidebarRow>> {
+        if self.state.herdr_enabled {
+            let mut fingerprint = 0x8e2d_6c4a_aed0_0001_u64;
+            for workspace in &self.herdr_state.workspaces {
+                fingerprint = mix_sidebar_text(fingerprint, &workspace.id);
+            }
+            for agent in &self.herdr_state.agents {
+                fingerprint = mix_sidebar_text(fingerprint, &agent.terminal_id);
+                fingerprint = mix_sidebar_text(fingerprint, &agent.workspace_id);
+            }
+            let collapsed = self
+                .herdr_collapsed_workspaces
+                .iter()
+                .fold(0u64, |combined, workspace_id| {
+                    combined.wrapping_add(mix_sidebar_text(0, workspace_id))
+                });
+            fingerprint = mix(
+                mix(fingerprint, self.herdr_collapsed_workspaces.len() as u64),
+                collapsed,
+            );
+            if self.sidebar_rows_fingerprint.get() != Some(fingerprint) {
+                *self.sidebar_rows_snapshot.borrow_mut() = Rc::new(self.herdr_sidebar_rows());
+                self.sidebar_rows_fingerprint.set(Some(fingerprint));
+            }
+            return self.sidebar_rows_snapshot.borrow().clone();
+        }
         let mut fingerprint = mix(0x51de_ba5e_5eed_c0de, today.num_days_from_ce() as u64);
         fingerprint = mix(
             fingerprint,
@@ -1308,50 +1344,57 @@ impl Shidou {
             projectless_project_ids: &projectless_project_ids,
             fallback_group: self.sidebar_fallback_group(projectless_root.as_deref()),
         };
-        let mut rows = build_sidebar_rows(&sessions, &state, today, now);
-        let mut herdr_rows = Vec::new();
-        if !self.herdr_state.agents.is_empty() {
-            herdr_rows.push(SidebarRow::HerdrHeader);
-            for workspace in &self.herdr_state.workspaces {
-                let agents = self
-                    .herdr_state
-                    .agents
-                    .iter()
-                    .filter(|agent| agent.workspace_id == workspace.id)
-                    .collect::<Vec<_>>();
-                if agents.is_empty() {
-                    continue;
-                }
-                herdr_rows.push(SidebarRow::HerdrWorkspace(workspace.id.clone()));
-                herdr_rows.extend(
+        build_sidebar_rows(&sessions, &state, today, now)
+    }
+
+    fn herdr_sidebar_rows(&self) -> Vec<SidebarRow> {
+        if self.herdr_state.agents.is_empty() {
+            return vec![SidebarRow::HerdrEmpty];
+        }
+        let mut rows = Vec::new();
+        for workspace in &self.herdr_state.workspaces {
+            let agents = self
+                .herdr_state
+                .agents
+                .iter()
+                .filter(|agent| agent.workspace_id == workspace.id)
+                .collect::<Vec<_>>();
+            if agents.is_empty() {
+                continue;
+            }
+            rows.push(SidebarRow::HerdrWorkspace(workspace.id.clone()));
+            if !self.herdr_collapsed_workspaces.contains(&workspace.id) {
+                rows.extend(
                     agents
                         .into_iter()
                         .map(|agent| SidebarRow::HerdrAgent(agent.terminal_id.clone())),
                 );
             }
-            let known_workspaces = self
-                .herdr_state
-                .workspaces
-                .iter()
-                .map(|workspace| workspace.id.as_str())
-                .collect::<HashSet<_>>();
-            let ungrouped = self
-                .herdr_state
-                .agents
-                .iter()
-                .filter(|agent| !known_workspaces.contains(agent.workspace_id.as_str()))
-                .collect::<Vec<_>>();
-            if !ungrouped.is_empty() {
-                herdr_rows.push(SidebarRow::HerdrWorkspace(String::new()));
-                herdr_rows.extend(
+            rows.push(SidebarRow::GroupSpacer);
+        }
+        let known_workspaces = self
+            .herdr_state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.as_str())
+            .collect::<HashSet<_>>();
+        let ungrouped = self
+            .herdr_state
+            .agents
+            .iter()
+            .filter(|agent| !known_workspaces.contains(agent.workspace_id.as_str()))
+            .collect::<Vec<_>>();
+        if !ungrouped.is_empty() {
+            rows.push(SidebarRow::HerdrWorkspace(String::new()));
+            if !self.herdr_collapsed_workspaces.contains("") {
+                rows.extend(
                     ungrouped
                         .into_iter()
                         .map(|agent| SidebarRow::HerdrAgent(agent.terminal_id.clone())),
                 );
             }
-            herdr_rows.push(SidebarRow::GroupSpacer);
+            rows.push(SidebarRow::GroupSpacer);
         }
-        rows.splice(1..1, herdr_rows);
         rows
     }
 
@@ -1427,13 +1470,11 @@ impl Shidou {
         };
         match row {
             SidebarRow::Search => self.render_sidebar_search(cx).into_any_element(),
-            SidebarRow::HerdrHeader => self.render_sidebar_herdr_header(cx).into_any_element(),
-            SidebarRow::HerdrWorkspace(workspace_id) => self
-                .render_sidebar_herdr_workspace(workspace_id, cx)
-                .into_any_element(),
-            SidebarRow::HerdrAgent(terminal_id) => self
-                .render_sidebar_herdr_agent(terminal_id, cx)
-                .into_any_element(),
+            SidebarRow::HerdrWorkspace(workspace_id) => {
+                self.render_sidebar_herdr_workspace(workspace_id, cx)
+            }
+            SidebarRow::HerdrAgent(terminal_id) => self.render_sidebar_herdr_agent(terminal_id, cx),
+            SidebarRow::HerdrEmpty => self.render_sidebar_herdr_empty(cx).into_any_element(),
             SidebarRow::Header(group) => {
                 let has_expanded_children = rows.get(index + 1).is_some_and(|row| {
                     matches!(row, SidebarRow::Session(_) | SidebarRow::ShowMore(_))
@@ -1459,36 +1500,148 @@ impl Shidou {
         }
     }
 
-    fn render_sidebar_herdr_header(&self, cx: &mut Context<Self>) -> Div {
+    fn render_sidebar_herdr_workspace(
+        &self,
+        workspace_id: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = Theme::current(cx);
-        session_group_header(&theme).h(px(24.0)).child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .child(icon("icons/terminal.svg", 13.0, theme.text_secondary))
-                .child("Herdr"),
-        )
-    }
-
-    fn render_sidebar_herdr_workspace(&self, workspace_id: &str, cx: &mut Context<Self>) -> Div {
-        let theme = Theme::current(cx);
+        let collapsed = self.herdr_collapsed_workspaces.contains(workspace_id);
         let label = self
             .herdr_state
             .workspaces
             .iter()
             .find(|workspace| workspace.id == workspace_id)
             .map(|workspace| workspace.label.clone())
-            .unwrap_or_else(|| "Other".into());
+            .unwrap_or_else(|| tr!("sidebar.other"));
+        let workspace_id = workspace_id.to_owned();
+        let click_workspace_id = workspace_id.clone();
+        let key_workspace_id = workspace_id.clone();
+        let focus = self
+            .herdr_workspace_focuses
+            .borrow_mut()
+            .entry(workspace_id.clone())
+            .or_insert_with(|| cx.focus_handle())
+            .clone();
+        let folder_icon = if collapsed {
+            "icons/folder.svg"
+        } else {
+            "icons/folder-open.svg"
+        };
+        let header = session_group_header(&theme)
+            .id(SharedString::from(format!(
+                "herdr-workspace-{workspace_id}"
+            )))
+            .track_focus(&focus)
+            .tab_index(0)
+            .tab_group()
+            .tab_stop(true)
+            .relative()
+            .w_full()
+            .rounded(px(6.0))
+            .cursor_default()
+            .focus_visible(|style| style.border_1().border_color(theme.accent))
+            .hover(|style| style.bg(theme.sidebar_item_background))
+            .active(|style| style.bg(theme.overlay_strong))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.0))
+                    .child(icon(folder_icon, 14.0, theme.text_secondary))
+                    .child(div().min_w_0().truncate().child(label))
+                    .child(
+                        icon("icons/chevron-down.svg", 14.0, theme.text_secondary).when(
+                            collapsed,
+                            |icon| {
+                                icon.with_transformation(gpui::Transformation::rotate(
+                                    gpui::percentage(0.75),
+                                ))
+                            },
+                        ),
+                    ),
+            )
+            .when(!collapsed, |element| {
+                element.child(
+                    div()
+                        .absolute()
+                        .left(px(SIDEBAR_GROUP_GUIDE_X))
+                        .top(px(19.0))
+                        .bottom(px(-2.0))
+                        .w(px(1.0))
+                        .bg(theme.border),
+                )
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_herdr_workspace(&click_workspace_id, cx);
+            }))
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
+                match event.keystroke.key.as_str() {
+                    "enter" | "space" => {
+                        this.toggle_herdr_workspace(&key_workspace_id, cx);
+                        cx.stop_propagation();
+                    }
+                    "left" if !collapsed => {
+                        this.set_herdr_workspace_collapsed(&key_workspace_id, true, cx);
+                        cx.stop_propagation();
+                    }
+                    "right" if collapsed => {
+                        this.set_herdr_workspace_collapsed(&key_workspace_id, false, cx);
+                        cx.stop_propagation();
+                    }
+                    _ => {}
+                }
+            }));
+        div().w_full().pb(px(2.0)).child(header).into_any_element()
+    }
+
+    fn render_sidebar_herdr_empty(&self, cx: &mut Context<Self>) -> Div {
+        let theme = Theme::current(cx);
+        let message = if self.herdr_loading {
+            tr!("sidebar.loading_herdr")
+        } else if let Some(error) = self.herdr_error.as_ref() {
+            error.clone()
+        } else if !self.herdr_state.available {
+            self.herdr_state
+                .unavailable_reason
+                .clone()
+                .unwrap_or_else(|| tr!("sidebar.herdr_unavailable"))
+        } else {
+            tr!("sidebar.no_herdr_agents")
+        };
         div()
-            .h(px(24.0))
+            .w_full()
             .px(px(8.0))
-            .flex()
-            .items_center()
-            .text_size(sp(11.5))
-            .font_weight(FontWeight::MEDIUM)
+            .py(px(16.0))
+            .text_size(sp(12.5))
+            .line_height(sp(18.0))
             .text_color(theme.text_tertiary)
-            .child(div().min_w_0().truncate().child(label))
+            .child(message)
+    }
+
+    fn toggle_herdr_workspace(&mut self, workspace_id: &str, cx: &mut Context<Self>) {
+        let collapsed = !self.herdr_collapsed_workspaces.contains(workspace_id);
+        self.set_herdr_workspace_collapsed(workspace_id, collapsed, cx);
+    }
+
+    fn set_herdr_workspace_collapsed(
+        &mut self,
+        workspace_id: &str,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let changed = if collapsed {
+            self.herdr_collapsed_workspaces
+                .insert(workspace_id.to_owned())
+        } else {
+            self.herdr_collapsed_workspaces.remove(workspace_id)
+        };
+        if changed {
+            self.sidebar_rows_fingerprint.set(None);
+            cx.notify();
+        }
     }
 
     fn render_sidebar_herdr_agent(&self, terminal_id: &str, cx: &mut Context<Self>) -> AnyElement {

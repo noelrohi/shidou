@@ -175,6 +175,8 @@ settings.usage:
   en: Usage
 settings.daemon:
   en: Daemon
+settings.experiments:
+  en: Experiments
 settings.computer_use:
   en: Computer Use
 settings.general_keywords:
@@ -191,6 +193,14 @@ settings.usage_keywords:
   en: usage tokens cost spend cache daily chart model breakdown history claude codex
 settings.daemon_keywords:
   en: daemon server remote web network expose origin token port websocket
+settings.experiments_keywords:
+  en: experiments experimental preview herdr agents terminals workspaces
+settings.experiments_notice:
+  en: Experimental features
+settings.experiments_notice_description:
+  en: These features are still changing and may behave differently between releases.
+settings.herdr_experiment_description:
+  en: Replace the Shidou sidebar with Herdr workspaces and agents.
 settings.herdr:
   en: Herdr
 settings.herdr_keywords:
@@ -540,6 +550,14 @@ session.archive_refused_busy:
 
 sidebar.today:
   en: Today
+sidebar.other:
+  en: Other
+sidebar.loading_herdr:
+  en: Loading Herdr agents...
+sidebar.herdr_unavailable:
+  en: Herdr is not available
+sidebar.no_herdr_agents:
+  en: No Herdr agents are running
 sidebar.search:
   en: Search
 sidebar.options:

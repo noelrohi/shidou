@@ -14,6 +14,13 @@ impl Shidou {
         self.refresh_herdr_state(cx);
     }
 
+    pub(super) fn stop_herdr_polling(&mut self) {
+        self.herdr_polling = false;
+        self.herdr_loading = false;
+        self.herdr_poll_generation = self.herdr_poll_generation.wrapping_add(1);
+        self.herdr_output_generation = self.herdr_output_generation.wrapping_add(1);
+    }
+
     pub(super) fn refresh_herdr_state(&mut self, cx: &mut Context<Self>) {
         if self.herdr_loading {
             return;
@@ -44,16 +51,38 @@ impl Shidou {
                         Ok(shidou_client::ResponsePayload::HerdrState { state }) => {
                             let active_terminal =
                                 this.main_destination.herdr_terminal_id().map(str::to_owned);
-                            let active_exists = active_terminal.as_ref().is_some_and(|selected| {
-                                state
-                                    .agents
-                                    .iter()
-                                    .any(|agent| &agent.terminal_id == selected)
-                            });
+                            let mut active_exists =
+                                active_terminal.as_ref().is_some_and(|selected| {
+                                    state
+                                        .agents
+                                        .iter()
+                                        .any(|agent| &agent.terminal_id == selected)
+                                });
                             if active_terminal.is_some() && !active_exists {
-                                this.main_destination = MainDestination::Task;
                                 this.herdr_output = None;
+                                if this.state.herdr_enabled {
+                                    if let Some(agent) = state.agents.first() {
+                                        this.main_destination = MainDestination::HerdrTerminal(
+                                            agent.terminal_id.clone(),
+                                        );
+                                        active_exists = true;
+                                    } else {
+                                        this.main_destination =
+                                            MainDestination::HerdrTerminal(String::new());
+                                    }
+                                } else {
+                                    this.main_destination = MainDestination::Task;
+                                }
                             }
+                            this.herdr_workspace_focuses
+                                .borrow_mut()
+                                .retain(|workspace_id, _| {
+                                    workspace_id.is_empty()
+                                        || state
+                                            .workspaces
+                                            .iter()
+                                            .any(|workspace| &workspace.id == workspace_id)
+                                });
                             this.herdr_agent_focuses
                                 .borrow_mut()
                                 .retain(|terminal_id, _| {
@@ -99,7 +128,7 @@ impl Shidou {
         .detach();
     }
 
-    fn refresh_selected_herdr_output(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn refresh_selected_herdr_output(&mut self, cx: &mut Context<Self>) {
         self.herdr_output_generation = self.herdr_output_generation.wrapping_add(1);
         let generation = self.herdr_output_generation;
         let Some(agent) = self.selected_herdr_agent().cloned() else {
@@ -188,15 +217,24 @@ impl Shidou {
     }
 
     pub(super) fn send_herdr_prompt(&mut self, cx: &mut Context<Self>) {
-        let prompt = self.herdr_prompt_input.read(cx).content().trim().to_owned();
-        let Some(agent) = self.selected_herdr_agent().cloned() else {
-            return;
-        };
+        let prompt = self
+            .herdr_prompt_input
+            .read(cx)
+            .content(cx)
+            .trim()
+            .to_owned();
         if prompt.is_empty() {
             return;
         }
         self.herdr_prompt_input
-            .update(cx, |input, cx| input.set_content("", cx));
+            .update(cx, |input, cx| input.clear(cx));
+        self.submit_herdr_prompt(prompt, cx);
+    }
+
+    pub(super) fn submit_herdr_prompt(&mut self, prompt: String, cx: &mut Context<Self>) {
+        let Some(agent) = self.selected_herdr_agent().cloned() else {
+            return;
+        };
         let client = self.daemon.client();
         let submitted = prompt.clone();
         cx.spawn(async move |this, cx| {
@@ -257,7 +295,7 @@ impl Shidou {
     }
 
     pub(super) fn herdr_prompt_focus(&self, cx: &App) -> FocusHandle {
-        self.herdr_prompt_input.read(cx).focus_handle(cx)
+        self.herdr_prompt_input.read(cx).focus()
     }
 
     pub(super) fn render_herdr_conversation(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -297,15 +335,15 @@ impl Shidou {
                 .flex_1()
                 .min_h_0()
                 .w_full()
-                .max_w(px(880.0))
-                .mx_auto()
-                .px(px(24.0))
-                .pt(px(18.0))
                 .flex()
                 .flex_col()
-                .gap(px(10.0))
                 .child(
                     div()
+                        .w_full()
+                        .max_w(px(CONTENT_MAX_WIDTH))
+                        .mx_auto()
+                        .px(px(20.0))
+                        .pt(px(16.0))
                         .flex()
                         .items_center()
                         .gap(px(7.0))
@@ -325,12 +363,20 @@ impl Shidou {
                 .when_some(self.herdr_error.clone(), |element, error| {
                     element.child(
                         div()
-                            .p(px(10.0))
-                            .rounded(px(8.0))
-                            .bg(theme.danger_soft)
-                            .text_size(sp(12.0))
-                            .text_color(theme.danger)
-                            .child(error),
+                            .w_full()
+                            .max_w(px(CONTENT_MAX_WIDTH))
+                            .mx_auto()
+                            .mt(px(10.0))
+                            .px(px(20.0))
+                            .child(
+                                div()
+                                    .p(px(10.0))
+                                    .rounded(px(8.0))
+                                    .bg(theme.danger_soft)
+                                    .text_size(sp(12.0))
+                                    .text_color(theme.danger)
+                                    .child(error),
+                            ),
                     )
                 })
                 .child(
@@ -339,17 +385,22 @@ impl Shidou {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
-                        .p(px(16.0))
-                        .rounded(px(10.0))
-                        .border_1()
-                        .border_color(theme.border)
-                        .bg(theme.inset)
-                        .font_family(".SystemUIFontMonospaced")
-                        .text_size(sp(12.0))
-                        .line_height(sp(18.0))
-                        .text_color(theme.text)
-                        .whitespace_normal()
-                        .child(output.unwrap_or_else(|| "Loading terminal output...".into())),
+                        .child(
+                            div()
+                                .w_full()
+                                .max_w(px(CONTENT_MAX_WIDTH))
+                                .mx_auto()
+                                .px(px(20.0))
+                                .py(px(24.0))
+                                .font_family(".SystemUIFontMonospaced")
+                                .text_size(sp(12.5))
+                                .line_height(sp(19.0))
+                                .text_color(theme.text)
+                                .whitespace_normal()
+                                .child(
+                                    output.unwrap_or_else(|| "Loading terminal output...".into()),
+                                ),
+                        ),
                 )
                 .into_any_element()
         } else {
@@ -454,29 +505,32 @@ impl Shidou {
         div()
             .flex_none()
             .w_full()
-            .px(px(24.0))
+            .px(px(20.0))
             .pt(px(12.0))
             .pb(px(18.0))
             .child(
                 div()
                     .w_full()
-                    .max_w(px(880.0))
+                    .max_w(px(CONTENT_MAX_WIDTH))
                     .mx_auto()
-                    .p(px(10.0))
-                    .rounded(px(10.0))
+                    .py(px(10.0))
+                    .rounded(px(13.0))
                     .border_1()
                     .border_color(theme.border)
-                    .bg(theme.raised)
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(div().flex_1().min_w_0().child(TextField::new(
-                        "herdr-prompt-field",
-                        self.herdr_prompt_input.clone(),
-                    )))
-                    .child(escape)
-                    .child(interrupt)
-                    .child(send),
+                    .bg(theme.composer)
+                    .child(div().pt(px(2.0)).child(self.herdr_prompt_input.clone()))
+                    .child(
+                        div()
+                            .mt(px(8.0))
+                            .px(px(10.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .child(escape)
+                            .child(interrupt)
+                            .child(div().flex_1())
+                            .child(send),
+                    ),
             )
     }
 }

@@ -7,9 +7,8 @@ use super::settings::visible_settings_pages;
 use super::{
     ESCAPE_STOP_CONFIRMATION_TIMEOUT, EscapeStopConfirmation, EscapeStopPress, EscapeStopTarget,
     MainDestination, NAVIGATION_RAIL_TICK_HEIGHT, NAVIGATION_RAIL_TURN_HEIGHT, PendingUserInput,
-    SessionNavigation,
-    StreamDeltaKind, TranscriptRowKind::*, active_navigation_turn_index, assistant_response_footer,
-    assistant_response_footer_index, assistant_response_footer_time,
+    SessionNavigation, StreamDeltaKind, TranscriptRowKind::*, active_navigation_turn_index,
+    assistant_response_footer, assistant_response_footer_index, assistant_response_footer_time,
     changed_files_inline_message_index, compact_driver_error, disclosure_leading_space,
     fenced_code, fitted_file_tree_width, fitted_panel_widths, folded_transcript_row_kinds,
     format_worked_duration, format_working_elapsed, maintain_transcript_anchor, message_opens_turn,
@@ -1881,6 +1880,7 @@ fn settings_search_filters_pages_for_arrow_cycling() {
         SettingsPage::Skills,
         SettingsPage::Usage,
         SettingsPage::Daemon,
+        SettingsPage::Experiments,
     ];
     if cfg!(all(debug_assertions, target_os = "macos")) {
         all_pages.push(SettingsPage::ComputerUse);
@@ -1889,6 +1889,7 @@ fn settings_search_filters_pages_for_arrow_cycling() {
 
     assert_eq!(pages("theme"), vec![SettingsPage::Appearance]);
     assert_eq!(pages("skill"), vec![SettingsPage::Skills]);
+    assert_eq!(pages("experimental"), vec![SettingsPage::Experiments]);
 
     // A keyword shared across pages keeps them all reachable.
     let mut codex_pages = vec![
