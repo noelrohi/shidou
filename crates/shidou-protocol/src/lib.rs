@@ -34,6 +34,7 @@ pub mod composer;
 pub mod computer_use;
 mod driver_wire;
 pub mod git;
+pub mod herdr;
 pub mod i18n;
 pub mod identity;
 pub mod model;
@@ -52,6 +53,10 @@ pub mod workspace;
 mod protocol;
 
 pub use driver_wire::{decode_enum, encode_enum, event_from_wire, event_to_wire};
+pub use herdr::{
+    HerdrAgent, HerdrAgentOutput, HerdrAgentSession, HerdrAgentStatus, HerdrState, HerdrWorkspace,
+    HerdrWorktree,
+};
 pub use protocol::{
     APP_EXECUTABLE_ENV, ClientMessage, Command, DAEMON_ADDRESS_ENV, DAEMON_TOKEN_ENV, DaemonReady,
     MAX_WIRE_MESSAGE_BYTES, PROTOCOL_VERSION, ReplayCursor, Request, ResponseOutcome,

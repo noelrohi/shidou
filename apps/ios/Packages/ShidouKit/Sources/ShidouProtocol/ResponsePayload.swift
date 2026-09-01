@@ -15,6 +15,9 @@ public enum ResponsePayload: Sendable {
         projectlessRoot: String?
     )
     case taskStateSaved(sessions: [AgentSession])
+    case herdrState(HerdrState)
+    case herdrAgentOutput(HerdrAgentOutput)
+    case herdrAgentStarted(HerdrAgent)
     case session(AgentSession?)
     case optionsApplied(Bool)
     case planUsage(PlanUsage?)
@@ -36,6 +39,7 @@ extension ResponsePayload: Decodable {
         case projects, sessions, defaultCwd, projectlessRoot, session, bytes
         case checkpointWarning, cleanupWarning, result
         case applied, drafts, reference, path, attachment, usage, history, catalog
+        case state, output, agent
     }
 
     public init(from decoder: Decoder) throws {
@@ -67,6 +71,12 @@ extension ResponsePayload: Decodable {
             )
         case "taskStateSaved":
             self = .taskStateSaved(sessions: try container.decode([AgentSession].self, forKey: .sessions))
+        case "herdrState":
+            self = .herdrState(try container.decode(HerdrState.self, forKey: .state))
+        case "herdrAgentOutput":
+            self = .herdrAgentOutput(try container.decode(HerdrAgentOutput.self, forKey: .output))
+        case "herdrAgentStarted":
+            self = .herdrAgentStarted(try container.decode(HerdrAgent.self, forKey: .agent))
         case "session":
             self = .session(try container.decodeIfPresent(AgentSession.self, forKey: .session))
         case "planUsage":

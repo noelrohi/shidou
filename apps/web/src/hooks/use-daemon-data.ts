@@ -12,6 +12,7 @@ import {
   loadComposerDrafts,
   loadSkills,
   loadDaemonSettings,
+  loadHerdrState,
   loadTaskState,
   loadUsageHistory,
   probeProvider,
@@ -30,6 +31,16 @@ export function useTaskState() {
     queryKey: daemonKeys.taskState(config?.address ?? 'disconnected'),
     queryFn: () => loadTaskState(requireClient(client)),
     enabled: phase === 'connected' && Boolean(client && config),
+  })
+}
+
+export function useHerdrState(enabled = true) {
+  const { client, config, phase } = useDaemon()
+  return useQuery({
+    queryKey: daemonKeys.herdr(config?.address ?? 'disconnected'),
+    queryFn: () => loadHerdrState(requireClient(client)),
+    enabled: enabled && phase === 'connected' && Boolean(client && config),
+    refetchInterval: enabled ? 2_000 : false,
   })
 }
 

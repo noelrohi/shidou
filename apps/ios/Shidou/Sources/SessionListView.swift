@@ -22,6 +22,7 @@ struct SessionListView: View {
     @AppStorage("shidou.sidebarOrdering") private var orderingChoice = SessionListOrdering.newest.rawValue
 
     @State private var showingProjects = false
+    @State private var showingHerdr = false
     @State private var collapsed: Set<String> = []
     /// The Task Shelf starts closed and opens on a tap. It is the one section
     /// whose default is collapsed, so it is tracked apart from `collapsed`,
@@ -64,7 +65,13 @@ struct SessionListView: View {
         )) {
             ProjectsScreen(selection: $selection)
         }
-        .refreshable { store?.refreshCatalog() }
+        .sheet(isPresented: $showingHerdr) {
+            NavigationStack { HerdrView() }
+        }
+        .refreshable {
+            store?.refreshCatalog()
+            store?.refreshHerdr()
+        }
         .task(id: tickKey) { await tick() }
         .alert("Rename task", isPresented: Binding(
             get: { renaming != nil },
@@ -97,6 +104,7 @@ struct SessionListView: View {
     private var list: some View {
         List {
             navigation
+            herdrNavigation
             ForEach(groups) { group in
                 Section {
                     if !isCollapsed(group) {
@@ -156,6 +164,34 @@ struct SessionListView: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .accessibilityHint("Shows your projects")
+    }
+
+    private var herdrNavigation: some View {
+        Button {
+            showingHerdr = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "terminal")
+                    .foregroundStyle(.secondary)
+                Text("Herdr")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+                if let count = store?.herdr.agents.count, count > 0 {
+                    Text(count, format: .number)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 8, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .accessibilityHint("Shows agents running in Herdr")
     }
 
     // MARK: - Rows

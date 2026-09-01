@@ -165,6 +165,17 @@ public enum Command: Sendable {
     )
     case fetchPlanUsage(provider: ProviderKind, binaryOverride: String?, cliVersion: String?)
     case loadTaskState
+    case loadHerdrState
+    case readHerdrAgent(terminalId: String, lines: UInt32)
+    case promptHerdrAgent(terminalId: String, prompt: String)
+    case sendHerdrAgentKeys(terminalId: String, keys: [String])
+    case startHerdrAgent(
+        cwd: String,
+        label: String,
+        agentKind: String,
+        agentName: String,
+        args: [String]
+    )
     case saveTaskState(projects: [Project], liveSessionIds: [UUID], sessions: [AgentSession])
     case removeSession
     /// Set or clear the archive mark on one task. Explicit because saves merge
@@ -194,7 +205,7 @@ extension Command: Encodable {
         case turnCount, operation, settings, key, controlId, window, projectRoots
         case dirs, enabled, archived
         case drafts, generation, changes, mimeType, bytes, name, upload
-        case cliVersion
+        case cliVersion, terminalId, lines, keys, cwd, label, agentKind, agentName, args
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -263,6 +274,27 @@ extension Command: Encodable {
             try container.encode(cliVersion, forKey: .cliVersion)
         case .loadTaskState:
             try container.encode("loadTaskState", forKey: .type)
+        case .loadHerdrState:
+            try container.encode("loadHerdrState", forKey: .type)
+        case .readHerdrAgent(let terminalId, let lines):
+            try container.encode("readHerdrAgent", forKey: .type)
+            try container.encode(terminalId, forKey: .terminalId)
+            try container.encode(lines, forKey: .lines)
+        case .promptHerdrAgent(let terminalId, let prompt):
+            try container.encode("promptHerdrAgent", forKey: .type)
+            try container.encode(terminalId, forKey: .terminalId)
+            try container.encode(prompt, forKey: .prompt)
+        case .sendHerdrAgentKeys(let terminalId, let keys):
+            try container.encode("sendHerdrAgentKeys", forKey: .type)
+            try container.encode(terminalId, forKey: .terminalId)
+            try container.encode(keys, forKey: .keys)
+        case .startHerdrAgent(let cwd, let label, let agentKind, let agentName, let args):
+            try container.encode("startHerdrAgent", forKey: .type)
+            try container.encode(cwd, forKey: .cwd)
+            try container.encode(label, forKey: .label)
+            try container.encode(agentKind, forKey: .agentKind)
+            try container.encode(agentName, forKey: .agentName)
+            try container.encode(args, forKey: .args)
         case .saveTaskState(let projects, let liveSessionIds, let sessions):
             try container.encode("saveTaskState", forKey: .type)
             try container.encode(projects, forKey: .projects)

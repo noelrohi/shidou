@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::attachments::{AttachmentUpload, StoredAttachment};
 use crate::computer_use::ComputerPermissions;
+use crate::herdr::{HerdrAgent, HerdrAgentOutput, HerdrState};
 use crate::model::{AgentSession, Project, ProviderKind, ProviderProbe, UserInputAnswer};
 use crate::persistence::{ComposerDraftChange, ComposerDrafts, SessionMessageMatch};
 use crate::provider_session::{ProviderSessionFork, ProviderSessionForkRequest};
@@ -16,7 +17,7 @@ use crate::usage::PlanUsage;
 use crate::usage_history::{UsageHistory, UsageWindow};
 use crate::workspace::{WorkspaceOperation, WorkspaceResult};
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 pub const MAX_WIRE_MESSAGE_BYTES: usize = 48 * 1024 * 1024;
 
 // Shared presentation values used by both native and web gallery clients.
@@ -162,6 +163,29 @@ pub enum Command {
         dirs: Vec<PathBuf>,
     },
     LoadTaskState,
+    /// Load Herdr's terminal-backed workspaces and agents through the daemon
+    /// host. Remote clients never need direct socket or SSH access to Herdr.
+    LoadHerdrState,
+    ReadHerdrAgent {
+        terminal_id: String,
+        lines: u32,
+    },
+    PromptHerdrAgent {
+        terminal_id: String,
+        prompt: String,
+    },
+    SendHerdrAgentKeys {
+        terminal_id: String,
+        keys: Vec<String>,
+    },
+    StartHerdrAgent {
+        cwd: PathBuf,
+        label: String,
+        agent_kind: String,
+        agent_name: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
     SaveTaskState {
         projects: Vec<Project>,
         live_session_ids: Vec<Uuid>,
@@ -434,6 +458,15 @@ pub enum ResponsePayload {
         default_cwd: PathBuf,
         projectless_root: Option<PathBuf>,
     },
+    HerdrState {
+        state: HerdrState,
+    },
+    HerdrAgentOutput {
+        output: HerdrAgentOutput,
+    },
+    HerdrAgentStarted {
+        agent: HerdrAgent,
+    },
     TaskStateSaved {
         sessions: Vec<AgentSession>,
     },
@@ -597,7 +630,26 @@ mod tests {
         assert_eq!(json["type"], "prompt");
         assert_eq!(json["prompt"], "hello");
         assert_eq!(json["submissionId"], submission_id.to_string());
-        assert_eq!(PROTOCOL_VERSION, 6);
+        assert_eq!(PROTOCOL_VERSION, 7);
+    }
+
+    #[test]
+    fn herdr_commands_use_stable_camel_case_fields() {
+        let json = serde_json::to_value(Command::StartHerdrAgent {
+            cwd: PathBuf::from("/repo"),
+            label: "Review".into(),
+            agent_kind: "codex".into(),
+            agent_name: "reviewer".into(),
+            args: vec!["--fast".into()],
+        })
+        .unwrap();
+
+        assert_eq!(json["type"], "startHerdrAgent");
+        assert_eq!(json["cwd"], "/repo");
+        assert_eq!(json["agentKind"], "codex");
+        assert_eq!(json["agentName"], "reviewer");
+        assert_eq!(json["args"], serde_json::json!(["--fast"]));
+        assert_eq!(PROTOCOL_VERSION, 7);
     }
 
     #[test]
@@ -607,7 +659,7 @@ mod tests {
 
         assert_eq!(json["type"], "forkSessionFromResponse");
         assert_eq!(json["turnCount"], 7);
-        assert_eq!(PROTOCOL_VERSION, 6);
+        assert_eq!(PROTOCOL_VERSION, 7);
     }
 
     #[test]
@@ -616,7 +668,7 @@ mod tests {
 
         assert_eq!(json["type"], "rewindSessionToMessage");
         assert_eq!(json["turnCount"], 4);
-        assert_eq!(PROTOCOL_VERSION, 6);
+        assert_eq!(PROTOCOL_VERSION, 7);
     }
 
     #[test]

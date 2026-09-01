@@ -8,6 +8,9 @@ import type {
   ComposerDrafts,
   DaemonSettings,
   FileEntry,
+  HerdrAgent,
+  HerdrAgentOutput,
+  HerdrState,
   MessageAttachment,
   PlanUsage,
   Project,
@@ -34,6 +37,9 @@ export type DaemonDirectory = Extract<WorkspaceResult, { type: 'directory' }>
 
 export const daemonKeys = {
   taskState: (address: string) => ['daemon', address, 'task-state'] as const,
+  herdr: (address: string) => ['daemon', address, 'herdr'] as const,
+  herdrOutput: (address: string, terminalId: string) =>
+    ['daemon', address, 'herdr', 'output', terminalId] as const,
   composerDrafts: (address: string) => ['daemon', address, 'composer-drafts'] as const,
   session: (address: string, sessionId: string) =>
     ['daemon', address, 'session', sessionId] as const,
@@ -71,6 +77,53 @@ export const daemonKeys = {
 
 export async function loadTaskState(client: ShidouClient): Promise<TaskState> {
   return expectResponse(await client.request({ type: 'loadTaskState' }), 'taskState')
+}
+
+export async function loadHerdrState(client: ShidouClient): Promise<HerdrState> {
+  return expectResponse(await client.request({ type: 'loadHerdrState' }), 'herdrState').state
+}
+
+export async function readHerdrAgent(
+  client: ShidouClient,
+  terminalId: string,
+  lines = 240,
+): Promise<HerdrAgentOutput> {
+  return expectResponse(
+    await client.request({ type: 'readHerdrAgent', terminalId, lines }),
+    'herdrAgentOutput',
+  ).output
+}
+
+export async function promptHerdrAgent(
+  client: ShidouClient,
+  terminalId: string,
+  prompt: string,
+): Promise<void> {
+  expectResponse(await client.request({ type: 'promptHerdrAgent', terminalId, prompt }), 'ack')
+}
+
+export async function sendHerdrAgentKeys(
+  client: ShidouClient,
+  terminalId: string,
+  keys: string[],
+): Promise<void> {
+  expectResponse(await client.request({ type: 'sendHerdrAgentKeys', terminalId, keys }), 'ack')
+}
+
+export async function startHerdrAgent(
+  client: ShidouClient,
+  request: {
+    cwd: string
+    label: string
+    agentKind: string
+    agentName: string
+    args?: string[]
+  },
+): Promise<HerdrAgent> {
+  return expectResponse(
+    await client.request({ type: 'startHerdrAgent', ...request, args: request.args ?? [] }),
+    'herdrAgentStarted',
+  ).agent
 }
 
 export async function loadComposerDrafts(client: ShidouClient): Promise<ComposerDrafts> {

@@ -213,6 +213,7 @@ enum SettingsPage {
     Skills,
     Usage,
     Daemon,
+    Herdr,
     ComputerUse,
     Appearance,
 }
@@ -1192,6 +1193,18 @@ pub struct Shidou {
     task_switcher: task_switcher::TaskSwitcherUi,
     model_search: Entity<TextInput>,
     settings_search: Entity<TextInput>,
+    herdr_prompt_input: Entity<TextInput>,
+    herdr_state: shidou_client::HerdrState,
+    herdr_output: Option<shidou_client::HerdrAgentOutput>,
+    herdr_selected_terminal: Option<String>,
+    herdr_agent_focuses: RefCell<HashMap<String, FocusHandle>>,
+    herdr_refresh_focus: FocusHandle,
+    herdr_escape_focus: FocusHandle,
+    herdr_interrupt_focus: FocusHandle,
+    herdr_send_focus: FocusHandle,
+    herdr_output_generation: u64,
+    herdr_loading: bool,
+    herdr_error: Option<String>,
     daemon_port_input: Entity<TextInput>,
     daemon_origins_input: Entity<TextInput>,
     daemon_reconfigure_pending: bool,
@@ -1751,6 +1764,7 @@ mod components;
 mod composer;
 mod drafts;
 mod file_search;
+mod herdr;
 mod image_preview;
 mod project_delete_dialog;
 mod render;
@@ -2200,6 +2214,15 @@ impl Shidou {
                 .clear_on_escape()
                 .placeholder(tr!("settings.search"))
         });
+        let herdr_prompt_input = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .clear_on_escape()
+                .placeholder("Prompt Herdr agent")
+        });
+        let herdr_refresh_focus = cx.focus_handle();
+        let herdr_escape_focus = cx.focus_handle();
+        let herdr_interrupt_focus = cx.focus_handle();
+        let herdr_send_focus = cx.focus_handle();
         let daemon_port = state.daemon_exposure.port.to_string();
         let daemon_origins = state.daemon_exposure.allowed_origins_text();
         let daemon_port_input = cx.new(|cx| {
@@ -2754,6 +2777,15 @@ impl Shidou {
                 },
             )
             .detach();
+            cx.subscribe(
+                &herdr_prompt_input,
+                |this: &mut Self, _, event: &InputEvent, cx| match event {
+                    InputEvent::Submit(_) => this.send_herdr_prompt(cx),
+                    InputEvent::Edited => cx.notify(),
+                    _ => {}
+                },
+            )
+            .detach();
             for input in [&daemon_port_input, &daemon_origins_input] {
                 cx.subscribe(
                     input,
@@ -2944,6 +2976,7 @@ impl Shidou {
                 branch_search,
                 branch_create_input,
                 settings_search,
+                herdr_prompt_input,
                 daemon_port_input,
                 daemon_origins_input,
                 daemon_reconfigure_pending: false,
@@ -3134,6 +3167,17 @@ impl Shidou {
                 right_panel_pending_browser_focus: None,
                 scene_overlay_enabled,
                 settings_page: None,
+                herdr_state: shidou_client::HerdrState::default(),
+                herdr_output: None,
+                herdr_selected_terminal: None,
+                herdr_agent_focuses: RefCell::new(HashMap::new()),
+                herdr_refresh_focus,
+                herdr_escape_focus,
+                herdr_interrupt_focus,
+                herdr_send_focus,
+                herdr_output_generation: 0,
+                herdr_loading: false,
+                herdr_error: None,
                 skills_catalog: None,
                 skills_scan_generation: 0,
                 skills_scan_pending: false,

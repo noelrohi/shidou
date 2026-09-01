@@ -4,7 +4,7 @@ import Foundation
 /// `crates/shidou-protocol/src/protocol.rs`. The daemon enforces exact
 /// protocol-version equality during the handshake.
 public enum ShidouWire {
-    public static let protocolVersion: UInt32 = 6
+    public static let protocolVersion: UInt32 = 7
     public static let maxWireMessageBytes = 48 * 1024 * 1024
     public static let endpointPath = "/v1"
 }

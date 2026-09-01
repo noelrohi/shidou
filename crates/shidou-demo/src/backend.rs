@@ -259,6 +259,19 @@ impl Backend for DemoBackend {
                 default_cwd: tree::WORKSPACE_ROOT.into(),
                 projectless_root: None,
             }),
+            Command::LoadHerdrState => Ok(ResponsePayload::HerdrState {
+                state: shidou_protocol::HerdrState {
+                    available: false,
+                    unavailable_reason: Some("Herdr is not available on the Demo Daemon".into()),
+                    ..shidou_protocol::HerdrState::default()
+                },
+            }),
+            Command::ReadHerdrAgent { .. }
+            | Command::PromptHerdrAgent { .. }
+            | Command::SendHerdrAgentKeys { .. }
+            | Command::StartHerdrAgent { .. } => {
+                refuse("herdr", "the Demo Daemon does not control Herdr")
+            }
             // Echoed back, never stored. The demo keeps no database, so a task
             // a client creates lives in that client and disappears with it.
             Command::SaveTaskState { sessions, .. } => Ok(ResponsePayload::TaskStateSaved {

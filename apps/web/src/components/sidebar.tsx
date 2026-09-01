@@ -40,6 +40,7 @@ interface SidebarProps {
   onNewTaskInProject?: (project: Project) => void
   onNewProjectlessTask?: () => void
   onAddProject: () => void
+  onHerdr: () => void
   onSelectSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, title: string) => Promise<void>
   onRemoveSession: (sessionId: string) => Promise<void>
@@ -78,6 +79,7 @@ export function Sidebar({
   onRemoveSession,
   onArchiveSession,
   onRemoveProject,
+  onHerdr,
   onSearch,
   onSettings,
 }: SidebarProps) {
@@ -205,6 +207,14 @@ export function Sidebar({
             label={t('menu.new_task')}
             onClick={() => {
               onNewTask()
+              onMobileOpenChange(false)
+            }}
+          />
+          <SidebarAction
+            icon={<ShidouIcon name="terminal" />}
+            label="Herdr"
+            onClick={() => {
+              onHerdr()
               onMobileOpenChange(false)
             }}
           />

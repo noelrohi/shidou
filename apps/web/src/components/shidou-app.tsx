@@ -20,6 +20,7 @@ import { ConfirmDialog, ConfirmDialogDetails } from '@/components/confirm-dialog
 import { Composer } from '@/components/composer'
 import { ControlMenu } from '@/components/control-menu'
 import { DaemonFilePicker } from '@/components/daemon-file-picker'
+import { HerdrView } from '@/components/herdr-view'
 import { ProjectDeleteDialog } from '@/components/project-delete-dialog'
 import { RightPanel, type PanelSurface } from '@/components/right-panel'
 import { Sidebar } from '@/components/sidebar'
@@ -121,6 +122,7 @@ export function ShidouApp() {
   const selected = useSession(search.session)
   const [displayed, setDisplayed] = useState<AgentSession | null>(null)
   const [mobileSidebar, setMobileSidebar] = useState(false)
+  const [herdrOpen, setHerdrOpen] = useState(false)
   const [sidebarVisible, setSidebarVisible] = useState(readSidebarVisible)
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth)
   const [rightPanelWidth, setRightPanelWidth] = useState(readRightPanelWidth)
@@ -1125,6 +1127,7 @@ export function ShidouApp() {
           mobileOpen={mobileSidebar}
           onAddProject={openProjectPicker}
           onMobileOpenChange={setMobileSidebar}
+          onHerdr={() => setHerdrOpen(true)}
           onNewTask={() => startNewTask()}
           onNewTaskInProject={(project) => startNewTask(project)}
           onNewProjectlessTask={() => void createProjectlessTask()}
@@ -1145,6 +1148,8 @@ export function ShidouApp() {
           width={sidebarWidth}
         />
       )}
+
+      <HerdrView open={herdrOpen} onOpenChange={setHerdrOpen} />
 
       <main className="relative flex min-w-0 flex-1 flex-col">
         <TaskHeader

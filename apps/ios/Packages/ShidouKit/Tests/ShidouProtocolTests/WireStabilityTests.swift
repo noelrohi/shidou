@@ -5,7 +5,7 @@ import XCTest
 
 /// Mirrors the wire-stability tests in
 /// `crates/shidou-protocol/src/protocol.rs` so Swift and Rust cannot drift
-/// silently within protocol version 5.
+/// silently within protocol version 7.
 final class WireStabilityTests: XCTestCase {
     private func json<T: Encodable>(_ value: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(value)
@@ -46,6 +46,67 @@ final class WireStabilityTests: XCTestCase {
         object = try json(Command.rewindSessionToMessage(turnCount: 4))
         XCTAssertEqual(object["type"] as? String, "rewindSessionToMessage")
         XCTAssertEqual(object["turnCount"] as? Int, 4)
+    }
+
+    func testHerdrCommandsUseStableCamelCaseFields() throws {
+        var object = try json(Command.loadHerdrState)
+        XCTAssertEqual(object["type"] as? String, "loadHerdrState")
+
+        object = try json(Command.readHerdrAgent(terminalId: "term_1", lines: 240))
+        XCTAssertEqual(object["type"] as? String, "readHerdrAgent")
+        XCTAssertEqual(object["terminalId"] as? String, "term_1")
+        XCTAssertEqual(object["lines"] as? UInt32, 240)
+
+        object = try json(Command.promptHerdrAgent(terminalId: "term_1", prompt: "continue"))
+        XCTAssertEqual(object["type"] as? String, "promptHerdrAgent")
+        XCTAssertEqual(object["prompt"] as? String, "continue")
+
+        object = try json(Command.sendHerdrAgentKeys(terminalId: "term_1", keys: ["ctrl+c"]))
+        XCTAssertEqual(object["type"] as? String, "sendHerdrAgentKeys")
+        XCTAssertEqual(object["keys"] as? [String], ["ctrl+c"])
+
+        object = try json(Command.startHerdrAgent(
+            cwd: "/repo",
+            label: "Review",
+            agentKind: "codex",
+            agentName: "reviewer",
+            args: ["--fast"]
+        ))
+        XCTAssertEqual(object["type"] as? String, "startHerdrAgent")
+        XCTAssertEqual(object["agentKind"] as? String, "codex")
+        XCTAssertEqual(object["agentName"] as? String, "reviewer")
+        XCTAssertEqual(object["args"] as? [String], ["--fast"])
+    }
+
+    func testHerdrStateDecodesDaemonSnakeCaseFields() throws {
+        let data = Data(#"""
+        {
+          "type":"herdrState",
+          "state":{
+            "available":true,
+            "version":"0.8.2",
+            "protocol":20,
+            "workspaces":[{
+              "id":"w1","label":"Review","focused":true,
+              "pane_count":1,"tab_count":1,"status":"working"
+            }],
+            "agents":[{
+              "pane_id":"w1:p1","terminal_id":"term_1","workspace_id":"w1",
+              "tab_id":"w1:t1","agent":"codex","status":"blocked",
+              "focused":true,"revision":4,
+              "provider_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"abc"}
+            }]
+          }
+        }
+        """#.utf8)
+
+        let payload = try JSONDecoder().decode(ResponsePayload.self, from: data)
+        guard case .herdrState(let state) = payload else {
+            return XCTFail("expected Herdr state")
+        }
+        XCTAssertEqual(state.workspaces[0].paneCount, 1)
+        XCTAssertEqual(state.agents[0].terminalId, "term_1")
+        XCTAssertEqual(state.agents[0].providerSession?.value, "abc")
     }
 
     func testRequestEnvelopeFlattensIntoClientMessage() throws {

@@ -32,6 +32,22 @@ public final class SessionStore {
     /// means "no tasks" rather than "not loaded".
     public private(set) var hasLoadedCatalog = false
 
+    // MARK: Herdr
+
+    /// Terminal-backed agents exposed by Herdr on the daemon host. Herdr's
+    /// snapshot remains authoritative; these records are never persisted as
+    /// Shidou transcript sessions.
+    public private(set) var herdr = HerdrState(
+        available: false,
+        version: nil,
+        protocol: nil,
+        workspaces: [],
+        agents: [],
+        unavailableReason: nil
+    )
+    public private(set) var isLoadingHerdr = false
+    public private(set) var herdrError: String?
+
     // MARK: Open sessions
 
     /// Sessions with a live projection. A phone holds few of these on purpose:
@@ -104,6 +120,7 @@ public final class SessionStore {
     @ObservationIgnored private var buffered: [UUID: [SequencedEvent]] = [:]
     /// Rejects a catalog load that a newer one has already superseded.
     @ObservationIgnored private var catalogGeneration = 0
+    @ObservationIgnored private var herdrGeneration = 0
     @ObservationIgnored private var workspaceProbes: Set<String> = []
     @ObservationIgnored private var pendingWorkspaceRefreshes: Set<String> = []
     /// Turn-ref loads in flight, so a republished projection cannot queue one
@@ -156,6 +173,7 @@ public final class SessionStore {
         catalogTask?.cancel()
         catalogTask = nil
         catalogGeneration &+= 1
+        herdrGeneration &+= 1
         for write in draftWrites.values { write.cancel() }
         draftWrites.removeAll()
         open.removeAll()
@@ -175,6 +193,16 @@ public final class SessionStore {
         starting.removeAll()
         settings = nil
         pendingInteractions.removeAll()
+        herdr = HerdrState(
+            available: false,
+            version: nil,
+            protocol: nil,
+            workspaces: [],
+            agents: [],
+            unavailableReason: nil
+        )
+        herdrError = nil
+        isLoadingHerdr = false
         hasLoadedCatalog = false
         lastReplayGap = nil
         for subscriber in attentionSubscribers.values { subscriber.finish() }
@@ -188,6 +216,7 @@ public final class SessionStore {
         switch event {
         case .phase(.connected):
             refreshCatalog()
+            refreshHerdr()
             refreshComposerDrafts()
             refreshOpenWorkspaces()
         case .reconnected:
@@ -196,6 +225,7 @@ public final class SessionStore {
             // clients may have renamed or removed a task while we were away,
             // and the drafts, which they may have typed into.
             refreshCatalog()
+            refreshHerdr()
             refreshComposerDrafts()
             refreshOpenWorkspaces()
             reattachOpenSessions()
@@ -302,6 +332,54 @@ public final class SessionStore {
                 self.catalogError = error.localizedDescription
             }
         }
+    }
+
+    public func refreshHerdr() {
+        guard !isLoadingHerdr else { return }
+        herdrGeneration &+= 1
+        let generation = herdrGeneration
+        isLoadingHerdr = true
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let payload = try await self.request(.loadHerdrState)
+                guard case .herdrState(let state) = payload else {
+                    throw ShidouSessionError.unexpectedResponse(expected: "herdrState")
+                }
+                guard self.herdrGeneration == generation else { return }
+                self.herdr = state
+                self.herdrError = nil
+            } catch {
+                guard self.herdrGeneration == generation else { return }
+                self.herdrError = error.localizedDescription
+            }
+            guard self.herdrGeneration == generation else { return }
+            self.isLoadingHerdr = false
+        }
+    }
+
+    public func readHerdrAgent(_ terminalId: String, lines: UInt32 = 240) async throws -> HerdrAgentOutput {
+        let payload = try await request(.readHerdrAgent(terminalId: terminalId, lines: lines))
+        guard case .herdrAgentOutput(let output) = payload else {
+            throw ShidouSessionError.unexpectedResponse(expected: "herdrAgentOutput")
+        }
+        return output
+    }
+
+    public func promptHerdrAgent(_ terminalId: String, prompt: String) async throws {
+        let payload = try await request(.promptHerdrAgent(terminalId: terminalId, prompt: prompt))
+        guard case .ack = payload else {
+            throw ShidouSessionError.unexpectedResponse(expected: "ack")
+        }
+        refreshHerdr()
+    }
+
+    public func sendHerdrKeys(_ terminalId: String, keys: [String]) async throws {
+        let payload = try await request(.sendHerdrAgentKeys(terminalId: terminalId, keys: keys))
+        guard case .ack = payload else {
+            throw ShidouSessionError.unexpectedResponse(expected: "ack")
+        }
+        refreshHerdr()
     }
 
     public func project(for session: AgentSession) -> Project? {

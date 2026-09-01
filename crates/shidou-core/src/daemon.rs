@@ -365,6 +365,34 @@ impl Backend for ShidouBackend {
                     projectless_root: crate::projectless::workspace_root(),
                 })
             }
+            Command::LoadHerdrState => Ok(ResponsePayload::HerdrState {
+                state: crate::herdr::load_state(),
+            }),
+            Command::ReadHerdrAgent { terminal_id, lines } => {
+                Ok(ResponsePayload::HerdrAgentOutput {
+                    output: crate::herdr::read_agent(&terminal_id, lines)?,
+                })
+            }
+            Command::PromptHerdrAgent {
+                terminal_id,
+                prompt,
+            } => {
+                crate::herdr::prompt_agent(&terminal_id, &prompt)?;
+                Ok(ResponsePayload::Ack)
+            }
+            Command::SendHerdrAgentKeys { terminal_id, keys } => {
+                crate::herdr::send_agent_keys(&terminal_id, &keys)?;
+                Ok(ResponsePayload::Ack)
+            }
+            Command::StartHerdrAgent {
+                cwd,
+                label,
+                agent_kind,
+                agent_name,
+                args,
+            } => Ok(ResponsePayload::HerdrAgentStarted {
+                agent: crate::herdr::start_agent(&cwd, &label, &agent_kind, &agent_name, &args)?,
+            }),
             Command::SaveTaskState {
                 projects,
                 live_session_ids: _,
@@ -1982,6 +2010,11 @@ fn handle_driver_command(
         | Command::SetSkillsEnabled { .. }
         | Command::TrashSkills { .. }
         | Command::LoadTaskState
+        | Command::LoadHerdrState
+        | Command::ReadHerdrAgent { .. }
+        | Command::PromptHerdrAgent { .. }
+        | Command::SendHerdrAgentKeys { .. }
+        | Command::StartHerdrAgent { .. }
         | Command::SaveTaskState { .. }
         | Command::RemoveSession
         | Command::ArchiveSession { .. }
