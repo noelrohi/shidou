@@ -585,6 +585,8 @@ async function publishIos(plan: ReleasePlan, sha: string): Promise<void> {
     console.log(`  ok   ${tag} already exists.`);
     return;
   }
+  logStep("Building the ShidouKit test fixture daemon");
+  await $`cargo build -p shidou-demo`;
   logStep("Running the ShidouKit tests");
   await $`swift test --package-path ${join(projectRoot, "apps/ios/Packages/ShidouKit")}`;
 
