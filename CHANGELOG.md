@@ -14,6 +14,12 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.14]
+
+- Use Pi and Oh My Pi extension commands from the task composer, including
+  commands discovered before the task's first turn
+- Choose Claude Fable 5.1 and Claude Mythos 5 from the Claude Code model picker
+
 ## [0.2.13]
 
 - Archive finished tasks out of the sidebar: archived tasks gather in a
