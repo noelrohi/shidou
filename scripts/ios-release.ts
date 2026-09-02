@@ -129,6 +129,26 @@ export function uploadKeyPaths(keyId: string): string[] {
   ];
 }
 
+type UploadedBuild = { id: string; version: string; processingState: string };
+type UploadReceipt = { version: string; buildNumber: string };
+
+/** An upload that can be resumed without rebuilding. ASC is authoritative
+ *  once it knows the build; the receipt covers its post-upload registration
+ *  delay. */
+export function priorUpload(
+  version: string,
+  buildNumber: string,
+  receipt: UploadReceipt | null,
+  builds: UploadedBuild[],
+): { id: string | null; processingState: string } | null {
+  const build = builds.find((candidate) => candidate.version === buildNumber);
+  if (build) return { id: build.id, processingState: build.processingState };
+  if (receipt?.version === version && receipt.buildNumber === buildNumber) {
+    return { id: null, processingState: "PROCESSING" };
+  }
+  return null;
+}
+
 function requireTool(name: string): void {
   if (!Bun.which(name)) {
     throw new Error(`Required tool not found in PATH: ${name}`);
@@ -217,10 +237,14 @@ async function main(): Promise<void> {
     );
   }
   if (nextBuildNumber && explicitBuildNumber) {
-    throw new Error("Use either --next-build-number or --build-number, not both.");
+    throw new Error(
+      "Use either --next-build-number or --build-number, not both.",
+    );
   }
   if ((nextBuildNumber || waiting) && (!apiKeyId || !apiIssuer)) {
-    throw new Error("--next-build-number and --wait need an App Store Connect API key.");
+    throw new Error(
+      "--next-build-number and --wait need an App Store Connect API key.",
+    );
   }
   if (waiting && !uploading) {
     throw new Error("--wait only makes sense with --upload.");
@@ -253,7 +277,9 @@ async function main(): Promise<void> {
     ];
   }
 
-  const version = findIosVersion(await readFile(iosProjectYmlPath, "utf8")).version;
+  const version = findIosVersion(
+    await readFile(iosProjectYmlPath, "utf8"),
+  ).version;
   parseVersion(version); // Fail on a malformed version before building anything.
 
   /** An authenticated ASC client, or an error naming the missing key. */
@@ -308,14 +334,13 @@ async function main(): Promise<void> {
 
   /** Find-or-create the ASC app record, idempotently. Creates nothing when
    *  the record already exists, so uploads stay repeatable. */
-  async function ensureAppRecordExists(): Promise<void> {
-    const asc = await ascClient();
+  async function ensureAppRecordExists(asc: AscApi): Promise<string> {
     const existing = await asc.findAppByBundleId(appBundleId);
     if (existing) {
       console.log(
         `  ok   App Store Connect app record already exists (${existing.id}).`,
       );
-      return;
+      return existing.id;
     }
     logStep(
       `Creating the App Store Connect app record for ${appBundleId} ` +
@@ -346,6 +371,87 @@ async function main(): Promise<void> {
       throw error;
     }
     console.log(`  ok   App record created (${created.id}).`);
+    return created.id;
+  }
+
+  async function waitForUploadedBuild(
+    asc: AscApi,
+    appId: string,
+  ): Promise<void> {
+    logStep(`Waiting for App Store Connect to process build ${buildNumber}`);
+    const deadline = Date.now() + 45 * 60 * 1000;
+    let buildId: string | null = null;
+    while (Date.now() < deadline) {
+      const build = (await asc.listBuilds(appId, { version })).find(
+        (candidate) => candidate.version === buildNumber,
+      );
+      if (build?.processingState === "VALID") {
+        buildId = build.id;
+        break;
+      }
+      if (build && build.processingState !== "PROCESSING") {
+        throw new Error(
+          `App Store Connect reports build ${buildNumber} as ${build.processingState}.`,
+        );
+      }
+      console.log(
+        `  ..   ${build ? build.processingState : "not registered yet"}`,
+      );
+      await Bun.sleep(30_000);
+    }
+    if (!buildId) {
+      throw new Error(
+        `Build ${buildNumber} was still processing after 45 minutes; check App Store Connect.`,
+      );
+    }
+    while (Date.now() < deadline) {
+      const state = await asc.buildBetaState(buildId);
+      if (state === "IN_BETA_TESTING") return;
+      console.log(`  ..   internal testing: ${state ?? "unknown"}`);
+      await Bun.sleep(30_000);
+    }
+    throw new Error(
+      `Build ${buildNumber} was not available to internal testers after 45 minutes.`,
+    );
+  }
+
+  const receiptPath = join(outputDir, "upload-receipt.json");
+  let uploadAsc: AscApi | null = null;
+  let uploadAppId: string | null = null;
+  if (uploading) {
+    uploadAsc = await ascClient();
+    uploadAppId = await ensureAppRecordExists(uploadAsc);
+    const receipt = existsSync(receiptPath)
+      ? ((await Bun.file(receiptPath)
+          .json()
+          .catch(() => null)) as UploadReceipt | null)
+      : null;
+    const uploaded = priorUpload(
+      version,
+      buildNumber,
+      receipt,
+      await uploadAsc.listBuilds(uploadAppId, { version }),
+    );
+    if (uploaded) {
+      if (
+        uploaded.processingState !== "PROCESSING" &&
+        uploaded.processingState !== "VALID"
+      ) {
+        throw new Error(
+          `App Store Connect reports build ${buildNumber} as ${uploaded.processingState}.`,
+        );
+      }
+      console.log(
+        `  ok   iOS ${version} (build ${buildNumber}) was already uploaded; skipping archive and upload.`,
+      );
+      if (waiting) {
+        await waitForUploadedBuild(uploadAsc, uploadAppId);
+        console.log(
+          `\nShidou iOS ${version} (build ${buildNumber}) is VALID and in internal testing.`,
+        );
+      }
+      return;
+    }
   }
 
   logStep(`Building Shidou iOS ${version} (build ${buildNumber})`);
@@ -446,7 +552,6 @@ async function main(): Promise<void> {
   if (!apiKeyId || !apiIssuer) {
     throw new Error("Upload requires an App Store Connect API key.");
   }
-  await ensureAppRecordExists();
   const uploadKeyPath = findApiKey();
   if (!uploadKeyPath) {
     throw new Error(
@@ -456,10 +561,16 @@ async function main(): Promise<void> {
   }
   // altool has no path flag, but it honors API_PRIVATE_KEYS_DIR. Point it at
   // the configured key instead of copying a credential into the repository.
-  await $`xcrun altool --upload-app --type ios -f ${ipaPath} --apiKey ${apiKeyId} --apiIssuer ${apiIssuer}`.env({
-    ...process.env,
-    API_PRIVATE_KEYS_DIR: dirname(resolve(uploadKeyPath)),
-  });
+  await $`xcrun altool --upload-app --type ios -f ${ipaPath} --apiKey ${apiKeyId} --apiIssuer ${apiIssuer}`.env(
+    {
+      ...process.env,
+      API_PRIVATE_KEYS_DIR: dirname(resolve(uploadKeyPath)),
+    },
+  );
+  await Bun.write(
+    receiptPath,
+    `${JSON.stringify({ version, buildNumber }, null, 2)}\n`,
+  );
 
   if (!waiting) {
     console.log(
@@ -473,38 +584,7 @@ async function main(): Promise<void> {
   // Upload ≠ available. The iOS Release counts as shipped only when internal
   // testers can install it, so poll until ASC says so. The first checks often
   // come back empty while the upload is still being registered.
-  logStep(`Waiting for App Store Connect to process build ${buildNumber}`);
-  const asc = await ascClient();
-  const appId = await appRecordId(asc);
-  const deadline = Date.now() + 45 * 60 * 1000;
-  let buildId: string | null = null;
-  while (Date.now() < deadline) {
-    const build = (await asc.listBuilds(appId, { version })).find(
-      (candidate) => candidate.version === buildNumber,
-    );
-    if (build?.processingState === "VALID") {
-      buildId = build.id;
-      break;
-    }
-    if (build && build.processingState !== "PROCESSING") {
-      throw new Error(
-        `App Store Connect reports build ${buildNumber} as ${build.processingState}.`,
-      );
-    }
-    console.log(`  ..   ${build ? build.processingState : "not registered yet"}`);
-    await Bun.sleep(30_000);
-  }
-  if (!buildId) {
-    throw new Error(
-      `Build ${buildNumber} was still processing after 45 minutes; check App Store Connect.`,
-    );
-  }
-  while (Date.now() < deadline) {
-    const state = await asc.buildBetaState(buildId);
-    if (state === "IN_BETA_TESTING") break;
-    console.log(`  ..   internal testing: ${state ?? "unknown"}`);
-    await Bun.sleep(30_000);
-  }
+  await waitForUploadedBuild(uploadAsc!, uploadAppId!);
   console.log(
     `\nShidou iOS ${version} (build ${buildNumber}) is VALID and in internal testing.`,
   );

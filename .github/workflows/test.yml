@@ -2,15 +2,22 @@ name: Tests
 
 on:
   push:
+    branches: [master]
     paths-ignore:
       - "apps/web/**"
       - "website/**"
+      - "CHANGELOG.md"
+      - "CHANGELOG-ios.md"
+      - ".changes/**"
       - ".github/workflows/deploy-workers.yml"
       - ".github/workflows/test.yml"
   pull_request:
     paths-ignore:
       - "apps/web/**"
       - "website/**"
+      - "CHANGELOG.md"
+      - "CHANGELOG-ios.md"
+      - ".changes/**"
       - ".github/workflows/deploy-workers.yml"
       - ".github/workflows/test.yml"
 

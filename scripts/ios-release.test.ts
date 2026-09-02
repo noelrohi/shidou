@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { exportOptionsPlist, uploadKeyPaths } from "./ios-release";
+import { exportOptionsPlist, priorUpload, uploadKeyPaths } from "./ios-release";
 
 describe("exportOptionsPlist", () => {
   test("targets App Store Connect with the team and automatic signing", () => {
@@ -32,14 +32,46 @@ describe("exportOptionsPlist", () => {
   });
 });
 
+describe("priorUpload", () => {
+  const version = "0.2.13";
+  const buildNumber = "2029";
+
+  test("prefers an App Store Connect build", () => {
+    expect(
+      priorUpload(version, buildNumber, null, [
+        { id: "older", version: "2028", processingState: "VALID" },
+        { id: "current", version: buildNumber, processingState: "PROCESSING" },
+      ]),
+    ).toEqual({ id: "current", processingState: "PROCESSING" });
+  });
+
+  test("uses the local receipt while App Store Connect registers the upload", () => {
+    expect(
+      priorUpload(version, buildNumber, { version, buildNumber }, []),
+    ).toEqual({ id: null, processingState: "PROCESSING" });
+  });
+
+  test("ignores receipts and builds for a different release", () => {
+    expect(
+      priorUpload(version, buildNumber, { version, buildNumber: "2028" }, [
+        { id: "other", version: "2030", processingState: "VALID" },
+      ]),
+    ).toBeNull();
+  });
+});
+
 describe("uploadKeyPaths", () => {
   test("returns every standard AuthKey search path for the key id", () => {
     const paths = uploadKeyPaths("ABC123");
     expect(paths).toContain("private_keys/AuthKey_ABC123.p8");
-    expect(paths.some((p) => p.endsWith("/.appstoreconnect/private_keys/AuthKey_ABC123.p8"))).toBe(
-      true,
-    );
-    expect(paths.some((p) => p.endsWith("/private_keys/AuthKey_ABC123.p8"))).toBe(true);
+    expect(
+      paths.some((p) =>
+        p.endsWith("/.appstoreconnect/private_keys/AuthKey_ABC123.p8"),
+      ),
+    ).toBe(true);
+    expect(
+      paths.some((p) => p.endsWith("/private_keys/AuthKey_ABC123.p8")),
+    ).toBe(true);
   });
 
   test("never treats the repository root as key storage", () => {
