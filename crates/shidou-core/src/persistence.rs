@@ -1053,7 +1053,7 @@ impl StateStore {
     }
 
     pub fn load(&self) -> io::Result<PersistedState> {
-        let connection = self.open()?;
+        let mut connection = self.open()?;
         let mut state = PersistedState::empty();
 
         // Missing JSON files mean defaults; the database remains the source of
@@ -1146,6 +1146,7 @@ impl StateStore {
             })
             .collect();
         drop(sessions);
+        recover_missing_auto_titles(&mut connection, &mut state.sessions)?;
 
         state.migrate_loaded();
         let app_settings = state.app_settings();
@@ -1484,6 +1485,62 @@ type SessionColumns = (
     Option<i64>,
     Option<i64>,
 );
+
+/// Repairs persisted tasks whose automatic-title fallback is missing.
+///
+/// A catalog refresh (including one after archiving) replaces a client's rich
+/// in-memory row with these SQLite columns. If an old row has neither a user
+/// title nor an automatic title, derive the same fallback new tasks receive
+/// from its first prompt and persist it before the catalog can expose
+/// `"New task"`. The provider can still replace this fallback later.
+fn recover_missing_auto_titles(
+    connection: &mut Connection,
+    sessions: &mut [AgentSession],
+) -> io::Result<()> {
+    let transaction = connection.transaction().map_err(to_io_error)?;
+    let prompts = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT messages.session_id, messages.content
+                 FROM messages
+                 JOIN sessions ON sessions.id = messages.session_id
+                 WHERE messages.role = 'user'
+                   AND sessions.title = ?1
+                   AND (sessions.auto_title IS NULL OR trim(sessions.auto_title) = '')
+                   AND NOT EXISTS (
+                       SELECT 1 FROM messages AS earlier
+                       WHERE earlier.session_id = messages.session_id
+                         AND earlier.role = 'user'
+                         AND earlier.position < messages.position
+                   )",
+            )
+            .map_err(to_io_error)?;
+        statement
+            .query_map(params![AgentSession::DEFAULT_TITLE], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(to_io_error)?
+            .filter_map(Result::ok)
+            .filter_map(|(id, prompt)| Some((Uuid::parse_str(&id).ok()?, prompt)))
+            .collect::<HashMap<_, _>>()
+    };
+    let mut update = transaction
+        .prepare("UPDATE sessions SET auto_title = ?1 WHERE id = ?2")
+        .map_err(to_io_error)?;
+    for session in sessions {
+        let Some(prompt) = prompts.get(&session.id) else {
+            continue;
+        };
+        session.set_title_from_prompt(prompt);
+        if let Some(auto_title) = &session.auto_title {
+            update
+                .execute(params![auto_title, session.id.to_string()])
+                .map_err(to_io_error)?;
+        }
+    }
+    drop(update);
+    transaction.commit().map_err(to_io_error)
+}
 
 /// Builds a list-only session from its columns. `messages`,
 /// `transcript_blocks` and `turns` stay empty until [`StateStore::hydrate`].
@@ -2574,6 +2631,24 @@ mod tests {
                 .map(|reasoning| reasoning.content.as_str()),
             Some("Checking the source")
         );
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn load_recovers_a_missing_task_title_from_its_first_prompt() {
+        let directory = temporary_directory();
+        let store = store_in(&directory);
+        let mut state = PersistedState::fresh(PathBuf::from("/tmp/project"));
+        state.sessions[0].begin_turn("Fix task names after archiving several old tasks");
+        state.sessions[0].finish_active_turn(crate::model::TurnStatus::Completed);
+        store.save(&mut state).unwrap();
+
+        let restored = store_in(&directory).load().unwrap();
+        assert_eq!(
+            restored.sessions[0].display_title(),
+            "Fix task names after archiving several old"
+        );
+
         fs::remove_dir_all(directory).ok();
     }
 

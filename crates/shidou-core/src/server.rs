@@ -1943,6 +1943,47 @@ for line in sys.stdin:
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn archiving_tasks_preserves_their_automatic_titles() {
+        let daemon = ShidouTestDaemon::new("archive-titles", |_| {});
+        let client = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let mut first = persist_task(&client, &project);
+        first.auto_title = Some("First visible title".into());
+        first.updated_at = first.updated_at.saturating_add(1);
+        let mut second = persist_task(&client, &project);
+        second.auto_title = Some("Second visible title".into());
+        second.updated_at = second.updated_at.saturating_add(1);
+        client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![first.id, second.id],
+                    sessions: vec![first.clone(), second.clone()],
+                },
+            )
+            .unwrap();
+
+        archive(&client, first.id, true);
+        archive(&client, second.id, true);
+
+        let ResponsePayload::TaskState { sessions, .. } = client
+            .request(Uuid::nil(), Uuid::nil(), Command::LoadTaskState)
+            .unwrap()
+        else {
+            panic!("expected task state");
+        };
+        let titles = sessions
+            .iter()
+            .filter(|session| session.archived_at.is_some())
+            .map(AgentSession::display_title)
+            .collect::<Vec<_>>();
+        assert_eq!(titles, ["First visible title", "Second visible title"]);
+    }
+
     /// Only the command writes the mark. A snapshot save carrying one is not a
     /// second way in, not even for a task the daemon has never seen before.
     #[cfg(unix)]
