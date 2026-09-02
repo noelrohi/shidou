@@ -6,8 +6,7 @@ import { Button } from '@/components/ui/button'
 import { ControlMenu } from '@/components/control-menu'
 import { Input } from '@/components/ui/input'
 import { PanelResizeHandle } from '@/components/panel-resize-handle'
-import { ShidouIcon } from '@/components/shidou-icon'
-import { useWorkspaceBranches } from '@/hooks/use-daemon-data'
+import { ProviderIcon, ShidouIcon, providerMeta } from '@/components/shidou-icon'
 import { SHIDOU_APP_ICON_URL } from '@/lib/branding'
 import { displayTitle, type TaskState } from '@/lib/daemon-api'
 import { useDaemon } from '@/lib/daemon-context'
@@ -287,9 +286,12 @@ export function Sidebar({
                   {row.guides && (
                     <span aria-hidden className="absolute bottom-0 left-[25px] top-0 w-px bg-border" />
                   )}
-                  <div className={cn(row.guides && 'pl-[18px]')}>
+                  <div className={cn(
+                    row.guides
+                      ? row.item.session.parent_task_id ? 'pl-[32px]' : 'pl-[18px]'
+                      : row.item.session.parent_task_id && 'pl-[14px]',
+                  )}>
                   <SessionRow
-                    guides={row.guides}
                     item={row.item}
                     nowSeconds={nowSeconds}
                     selected={selectedSessionId === row.item.session.id}
@@ -544,7 +546,6 @@ function SidebarAction({
 
 function SessionRow({
   item,
-  guides = false,
   nowSeconds,
   selected,
   onSelect,
@@ -554,7 +555,6 @@ function SessionRow({
   t,
 }: {
   item: SessionItem
-  guides?: boolean
   nowSeconds: number
   selected: boolean
   onSelect: (sessionId: string) => void
@@ -574,9 +574,9 @@ function SessionRow({
   // The daemon is the authority and refuses to shelve a Task that is still
   // running or waiting for the user; the row only declines to ask. Bringing a
   // Task back is always allowed, because it can only return it to view.
-  const busy = item.session.status === 'working'
-    || item.session.status === 'connecting'
-    || item.session.status === 'waiting'
+  const working = item.session.status === 'working' || item.session.status === 'connecting'
+  const busy = working || item.session.status === 'waiting'
+  const timeLabel = working ? null : sessionTimeLabel(item.session, nowSeconds, t)
 
   async function commitRename() {
     if (skipRenameCommit.current) {
@@ -618,37 +618,42 @@ function SessionRow({
         )}
       >
         {renaming ? (
-          <div className="flex h-[51px] w-full min-w-0 flex-col gap-1 rounded-[7px] px-2 py-[7px]">
-            <span className="flex min-w-0 w-full items-center gap-1.5 leading-[18px]">
-              <Input
-                autoFocus
-                className="h-[22px] min-w-0 flex-1 rounded border-ring bg-[var(--inset)] px-1 text-[13.5px]"
-                value={title}
-                onBlur={() => void commitRename()}
-                onChange={(event) => setTitle(event.target.value)}
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    event.currentTarget.blur()
-                  }
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    skipRenameCommit.current = true
-                    setTitle(currentTitle)
-                    setRenaming(false)
-                  }
-                }}
-              />
-              <SessionStatus status={item.session.status} t={t} />
-            </span>
-            <SessionMetadata guides={guides} item={item} nowSeconds={nowSeconds} t={t} />
+          <div className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] px-2">
+            <ProviderIcon
+              className="size-3.5 !text-[var(--text-tertiary)]"
+              label={providerMeta(item.session.provider).name}
+              provider={item.session.provider}
+            />
+            <SessionStatusDot status={item.session.status} t={t} />
+            <Input
+              autoFocus
+              className="h-[22px] min-w-0 flex-1 rounded border-ring bg-[var(--inset)] px-1 text-[13.5px]"
+              value={title}
+              onBlur={() => void commitRename()}
+              onChange={(event) => setTitle(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  event.currentTarget.blur()
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  skipRenameCommit.current = true
+                  setTitle(currentTitle)
+                  setRenaming(false)
+                }
+              }}
+            />
+            {working && (
+              <ShidouIcon className="size-3 text-[var(--text-secondary)] motion-safe:animate-spin" name="loaderCircle" />
+            )}
           </div>
         ) : (
           <button
             aria-current={selected ? 'page' : undefined}
             aria-haspopup="menu"
-            className="flex h-[51px] w-full min-w-0 flex-col gap-1 rounded-[7px] px-2 py-[7px] text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] px-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
             ref={rowButton}
             type="button"
             onClick={() => onSelect(item.session.id)}
@@ -660,13 +665,26 @@ function SessionRow({
               }
             }}
           >
-            <span className="flex min-w-0 w-full items-center gap-1.5 leading-[18px]">
-              <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
-                {currentTitle}
-              </span>
-              <SessionStatus status={item.session.status} t={t} />
+            <ProviderIcon
+              className="size-3.5 !text-[var(--text-tertiary)]"
+              label={providerMeta(item.session.provider).name}
+              provider={item.session.provider}
+            />
+            <SessionStatusDot status={item.session.status} t={t} />
+            <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
+              {currentTitle}
             </span>
-            <SessionMetadata guides={guides} item={item} nowSeconds={nowSeconds} t={t} />
+            {working ? (
+              <ShidouIcon
+                className="size-3 text-[var(--text-secondary)] motion-safe:animate-spin"
+                label={t('sidebar.status_working')}
+                name="loaderCircle"
+              />
+            ) : timeLabel ? (
+              <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-ghost)]">
+                {timeLabel}
+              </span>
+            ) : null}
           </button>
         )}
       </ContextMenu.Trigger>
@@ -719,71 +737,27 @@ function SessionRow({
   )
 }
 
-function SessionMetadata({
-  item,
-  guides = false,
-  nowSeconds,
-  t,
-}: {
-  item: SessionItem
-  guides?: boolean
-  nowSeconds: number
-  t: Translator
-}) {
-  const timeLabel = sessionTimeLabel(item.session, nowSeconds, t)
-  return (
-    <span className="flex w-full min-w-0 items-center gap-1.5 text-[11.5px] leading-[15px] text-[var(--text-tertiary)]">
-      {guides ? (
-        item.branch ? (
-          <BranchLabel branch={item.branch} />
-        ) : (item.session.workspace ?? { kind: 'local' }).kind === 'local' && item.projectPath ? (
-          <ProjectBranchLabel path={item.projectPath} />
-        ) : (
-          <span className="min-w-0 flex-1" />
-        )
-      ) : (
-        <>
-          <ShidouIcon className="size-[11px] shrink-0" name="folder" />
-          <span className="min-w-0 flex-1 truncate">{item.projectName}</span>
-        </>
-      )}
-      {timeLabel && (
-        <span className={cn(
-          'shrink-0 text-[var(--text-ghost)]',
-          item.session.status !== 'idle' && 'text-[var(--text-tertiary)]',
-        )}>
-          {timeLabel}
-        </span>
-      )}
-    </span>
-  )
-}
-
-function SessionStatus({ status, t }: { status: AgentSession['status']; t: Translator }) {
+function SessionStatusDot({ status, t }: { status: AgentSession['status']; t: Translator }) {
   if (status === 'idle') return null
-  if (status === 'working' || status === 'connecting') {
-    return <ShidouIcon label={t('sidebar.status_working')} className="size-3 text-[var(--success)] motion-safe:animate-spin" name="loaderCircle" />
-  }
-  if (status === 'waiting') {
-    return <ShidouIcon label={t('sidebar.status_waiting')} className="size-3 text-[var(--warning)]" name="alert" />
-  }
-  return <ShidouIcon label={t('sidebar.status_failed')} className="size-3 text-destructive" name="x" />
-}
-
-function BranchLabel({ branch }: { branch: string }) {
+  const working = status === 'working' || status === 'connecting'
+  const label = working
+    ? t('sidebar.status_working')
+    : status === 'waiting'
+      ? t('sidebar.status_waiting')
+      : t('sidebar.status_failed')
   return (
-    <>
-      <ShidouIcon className="size-[11px] shrink-0" name="gitBranch" />
-      <span className="min-w-0 flex-1 truncate">{branch}</span>
-    </>
+    <span
+      aria-label={label}
+      className={cn(
+        'size-[7px] shrink-0 rounded-full',
+        working && 'bg-ring motion-safe:animate-pulse',
+        status === 'waiting' && 'bg-[var(--warning)]',
+        status === 'failed' && 'bg-destructive',
+      )}
+      role="img"
+      title={label}
+    />
   )
-}
-
-function ProjectBranchLabel({ path }: { path: string }) {
-  const branches = useWorkspaceBranches(path)
-  const current = branches.data?.current ?? branches.data?.detached_head ?? null
-  if (!current) return <span className="min-w-0 flex-1" />
-  return <BranchLabel branch={current} />
 }
 
 function ConnectionDot() {

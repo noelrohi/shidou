@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context as _, anyhow, bail};
 use parking_lot::Mutex;
-use shidou_core::{Backend, Command, EventSink, Request, ResponsePayload};
+use shidou_core::{Backend, Command, EventSink, Request, ResponsePayload, RpcError};
 use shidou_protocol::model::{
     BackgroundWorkEvent, BackgroundWorkItem, BackgroundWorkKey, BackgroundWorkStatus, Checkpoint,
     CheckpointStatus, DriverEvent, ProviderKind,
@@ -271,6 +271,13 @@ impl Backend for DemoBackend {
             Command::RemoveSession
             | Command::ArchiveSession { .. }
             | Command::RemoveProject { .. } => Ok(ResponsePayload::Ack),
+            // The Demo Session executes nothing, so it cannot spawn anything.
+            Command::CreateChildTask { .. }
+            | Command::ListProviderModels { .. }
+            | Command::ReadTaskSummary
+            | Command::ListChildTasks => {
+                Err(RpcError::refused("the demo daemon does not run child tasks").into())
+            }
             Command::HydrateSession { session_id } => Ok(ResponsePayload::Session {
                 session: sessions::hydrate(session_id),
             }),

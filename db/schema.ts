@@ -50,6 +50,11 @@ export const sessions = sqliteTable(
      * whole-snapshot save.
      */
     archivedAt: integer("archived_at"),
+    /**
+     * The task whose agent created this one through the `shidou` CLI. Null
+     * means the user opened it. Daemon-owned and never changed afterwards.
+     */
+    parentTaskId: text("parent_task_id"),
   },
   (table) => [
     index("sessions_by_project").on(table.projectId, table.updatedAt),

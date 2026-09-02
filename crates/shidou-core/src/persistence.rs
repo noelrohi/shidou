@@ -1116,7 +1116,8 @@ impl StateStore {
         let mut sessions = connection
             .prepare(
                 "SELECT id, project_id, title, auto_title, provider, model, status,
-                        created_at, updated_at, last_reply_at, archived_at
+                        created_at, updated_at, last_reply_at, archived_at,
+                        parent_task_id
                  FROM sessions ORDER BY updated_at",
             )
             .map_err(to_io_error)?;
@@ -1135,6 +1136,7 @@ impl StateStore {
                     row.get::<_, i64>(8)?,
                     row.get::<_, Option<i64>>(9)?,
                     row.get::<_, Option<i64>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
                 ))
             })
             .map_err(to_io_error)?
@@ -1484,6 +1486,7 @@ type SessionColumns = (
     i64,
     Option<i64>,
     Option<i64>,
+    Option<String>,
 );
 
 /// Repairs persisted tasks whose automatic-title fallback is missing.
@@ -1560,6 +1563,7 @@ fn session_skeleton(row: SessionColumns) -> Option<AgentSession> {
         updated_at,
         last_reply_at,
         archived_at,
+        parent_task_id,
     ) = row;
     Some(AgentSession {
         id: Uuid::parse_str(&id).ok()?,
@@ -1581,6 +1585,7 @@ fn session_skeleton(row: SessionColumns) -> Option<AgentSession> {
         updated_at: updated_at as u64,
         last_reply_at: last_reply_at.map(|at| at as u64),
         archived_at: archived_at.map(|at| at as u64),
+        parent_task_id: parent_task_id.and_then(|id| Uuid::parse_str(&id).ok()),
         provider_cursor: None,
         available_commands: Vec::new(),
         context_usage: None,
@@ -1792,8 +1797,8 @@ fn message_fingerprint(message: &Message, position: usize) -> u64 {
 /// listing sessions never has to deserialize a transcript.
 const UPSERT_SESSION: &str = "INSERT INTO sessions(
          id, project_id, title, auto_title, provider, model, status,
-         created_at, updated_at, last_reply_at, archived_at
-     ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         created_at, updated_at, last_reply_at, archived_at, parent_task_id
+     ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
      ON CONFLICT(id) DO UPDATE SET
          project_id    = excluded.project_id,
          title         = excluded.title,
@@ -1804,7 +1809,8 @@ const UPSERT_SESSION: &str = "INSERT INTO sessions(
          created_at    = excluded.created_at,
          updated_at    = excluded.updated_at,
          last_reply_at = excluded.last_reply_at,
-         archived_at   = excluded.archived_at";
+         archived_at   = excluded.archived_at,
+         parent_task_id = excluded.parent_task_id";
 
 const INSERT_PROJECT: &str = "INSERT INTO projects(
          id, name, path, position, created_at, workspace_default
@@ -1848,6 +1854,9 @@ fn session_params(session: &AgentSession) -> Vec<rusqlite::types::Value> {
         session
             .archived_at
             .map_or(Value::Null, |at| Value::Integer(at as i64)),
+        session
+            .parent_task_id
+            .map_or(Value::Null, |id| Value::Text(id.to_string())),
     ]
 }
 

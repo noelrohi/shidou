@@ -6899,6 +6899,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "shidou-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "shidou-client",
+ "shidou-protocol",
+ "uuid",
+]
+
+[[package]]
 name = "shidou-client"
 version = "0.1.0"
 dependencies = [

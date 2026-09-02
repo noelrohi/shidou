@@ -29,6 +29,42 @@ pub const VISUAL_GRID_HORIZONTAL_INSET: f32 = 16.0;
 pub const DAEMON_TOKEN_ENV: &str = "SHIDOU_DAEMON_TOKEN";
 pub const DAEMON_ADDRESS_ENV: &str = "SHIDOU_DAEMON_ADDRESS";
 pub const APP_EXECUTABLE_ENV: &str = "SHIDOU_APP_EXECUTABLE";
+/// Task Credential the daemon hands a provider process so the `shidou` CLI
+/// inside it can reach back: a token scoped to that one Task.
+pub const TASK_TOKEN_ENV: &str = "SHIDOU_TASK_TOKEN";
+/// The Task a provider process belongs to, alongside [`TASK_TOKEN_ENV`].
+pub const TASK_ID_ENV: &str = "SHIDOU_TASK_ID";
+
+/// What a provider process needs to act as its Task's orchestrator: the
+/// daemon's loopback address and a token that only reaches that root Task's
+/// direct children. Minted per root runtime start and revoked when it ends.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TaskCredential {
+    pub address: String,
+    pub token: String,
+    pub task_id: Uuid,
+}
+
+/// The list-level view of a Task that an orchestrating agent reads: enough to
+/// tell whether a child is still working, waiting on the user, or done, and
+/// what it last said.
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSummary {
+    pub id: Uuid,
+    pub title: String,
+    pub provider: ProviderKind,
+    pub status: crate::model::SessionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task_id: Option<Uuid>,
+    /// Turns the Task has accepted so far, running or finished.
+    pub turn_count: usize,
+    /// Whether the newest turn has settled, whatever its outcome.
+    pub last_turn_finished: bool,
+    /// The final assistant message of the newest turn, once it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_assistant_message: Option<String>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -177,6 +213,34 @@ pub enum Command {
     /// Explicitly set or clear the archive mark on one daemon-owned task.
     /// Saves never carry the mark, so a stale client snapshot cannot clear a
     /// mark another client just set — only this can.
+    /// Create a Task under `parent_task_id`, in the parent's project and
+    /// workspace, and hand back the options its runtime should start with.
+    /// The connection's Task Credential, when it has one, overrides the parent.
+    CreateChildTask {
+        parent_task_id: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<ProviderKind>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<crate::model::RuntimeMode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reasoning_effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interaction_mode: Option<crate::model::InteractionMode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    /// The models the daemon knows for a provider, so an orchestrating agent
+    /// can pick one for a child. `None` means the provider of `session_id`.
+    ListProviderModels {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<ProviderKind>,
+    },
+    /// The list-level state of one Task, addressed by `session_id`.
+    ReadTaskSummary,
+    /// Every Task whose parent is `session_id`.
+    ListChildTasks,
     ArchiveSession {
         archived: bool,
     },
@@ -436,6 +500,20 @@ pub enum ResponsePayload {
         sessions: Vec<AgentSession>,
         default_cwd: PathBuf,
         projectless_root: Option<PathBuf>,
+    },
+    ChildTaskCreated {
+        session: AgentSession,
+        start_options: WireDriverStartOptions,
+    },
+    TaskSummary {
+        summary: TaskSummary,
+    },
+    TaskSummaries {
+        summaries: Vec<TaskSummary>,
+    },
+    ProviderModels {
+        provider: ProviderKind,
+        models: Vec<crate::model::ProviderModel>,
     },
     TaskStateSaved {
         sessions: Vec<AgentSession>,

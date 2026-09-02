@@ -139,6 +139,9 @@ export function sidebarGroups(
   const groups = grouping === 'project'
     ? projectGroups(active, projectById, item, now, revealed, unknownProject, projectlessName)
     : dateGroups(active, item, now, ordering)
+  for (const group of groups) {
+    group.sessions = nestChildSessions(group.sessions)
+  }
   if (!groups.length) {
     // Keep the first header visible so the header actions never disappear
     // merely because there is no unarchived task history yet.
@@ -149,6 +152,31 @@ export function sidebarGroups(
   const shelf = shelfGroup(archived, item, revealed, shelfLabel)
   if (shelf) groups.push(shelf)
   return groups
+}
+
+function nestChildSessions(sessions: SessionItem[]): SessionItem[] {
+  const present = new Set(sessions.map((item) => item.session.id))
+  const childrenByParent = new Map<string, SessionItem[]>()
+  const roots: SessionItem[] = []
+  for (const item of sessions) {
+    const parent = item.session.parent_task_id
+    if (parent && present.has(parent)) {
+      const children = childrenByParent.get(parent) ?? []
+      children.push(item)
+      childrenByParent.set(parent, children)
+    } else {
+      roots.push(item)
+    }
+  }
+  const nested: SessionItem[] = []
+  const stack = [...roots].reverse()
+  while (stack.length) {
+    const item = stack.pop()!
+    nested.push(item)
+    const children = childrenByParent.get(item.session.id)
+    if (children) stack.push(...[...children].reverse())
+  }
+  return nested
 }
 
 /**

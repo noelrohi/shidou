@@ -881,6 +881,10 @@ pub struct AgentSession {
     /// set (see `docs/adr/0002-explicit-archive-command.md`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<u64>,
+    /// The Task whose agent created this one through the `shidou` CLI. `None`
+    /// is a Task the user opened themselves. Daemon-owned and immutable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task_id: Option<Uuid>,
     #[serde(default)]
     pub provider_cursor: Option<ProviderResumeCursor>,
     /// Slash commands the provider reported for this session's live process,
@@ -947,6 +951,7 @@ impl AgentSession {
             updated_at: now,
             last_reply_at: None,
             archived_at: None,
+            parent_task_id: None,
             detail_loaded: true,
             provider_cursor: None,
             available_commands: Vec::new(),
@@ -985,6 +990,7 @@ impl AgentSession {
             updated_at: self.updated_at,
             last_reply_at: self.last_reply_at,
             archived_at: self.archived_at,
+            parent_task_id: self.parent_task_id,
             provider_cursor: None,
             available_commands: Vec::new(),
             context_usage: None,

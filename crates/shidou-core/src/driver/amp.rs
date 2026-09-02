@@ -46,6 +46,7 @@ enum CommandMessage {
 pub struct AmpDriver {
     commands: Sender<CommandMessage>,
     active_pid: Arc<AtomicU32>,
+    preamble: crate::orchestration::FirstPromptPreamble,
 }
 
 /// Amp's thread arguments. The prompt never rides here — it goes in on stdin.
@@ -95,6 +96,7 @@ impl AmpDriver {
             context_window: _,
             agent_preset: _,
             computer_use_enabled: _,
+            task_credential,
             provider_cursor,
         } = options;
         if mode != RuntimeMode::FullAccess || interaction_mode != InteractionMode::Build {
@@ -126,6 +128,9 @@ impl AmpDriver {
             service_tier.as_deref(),
             thread_id.as_deref(),
         ));
+        if let Some(credential) = &task_credential {
+            crate::orchestration::apply_task_credential(&mut command, credential);
+        }
         let command = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -343,13 +348,19 @@ impl AmpDriver {
         Ok(Self {
             commands,
             active_pid,
+            preamble: crate::orchestration::FirstPromptPreamble::new(
+                task_credential.as_ref(),
+                false,
+            ),
         })
     }
 }
 
 impl DriverControl for AmpDriver {
     fn prompt(&self, prompt: String) {
-        let _ = self.commands.send(CommandMessage::Prompt(prompt));
+        let _ = self
+            .commands
+            .send(CommandMessage::Prompt(self.preamble.apply(prompt)));
     }
 
     fn supports_steer(&self) -> bool {
@@ -575,6 +586,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,
@@ -634,6 +646,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,

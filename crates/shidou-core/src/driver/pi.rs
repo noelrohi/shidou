@@ -189,6 +189,7 @@ pub struct PiDriver {
     flavor: PiFlavor,
     commands: Sender<CommandMessage>,
     computer_use: Option<computer_use_runtime::ComputerUseRuntime>,
+    preamble: crate::orchestration::FirstPromptPreamble,
 }
 
 fn configure_pi_computer_use_command(
@@ -227,6 +228,7 @@ impl PiDriver {
             context_window: _,
             agent_preset: _,
             computer_use_enabled,
+            task_credential,
             provider_cursor,
         } = options;
         if mode != RuntimeMode::FullAccess || interaction_mode != InteractionMode::Build {
@@ -267,6 +269,9 @@ impl PiDriver {
             .transpose()?;
         let mut command = crate::command_env::command(&binary);
         command.args(["--mode", "rpc", flavor.full_access_arg()]);
+        if let Some(credential) = &task_credential {
+            crate::orchestration::apply_task_credential(&mut command, credential);
+        }
         if flavor.skips_version_check_by_env() {
             command.env("PI_SKIP_VERSION_CHECK", "1");
         }
@@ -759,13 +764,19 @@ impl PiDriver {
             flavor,
             commands,
             computer_use,
+            preamble: crate::orchestration::FirstPromptPreamble::new(
+                task_credential.as_ref(),
+                false,
+            ),
         })
     }
 }
 
 impl DriverControl for PiDriver {
     fn prompt(&self, prompt: String) {
-        let _ = self.commands.send(CommandMessage::Prompt(prompt));
+        let _ = self
+            .commands
+            .send(CommandMessage::Prompt(self.preamble.apply(prompt)));
     }
 
     fn supports_steer(&self) -> bool {
@@ -2170,6 +2181,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,
@@ -2224,6 +2236,7 @@ mod tests {
             flavor: PiFlavor::Pi,
             commands,
             computer_use: None,
+            preamble: crate::orchestration::FirstPromptPreamble::default(),
         };
         let options = |mode, interaction_mode| SessionOptions {
             mode,
@@ -2413,6 +2426,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,

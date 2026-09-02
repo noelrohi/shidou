@@ -61,9 +61,9 @@ fi
 debug_adhoc_requirement="=designated => identifier \"$bundle_identifier\""
 if [ "${SHIDOU_SKIP_CARGO_BUILD:-0}" != "1" ]; then
   if [ "$profile" = "release" ]; then
-    cargo build --release --package shidou --bin shidou --bin shidou_js_repl --package shidou-daemon --bin shidou-daemon
+    cargo build --release --package shidou --bin shidou --bin shidou_js_repl --package shidou-daemon --bin shidou-daemon --package shidou-cli --bin shidou-cli
   else
-    cargo build --package shidou --bin shidou --bin shidou_js_repl
+    cargo build --package shidou --bin shidou --bin shidou_js_repl --package shidou-cli --bin shidou-cli
   fi
 fi
 
@@ -71,6 +71,9 @@ bundle="$cargo_target_dir/$profile/$app_name.app"
 contents="$bundle/Contents"
 helper_bundle="$contents/Helpers/$helper_name.app"
 repl_executable="$contents/Resources/shidou_js_repl"
+# The agent-facing CLI keeps the name the agent types; Cargo builds it as
+# `shidou-cli` so it cannot collide with the app executable.
+cli_executable="$contents/Resources/bin/shidou"
 daemon_executable="$contents/MacOS/shidou-daemon"
 swift_module_cache="$cargo_target_dir/$profile/swift-module-cache"
 helper_source="resources/computer-use/ShidouComputerUse.swift"
@@ -152,10 +155,12 @@ fi
 
 rm -rf "$bundle"
 license_resources="$contents/Resources/licenses"
-mkdir -p "$contents/MacOS" "$contents/Resources/computer-use" "$contents/Resources/skills/shidou-computer-use" "$license_resources" "$contents/Helpers"
+mkdir -p "$contents/MacOS" "$contents/Resources/bin" "$contents/Resources/computer-use" "$contents/Resources/skills/shidou-computer-use" "$license_resources" "$contents/Helpers"
 cp "$cargo_target_dir/$profile/shidou" "$contents/MacOS/$app_name"
 cp "$cargo_target_dir/$profile/shidou_js_repl" "$repl_executable"
 chmod 755 "$repl_executable"
+cp "$cargo_target_dir/$profile/shidou-cli" "$cli_executable"
+chmod 755 "$cli_executable"
 if [ "$profile" = "release" ]; then
   cp "$cargo_target_dir/$profile/shidou-daemon" "$daemon_executable"
   chmod 755 "$daemon_executable"
@@ -193,6 +198,7 @@ if [ "$codesign_identity" = "-" ]; then
   codesign --force --sign - "$sparkle_framework/Versions/B/Updater.app"
   codesign --force --sign - "$sparkle_framework"
   codesign --force --identifier "$bundle_identifier.js-repl" --sign - "$repl_executable"
+  codesign --force --identifier "$bundle_identifier.cli" --sign - "$cli_executable"
   if [ "$profile" = "release" ]; then
     codesign --force --identifier "$bundle_identifier.daemon" --sign - "$daemon_executable"
   fi
@@ -211,6 +217,7 @@ elif [ "$profile" = "release" ]; then
   codesign --force --options runtime --timestamp --sign "$codesign_identity" "$sparkle_framework/Versions/B/Updater.app"
   codesign --force --options runtime --timestamp --sign "$codesign_identity" "$sparkle_framework"
   codesign --force --options runtime --timestamp --identifier "$bundle_identifier.js-repl" --sign "$codesign_identity" "$repl_executable"
+  codesign --force --options runtime --timestamp --identifier "$bundle_identifier.cli" --sign "$codesign_identity" "$cli_executable"
   codesign --force --options runtime --timestamp --identifier "$bundle_identifier.daemon" --sign "$codesign_identity" "$daemon_executable"
   codesign --force --options runtime --timestamp --sign "$codesign_identity" "$bundle"
 else
@@ -218,10 +225,12 @@ else
   codesign --force --options runtime --sign "$codesign_identity" "$sparkle_framework/Versions/B/Updater.app"
   codesign --force --options runtime --sign "$codesign_identity" "$sparkle_framework"
   codesign --force --options runtime --identifier "$bundle_identifier.js-repl" --sign "$codesign_identity" "$repl_executable"
+  codesign --force --options runtime --identifier "$bundle_identifier.cli" --sign "$codesign_identity" "$cli_executable"
   codesign --force --options runtime --sign "$codesign_identity" "$bundle"
 fi
 if [ "$profile" = "release" ]; then
   codesign --verify --strict --verbose=2 "$repl_executable"
+  codesign --verify --strict --verbose=2 "$cli_executable"
   codesign --verify --strict --verbose=2 "$daemon_executable"
   codesign --verify --deep --strict --verbose=2 "$bundle"
 fi

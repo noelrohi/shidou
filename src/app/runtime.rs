@@ -144,6 +144,7 @@ pub(super) fn merge_remote_session_catalog(
             // thing that moves it — an archive gesture lands here, and a
             // refusal simply never does.
             local.archived_at = remote.archived_at;
+            local.parent_task_id = remote.parent_task_id;
             if !has_local_runtime(local.id) {
                 local.status = remote.status;
                 local.updated_at = remote.updated_at;
@@ -2740,6 +2741,7 @@ impl Shidou {
                 context_window,
                 agent_preset,
                 computer_use_enabled: cfg!(target_os = "macos") && self.state.computer_use_enabled,
+                task_credential: None,
                 provider_cursor: session.provider_cursor.clone(),
             },
             event_wake: self.event_wake_tx.clone(),

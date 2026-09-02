@@ -81,6 +81,19 @@ describe('desktop sidebar presentation', () => {
     expect(revealed[1]?.showMore).toBe(false)
   })
 
+  test('places child tasks directly after their parent', () => {
+    const now = new Date(2026, 7, 15, 12)
+    const nowSeconds = Math.floor(now.getTime() / 1_000)
+    const sessions = [
+      session({ id: 'child', parent_task_id: 'parent', last_reply_at: nowSeconds - 10 }),
+      session({ id: 'other', last_reply_at: nowSeconds - 20 }),
+      session({ id: 'parent', last_reply_at: nowSeconds - 30 }),
+    ]
+    const groups = sidebarGroups([], sessions, { grouping: 'updated', ordering: 'newest', now })
+    expect(groups[0]?.sessions.map((item) => item.session.id))
+      .toEqual(['other', 'parent', 'child'])
+  })
+
   test('oldest ordering reverses sessions and date-group order', () => {
     const now = new Date(2026, 7, 15, 12)
     const nowSeconds = Math.floor(now.getTime() / 1_000)

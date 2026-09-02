@@ -57,7 +57,12 @@ last_reply_at?: number | null,
  * client holding a stale snapshot cannot clear one another client just
  * set (see `docs/adr/0002-explicit-archive-command.md`).
  */
-archived_at?: number | null, provider_cursor: ProviderResumeCursor | null,
+archived_at?: number | null,
+/**
+ * The Task whose agent created this one through the `shidou` CLI. `None`
+ * is a Task the user opened themselves. Daemon-owned and immutable.
+ */
+parent_task_id?: string | null, provider_cursor: ProviderResumeCursor | null,
 /**
  * Slash commands the provider reported for this session's live process,
  * kept so a resumed session still completes them before its next

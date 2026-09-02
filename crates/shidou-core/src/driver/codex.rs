@@ -105,6 +105,7 @@ pub struct CodexDriver {
     commands: Sender<CommandMessage>,
     mode: RuntimeMode,
     interaction_mode: InteractionMode,
+    preamble: crate::orchestration::FirstPromptPreamble,
     computer_use_process_directory: Option<PathBuf>,
     computer_use_server_path: Option<PathBuf>,
     computer_use_preview_monitor: Option<computer_use_runtime::ComputerUsePreviewMonitor>,
@@ -193,6 +194,7 @@ impl CodexDriver {
             context_window: _,
             agent_preset: _,
             computer_use_enabled,
+            task_credential,
             provider_cursor,
         } = options;
         let provider_session_id = match provider_cursor {
@@ -222,6 +224,9 @@ impl CodexDriver {
         let mut command = crate::command_env::command(&binary);
         command.args(["app-server", "--stdio"]);
         configure_computer_use_command(&mut command, computer_use.as_ref());
+        if let Some(credential) = &task_credential {
+            crate::orchestration::apply_task_credential(&mut command, credential);
+        }
         let command = command
             .current_dir(&cwd)
             .stdin(Stdio::piped())
@@ -690,6 +695,7 @@ impl CodexDriver {
                                         &reader_pending_steers,
                                         &reader_background_rpcs,
                                         &reader_events,
+                                        &reader_commands,
                                         &mut stream_state,
                                     );
                                     if main_turn_started {
@@ -790,6 +796,10 @@ impl CodexDriver {
             commands,
             mode,
             interaction_mode,
+            preamble: crate::orchestration::FirstPromptPreamble::new(
+                task_credential.as_ref(),
+                false,
+            ),
             computer_use_process_directory,
             computer_use_server_path,
             computer_use_preview_monitor,
@@ -846,7 +856,9 @@ fn toml_string(value: &str) -> String {
 
 impl DriverControl for CodexDriver {
     fn prompt(&self, prompt: String) {
-        let _ = self.commands.send(CommandMessage::Prompt(prompt));
+        let _ = self
+            .commands
+            .send(CommandMessage::Prompt(self.preamble.apply(prompt)));
     }
 
     fn supports_steer(&self) -> bool {
@@ -1476,6 +1488,7 @@ fn handle_codex_message(
     pending_steers: &Mutex<HashMap<u64, String>>,
     background_rpcs: &Mutex<BackgroundRpcState>,
     events: &impl DriverEventSink,
+    commands: &Sender<CommandMessage>,
     stream_state: &mut CodexStreamState,
 ) {
     // JSON-RPC IDs are scoped to each peer, so an app-server request may use
@@ -1812,6 +1825,19 @@ fn handle_codex_message(
         }
         method if value.get("id").is_some() && method.contains("requestApproval") => {
             let request_id = rpc_id_string(value.get("id").unwrap());
+            // The CLI talking to the daemon is bounded by its Task Credential,
+            // so it never needs the user.
+            if method.contains("commandExecution")
+                && params
+                    .get("command")
+                    .is_some_and(crate::orchestration::is_cli_invocation_value)
+            {
+                let _ = commands.send(CommandMessage::Respond {
+                    request_id,
+                    option_id: "accept".into(),
+                });
+                return;
+            }
             let (title, detail) = approval_copy(method, &params);
             let _ = events.send(DriverEvent::Permission {
                 request_id,
@@ -2464,6 +2490,7 @@ mod tests {
             commands,
             mode: RuntimeMode::FullAccess,
             interaction_mode: InteractionMode::Build,
+            preamble: crate::orchestration::FirstPromptPreamble::default(),
             computer_use_process_directory: None,
             computer_use_server_path: None,
             computer_use_preview_monitor: None,
@@ -2618,6 +2645,7 @@ mod tests {
         let pending_steers = Mutex::new(HashMap::new());
         let background_rpcs = Mutex::new(BackgroundRpcState::default());
         let (event_tx, event_rx) = unbounded();
+        let (command_tx, _command_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
         let mut send = |value| {
             handle_codex_message(
@@ -2630,6 +2658,7 @@ mod tests {
                 &pending_steers,
                 &background_rpcs,
                 &event_tx,
+                &command_tx,
                 &mut stream_state,
             );
         };
@@ -2685,6 +2714,7 @@ mod tests {
         let (response_tx, response_rx) = bounded(1);
         pending_rollbacks.lock().insert(42, (1, response_tx));
         let (event_tx, event_rx) = unbounded();
+        let (command_tx, _command_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
 
         handle_codex_message(
@@ -2697,6 +2727,7 @@ mod tests {
             &pending_steers,
             &background_rpcs,
             &event_tx,
+            &command_tx,
             &mut stream_state,
         );
 
@@ -2718,6 +2749,7 @@ mod tests {
         let (response_tx, response_rx) = bounded(1);
         pending_rollbacks.lock().insert(43, (1, response_tx));
         let (event_tx, event_rx) = unbounded();
+        let (command_tx, _command_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
 
         handle_codex_message(
@@ -2730,6 +2762,7 @@ mod tests {
             &pending_steers,
             &background_rpcs,
             &event_tx,
+            &command_tx,
             &mut stream_state,
         );
 
@@ -2755,6 +2788,7 @@ mod tests {
         let (event_tx, event_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
 
+        let (command_tx, _command_rx) = unbounded();
         handle_codex_message(
             json!({"id": 44, "result": {"thread": {"id": "thread-fork"}}}),
             &thread_id,
@@ -2765,6 +2799,7 @@ mod tests {
             &pending_steers,
             &background_rpcs,
             &event_tx,
+            &command_tx,
             &mut stream_state,
         );
 
@@ -2792,6 +2827,7 @@ mod tests {
             (1, "**Analyzing methods**"),
             (1, " and detection"),
         ];
+        let (command_tx, _command_rx) = unbounded();
         for (summary_index, delta) in deltas {
             handle_codex_message(
                 json!({
@@ -2812,6 +2848,7 @@ mod tests {
                 &pending_steers,
                 &background_rpcs,
                 &event_tx,
+                &command_tx,
                 &mut stream_state,
             );
         }
@@ -2845,6 +2882,7 @@ mod tests {
         let (event_tx, event_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
 
+        let (command_tx, _command_rx) = unbounded();
         handle_codex_message(
             json!({"id": 50, "result": {"turnId": "turn-9"}}),
             &thread_id,
@@ -2855,6 +2893,7 @@ mod tests {
             &pending_steers,
             &background_rpcs,
             &event_tx,
+            &command_tx,
             &mut stream_state,
         );
 
@@ -2881,6 +2920,7 @@ mod tests {
         let (event_tx, event_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
 
+        let (command_tx, _command_rx) = unbounded();
         handle_codex_message(
             json!({"id": 51, "error": {"message": "expected turn mismatch"}}),
             &thread_id,
@@ -2891,6 +2931,7 @@ mod tests {
             &pending_steers,
             &background_rpcs,
             &event_tx,
+            &command_tx,
             &mut stream_state,
         );
 
@@ -2945,6 +2986,7 @@ mod tests {
         let (event_tx, event_rx) = unbounded();
         let mut stream_state = CodexStreamState::default();
 
+        let (command_tx, _command_rx) = unbounded();
         handle_codex_message(
             json!({
                 "id": 70,
@@ -2963,6 +3005,7 @@ mod tests {
             &pending_steers,
             &background_rpcs,
             &event_tx,
+            &command_tx,
             &mut stream_state,
         );
 

@@ -188,6 +188,9 @@ pub struct DriverStartOptions {
     pub agent_preset: Option<String>,
     pub computer_use_enabled: bool,
     pub provider_cursor: Option<ProviderResumeCursor>,
+    /// Lets the provider process orchestrate Child Tasks through the `shidou`
+    /// CLI. `None` when the daemon does not know its own address yet.
+    pub task_credential: Option<shidou_protocol::TaskCredential>,
 }
 
 /// The subset of `DriverStartOptions` a user can change without starting a new

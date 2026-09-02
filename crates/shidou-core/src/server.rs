@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -89,7 +89,57 @@ pub trait Backend: Send + Sync + 'static {
         false
     }
 
+    /// The listener is bound; provider processes can be told where to reach
+    /// the daemon.
+    fn listening(&self, _address: SocketAddr) {}
+
+    /// The Task a non-client token belongs to. A connection presenting one is
+    /// an agent orchestrating that Task's children, and is scoped accordingly.
+    fn task_for_credential(&self, _token: &str) -> Option<Uuid> {
+        None
+    }
+
+    /// The parent of `task_id`, when the Task was created by another Task.
+    fn task_parent(&self, _task_id: Uuid) -> Option<Uuid> {
+        None
+    }
+
     fn shutdown(&self) {}
+}
+
+/// The operations a Task Credential may perform. Anything not named here is
+/// refused before it reaches the backend.
+///
+/// Every allowed command either targets the scoped Task itself (read-only) or
+/// one of its direct children. The parent named in a create request is always
+/// the scoped Task, whatever the caller wrote.
+fn authorize_scoped_request(
+    request: &mut Request,
+    scope: Uuid,
+    backend: &dyn Backend,
+) -> Result<(), RpcError> {
+    let is_child = |task_id: Uuid| backend.task_parent(task_id) == Some(scope);
+    let allowed = match &mut request.command {
+        Command::CreateChildTask { parent_task_id, .. } => {
+            *parent_task_id = scope;
+            true
+        }
+        Command::ListChildTasks | Command::ListProviderModels { .. } => request.session_id == scope,
+        Command::ReadTaskSummary => request.session_id == scope || is_child(request.session_id),
+        Command::HydrateSession { session_id } => is_child(*session_id),
+        Command::AttachSession
+        | Command::Start { .. }
+        | Command::Prompt { .. }
+        | Command::Cancel => is_child(request.session_id),
+        _ => false,
+    };
+    if allowed {
+        Ok(())
+    } else {
+        Err(RpcError::refused(
+            "this task credential may only create, prompt, and read its own child tasks",
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -613,6 +663,9 @@ pub fn serve(
     listener
         .set_nonblocking(true)
         .context("could not configure Shidou daemon listener")?;
+    if let Ok(address) = listener.local_addr() {
+        backend.listening(address);
+    }
     let hub = Arc::new(Hub::new(
         options
             .max_replay_events_per_session
@@ -687,14 +740,25 @@ fn handle_connection(
     )
     .context("WebSocket handshake failed")?;
     let hello = read_client_message(&mut socket)?;
-    let resume_from = match hello {
+    let backend = dispatcher.backend.clone();
+    let (resume_from, scope) = match hello {
         ClientMessage::Hello {
             protocol_version,
             token,
             resume_from,
             ..
         } if protocol_version == PROTOCOL_VERSION && token_matches(expected_token, &token) => {
-            resume_from
+            (resume_from, None)
+        }
+        ClientMessage::Hello {
+            protocol_version,
+            token,
+            resume_from,
+            ..
+        } if protocol_version == PROTOCOL_VERSION
+            && let Some(task_id) = backend.task_for_credential(&token) =>
+        {
+            (resume_from, Some(task_id))
         }
         ClientMessage::Hello {
             protocol_version, ..
@@ -746,7 +810,19 @@ fn handle_connection(
         }
         match socket.read() {
             Ok(Message::Text(text)) => match serde_json::from_str(text.as_ref()) {
-                Ok(ClientMessage::Request(request)) => {
+                Ok(ClientMessage::Request(mut request)) => {
+                    if let Some(scope) = scope
+                        && let Err(error) =
+                            authorize_scoped_request(&mut request, scope, backend.as_ref())
+                    {
+                        if !request.request_id.is_nil() {
+                            let _ = outgoing.send(ServerMessage::Response {
+                                request_id: request.request_id,
+                                outcome: ResponseOutcome::Error { error },
+                            });
+                        }
+                        continue;
+                    }
                     dispatcher.dispatch(request, outgoing.clone(), subscriber_id);
                 }
                 Ok(ClientMessage::Shutdown) => {
@@ -1090,6 +1166,7 @@ fn task_catalog_action(command: &Command) -> TaskCatalogAction {
         },
         Command::RemoveSession
         | Command::ArchiveSession { .. }
+        | Command::CreateChildTask { .. }
         | Command::RemoveProject { .. }
         | Command::ForkSessionFromResponse { .. }
         | Command::RewindSessionToMessage { .. } => TaskCatalogAction::Changed,
@@ -3276,6 +3353,159 @@ for line in sys.stdin:
         assert!(validate_handshake(&request, HandshakeResponse::new(()), &allowed).is_ok());
         let native = HandshakeRequest::builder().uri("/v1").body(()).unwrap();
         assert!(validate_handshake(&native, HandshakeResponse::new(()), &HashSet::new()).is_ok());
+    }
+
+    struct LineageBackend {
+        parent: Uuid,
+        child: Uuid,
+    }
+
+    impl Backend for LineageBackend {
+        fn handle(&self, _request: Request, _events: EventSink) -> anyhow::Result<ResponsePayload> {
+            Ok(ResponsePayload::Ack)
+        }
+
+        fn task_parent(&self, task_id: Uuid) -> Option<Uuid> {
+            (task_id == self.child).then_some(self.parent)
+        }
+
+        fn task_for_credential(&self, token: &str) -> Option<Uuid> {
+            (token == "task-token").then_some(self.parent)
+        }
+    }
+
+    #[test]
+    fn websocket_accepts_a_task_credential_and_confines_it() {
+        let parent = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server_shutdown = shutdown.clone();
+        let server = std::thread::spawn(move || {
+            serve(
+                listener,
+                "secret".into(),
+                Arc::new(LineageBackend { parent, child }),
+                server_shutdown,
+                ServerOptions {
+                    allow_shutdown: true,
+                    ..ServerOptions::default()
+                },
+            )
+            .unwrap()
+        });
+
+        assert!(DaemonClient::connect(&address.to_string(), "wrong".into()).is_err());
+        let agent = DaemonClient::connect(&address.to_string(), "task-token".into()).unwrap();
+
+        // Its own children: fine.
+        assert!(matches!(
+            agent
+                .request(
+                    child,
+                    Uuid::nil(),
+                    Command::Prompt {
+                        prompt: "go".into(),
+                        submission_id: Uuid::new_v4(),
+                    },
+                )
+                .unwrap(),
+            ResponsePayload::Ack
+        ));
+        // Anything else: refused before the backend sees it.
+        let error = agent
+            .request(Uuid::nil(), Uuid::nil(), Command::LoadTaskState)
+            .unwrap_err();
+        assert!(shidou_client::refusal(&error).is_some());
+        let error = agent
+            .request(
+                Uuid::new_v4(),
+                Uuid::nil(),
+                Command::Prompt {
+                    prompt: "go".into(),
+                    submission_id: Uuid::new_v4(),
+                },
+            )
+            .unwrap_err();
+        assert!(shidou_client::refusal(&error).is_some());
+
+        agent.shutdown();
+        shutdown.store(true, Ordering::Release);
+        server.join().unwrap();
+    }
+
+    fn scoped_request(session_id: Uuid, command: Command) -> Request {
+        Request {
+            request_id: Uuid::new_v4(),
+            session_id,
+            runtime_id: Uuid::nil(),
+            command,
+        }
+    }
+
+    #[test]
+    fn task_credentials_reach_only_their_own_children() {
+        let parent = Uuid::new_v4();
+        let child = Uuid::new_v4();
+        let stranger = Uuid::new_v4();
+        let backend = LineageBackend { parent, child };
+
+        let mut create = scoped_request(
+            parent,
+            Command::CreateChildTask {
+                parent_task_id: stranger,
+                provider: None,
+                model: None,
+                mode: None,
+                reasoning_effort: None,
+                interaction_mode: None,
+                title: None,
+            },
+        );
+        authorize_scoped_request(&mut create, parent, &backend).unwrap();
+        assert!(matches!(
+            create.command,
+            Command::CreateChildTask { parent_task_id, .. } if parent_task_id == parent
+        ));
+
+        let prompt = |target| {
+            scoped_request(
+                target,
+                Command::Prompt {
+                    prompt: "go".into(),
+                    submission_id: Uuid::new_v4(),
+                },
+            )
+        };
+        assert!(authorize_scoped_request(&mut prompt(child), parent, &backend).is_ok());
+        assert!(authorize_scoped_request(&mut prompt(stranger), parent, &backend).is_err());
+        assert!(authorize_scoped_request(&mut prompt(parent), parent, &backend).is_err());
+
+        assert!(
+            authorize_scoped_request(
+                &mut scoped_request(parent, Command::ReadTaskSummary),
+                parent,
+                &backend
+            )
+            .is_ok()
+        );
+        assert!(
+            authorize_scoped_request(
+                &mut scoped_request(child, Command::ArchiveSession { archived: true }),
+                parent,
+                &backend
+            )
+            .is_err()
+        );
+        assert!(
+            authorize_scoped_request(
+                &mut scoped_request(parent, Command::LoadTaskState),
+                parent,
+                &backend
+            )
+            .is_err()
+        );
     }
 
     #[test]

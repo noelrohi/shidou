@@ -20,7 +20,7 @@ use crate::computer_use::{ComputerTarget, ComputerUsePhase, ComputerUseState};
 use crate::driver::{self, DriverHandle, DriverStartOptions, SessionOptions};
 use crate::model::{
     ActivityKind, AgentSession, Checkpoint, CheckpointStatus, DriverEvent, PermissionOption,
-    Project, ProviderKind, ProviderResumeCursor, RuntimeEventCursor, SessionStatus,
+    Project, ProviderKind, ProviderResumeCursor, RuntimeEventCursor, RuntimeMode, SessionStatus,
 };
 use crate::persistence::{ComposerDraftStore, PersistedState, StateStore};
 use crate::settings::DaemonSettingsStore;
@@ -45,6 +45,11 @@ pub struct ShidouBackend {
     checkpoint_capture_locks: Mutex<HashMap<(PathBuf, Uuid, usize), Arc<Mutex<()>>>>,
     usage_rates_dir: std::path::PathBuf,
     default_cwd: std::path::PathBuf,
+    /// Task Credentials handed to running provider processes.
+    credentials: crate::orchestration::TaskCredentialRegistry,
+    /// Where a provider process reaches this daemon, known once `serve` has
+    /// bound its listener. Until then runtimes start without a credential.
+    listen_address: Mutex<Option<String>>,
 }
 
 impl ShidouBackend {
@@ -84,6 +89,8 @@ impl ShidouBackend {
             checkpoint_capture_locks: Mutex::new(HashMap::new()),
             usage_rates_dir,
             default_cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            credentials: crate::orchestration::TaskCredentialRegistry::default(),
+            listen_address: Mutex::new(None),
         })
     }
 
@@ -476,6 +483,67 @@ impl Backend for ShidouBackend {
                 }
                 Ok(ResponsePayload::Ack)
             }
+            Command::CreateChildTask {
+                parent_task_id,
+                provider,
+                model,
+                mode,
+                reasoning_effort,
+                interaction_mode,
+                title,
+            } => self.create_child_task(ChildTaskRequest {
+                parent_task_id,
+                provider,
+                model,
+                mode,
+                reasoning_effort,
+                interaction_mode,
+                title,
+            }),
+            Command::ListProviderModels { provider } => {
+                let provider = match provider {
+                    Some(provider) => provider,
+                    None => self
+                        .task_state
+                        .lock()
+                        .sessions
+                        .iter()
+                        .find(|session| session.id == session_id)
+                        .map(|session| session.provider)
+                        .ok_or_else(|| anyhow!("that task is no longer available"))?,
+                };
+                Ok(ResponsePayload::ProviderModels {
+                    provider,
+                    models: self.provider_models(provider),
+                })
+            }
+            Command::ReadTaskSummary => {
+                let mut state = self.task_state.lock();
+                let Some(session) = state
+                    .sessions
+                    .iter_mut()
+                    .find(|session| session.id == session_id)
+                else {
+                    bail!("that task is no longer available");
+                };
+                self.task_store.hydrate(session)?;
+                Ok(ResponsePayload::TaskSummary {
+                    summary: crate::orchestration::task_summary(session),
+                })
+            }
+            Command::ListChildTasks => {
+                let mut state = self.task_state.lock();
+                let mut summaries = Vec::new();
+                for session in state
+                    .sessions
+                    .iter_mut()
+                    .filter(|session| session.parent_task_id == Some(session_id))
+                {
+                    self.task_store.hydrate(session)?;
+                    summaries.push(crate::orchestration::task_summary(session));
+                }
+                Ok(ResponsePayload::TaskSummaries { summaries })
+            }
             Command::ArchiveSession { archived } => {
                 let mut state = self.task_state.lock();
                 let Some(session) = state
@@ -716,6 +784,13 @@ impl Backend for ShidouBackend {
                 }
                 drop(previous);
                 let provider = decode_enum(&options.provider)?;
+                let may_orchestrate = self
+                    .task_state
+                    .lock()
+                    .sessions
+                    .iter()
+                    .find(|session| session.id == session_id)
+                    .is_some_and(|session| session.parent_task_id.is_none());
                 let options = DriverStartOptions {
                     binary: options.binary,
                     cwd: options.cwd,
@@ -732,6 +807,14 @@ impl Backend for ShidouBackend {
                         .map(serde_json::from_value)
                         .transpose()
                         .context("daemon received an invalid provider cursor")?,
+                    task_credential: if may_orchestrate {
+                        self.listen_address
+                            .lock()
+                            .as_deref()
+                            .map(|address| self.credentials.mint(session_id, address))
+                    } else {
+                        None
+                    },
                 };
                 let (wake, _wake_events) = smol::channel::bounded(1);
                 let (event_sender, event_receiver) = driver::event_channel(wake);
@@ -882,6 +965,43 @@ impl Backend for ShidouBackend {
 
     fn runtime_ended(&self, session_id: Uuid, runtime_id: Uuid) {
         self.reducers.lock().remove(&(session_id, runtime_id));
+        // A restart has already minted the replacement credential; only a
+        // Task with no live runtime loses its token.
+        let live_elsewhere = self
+            .sessions
+            .lock()
+            .get(&session_id)
+            .is_some_and(|(active, _)| *active != runtime_id);
+        if !live_elsewhere {
+            self.credentials.revoke(session_id);
+        }
+    }
+
+    fn listening(&self, address: std::net::SocketAddr) {
+        let ip = if address.ip().is_unspecified() {
+            if address.is_ipv4() {
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+            } else {
+                std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+            }
+        } else {
+            address.ip()
+        };
+        *self.listen_address.lock() =
+            Some(std::net::SocketAddr::new(ip, address.port()).to_string());
+    }
+
+    fn task_for_credential(&self, token: &str) -> Option<Uuid> {
+        self.credentials.task_for_token(token)
+    }
+
+    fn task_parent(&self, task_id: Uuid) -> Option<Uuid> {
+        self.task_state
+            .lock()
+            .sessions
+            .iter()
+            .find(|session| session.id == task_id)
+            .and_then(|session| session.parent_task_id)
     }
 
     fn shutdown(&self) {
@@ -1564,6 +1684,7 @@ impl ShidouBackend {
                 context_window: source.context_window.clone(),
                 agent_preset: source.agent_preset.clone(),
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: source.provider_cursor.clone(),
             },
             event_sender,
@@ -1726,11 +1847,186 @@ impl ShidouBackend {
                 context_window: source.context_window.clone(),
                 agent_preset: source.agent_preset.clone(),
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: source.provider_cursor.clone(),
             },
             event_sender,
         )?;
         driver.rollback(rollback_turns)
+    }
+
+    /// Open a Task under `parent_task_id` for the parent's agent, in the same
+    /// project and workspace, and resolve everything its runtime needs to
+    /// start. The caller starts and prompts it through the ordinary commands.
+    fn create_child_task(&self, request: ChildTaskRequest) -> anyhow::Result<ResponsePayload> {
+        use crate::orchestration::MAX_ACTIVE_CHILDREN;
+        let ChildTaskRequest {
+            parent_task_id,
+            provider,
+            model,
+            mode,
+            reasoning_effort,
+            interaction_mode,
+            title,
+        } = request;
+
+        let mut state = self.task_state.lock();
+        let Some(parent) = state
+            .sessions
+            .iter_mut()
+            .find(|session| session.id == parent_task_id)
+        else {
+            bail!("the parent task is no longer available");
+        };
+        // The parent's access mode caps the child's, and a skeleton row does
+        // not carry it.
+        self.task_store.hydrate(parent)?;
+        let parent = parent.clone();
+        if parent.parent_task_id.is_some() {
+            return Err(RpcError::refused("child tasks cannot create tasks of their own").into());
+        }
+        let active_children = state
+            .sessions
+            .iter()
+            .filter(|session| {
+                session.parent_task_id == Some(parent.id)
+                    && session.archived_at.is_none()
+                    && session.status.is_busy()
+            })
+            .count();
+        if active_children >= MAX_ACTIVE_CHILDREN {
+            return Err(RpcError::refused(format!(
+                "this task already has {MAX_ACTIVE_CHILDREN} unfinished child tasks; wait for one to finish"
+            ))
+            .into());
+        }
+        let Some(project) = state
+            .projects
+            .iter()
+            .find(|project| project.id == parent.project_id)
+            .cloned()
+        else {
+            bail!("the parent task's project is no longer available");
+        };
+        let provider = provider.unwrap_or(parent.provider);
+        if self.settings.get().disabled_providers.contains(&provider) {
+            return Err(RpcError::refused(format!(
+                "{} is disabled in Shidou's settings",
+                provider.display_name()
+            ))
+            .into());
+        }
+        let binary = self.provider_binary(provider)?;
+        let workspace = match &parent.workspace {
+            crate::model::SessionWorkspace::NewWorktree { .. } => {
+                bail!("the parent task has not materialized its worktree yet")
+            }
+            workspace => workspace.clone(),
+        };
+        let cwd = workspace
+            .path()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| project.path.clone());
+        let runtime_mode = crate::orchestration::child_runtime_mode(parent.runtime_mode, mode);
+
+        // A model the daemon has never heard of is almost always a guess, and
+        // a wrong guess fails deep inside the provider. Validate against the
+        // catalog whenever there is one; an empty catalog passes ids through.
+        let catalog = self.provider_models(provider);
+        let inherits = provider == parent.provider;
+        let model = match model {
+            Some(model) => {
+                if !catalog.is_empty() && !catalog.iter().any(|known| known.id == model) {
+                    return Err(RpcError::refused(format!(
+                        "{} has no model {model:?}; run `shidou task models` for the list",
+                        provider.display_name()
+                    ))
+                    .into());
+                }
+                Some(model)
+            }
+            None => inherits.then(|| parent.model.clone()).flatten(),
+        };
+        let known_model = model
+            .as_deref()
+            .and_then(|id| catalog.iter().find(|known| known.id == id));
+        let reasoning_effort = match reasoning_effort {
+            Some(effort) => {
+                if let Some(known) = known_model
+                    && !known.reasoning_efforts.is_empty()
+                    && !known
+                        .reasoning_efforts
+                        .iter()
+                        .any(|option| option.id == effort)
+                {
+                    return Err(RpcError::refused(format!(
+                        "{} does not offer effort {effort:?}; options: {}",
+                        known.id,
+                        known
+                            .reasoning_efforts
+                            .iter()
+                            .map(|option| option.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                    .into());
+                }
+                Some(effort)
+            }
+            None if inherits && model == parent.model => parent.reasoning_effort.clone(),
+            None => known_model.and_then(|known| known.default_reasoning_effort.clone()),
+        };
+
+        let mut session = AgentSession::new(project.id, provider);
+        session.parent_task_id = Some(parent.id);
+        session.workspace = workspace;
+        session.runtime_mode = runtime_mode;
+        session.interaction_mode = interaction_mode.unwrap_or_default();
+        session.model = model;
+        session.reasoning_effort = reasoning_effort;
+        if let Some(title) = title
+            .map(|title| title.trim().to_owned())
+            .filter(|title| !title.is_empty())
+        {
+            session.title = title;
+        }
+        let start_options = crate::WireDriverStartOptions {
+            provider: shidou_protocol::encode_enum(provider)?,
+            binary,
+            cwd,
+            mode: shidou_protocol::encode_enum(runtime_mode)?,
+            interaction_mode: shidou_protocol::encode_enum(session.interaction_mode)?,
+            model: session.model.clone(),
+            reasoning_effort: session.reasoning_effort.clone(),
+            service_tier: None,
+            context_window: None,
+            agent_preset: None,
+            computer_use_enabled: false,
+            provider_cursor: None,
+        };
+        state.push_session(session.clone());
+        self.task_store.save(&mut state)?;
+        Ok(ResponsePayload::ChildTaskCreated {
+            session,
+            start_options,
+        })
+    }
+
+    /// The models the daemon knows for `provider`: the cached catalog, or a
+    /// fresh discovery when nothing is cached yet.
+    fn provider_models(&self, provider: ProviderKind) -> Vec<crate::model::ProviderModel> {
+        ensure_shell_environment();
+        let settings = self.settings.get();
+        let binary_override = settings
+            .provider_binary_overrides
+            .get(&provider)
+            .map(String::as_str);
+        let probe = crate::model::cached_provider_probe(provider, binary_override);
+        if probe.models.is_empty() && probe.installed {
+            crate::model::discover_provider_models(probe).models
+        } else {
+            probe.models
+        }
     }
 
     fn provider_binary(&self, provider: ProviderKind) -> anyhow::Result<PathBuf> {
@@ -1744,6 +2040,17 @@ impl ShidouBackend {
             .path
             .ok_or_else(|| anyhow!("{} is not installed on the daemon", provider.display_name()))
     }
+}
+
+/// What an orchestrating agent asked for in a Child Task.
+struct ChildTaskRequest {
+    parent_task_id: Uuid,
+    provider: Option<ProviderKind>,
+    model: Option<String>,
+    mode: Option<RuntimeMode>,
+    reasoning_effort: Option<String>,
+    interaction_mode: Option<crate::model::InteractionMode>,
+    title: Option<String>,
 }
 
 fn validate_message_rewind(source: &AgentSession, turn_count: usize) -> anyhow::Result<()> {
@@ -2002,6 +2309,10 @@ fn handle_driver_command(
         | Command::SaveTaskState { .. }
         | Command::RemoveSession
         | Command::ArchiveSession { .. }
+        | Command::CreateChildTask { .. }
+        | Command::ListProviderModels { .. }
+        | Command::ReadTaskSummary
+        | Command::ListChildTasks
         | Command::RemoveProject { .. }
         | Command::HydrateSession { .. }
         | Command::SearchSessionMessages { .. }
@@ -2356,6 +2667,20 @@ mod tests {
     use super::*;
     use crate::settings::DaemonSettingsStore;
 
+    impl ChildTaskRequest {
+        fn plain(parent_task_id: Uuid) -> Self {
+            Self {
+                parent_task_id,
+                provider: None,
+                model: None,
+                mode: None,
+                reasoning_effort: None,
+                interaction_mode: None,
+                title: None,
+            }
+        }
+    }
+
     fn test_backend(label: &str) -> (PathBuf, ShidouBackend) {
         let root = std::env::temp_dir().join(format!("shidou-{label}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
@@ -2430,6 +2755,82 @@ mod tests {
         assert_eq!(saved.sessions[0].status, SessionStatus::Idle);
         assert_eq!(saved.sessions[0].runtime_event_cursor.unwrap().sequence, 2);
         drop(store);
+        drop(backend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn child_tasks_inherit_the_parents_place_and_never_exceed_its_access() {
+        let (root, backend) = test_backend("child-task");
+        let project = Project::from_path(root.join("repo"));
+        let mut parent = AgentSession::new(project.id, ProviderKind::Claude);
+        parent.runtime_mode = RuntimeMode::Ask;
+        parent.model = Some("parent-model".into());
+        let parent_id = parent.id;
+        {
+            let mut settings = backend.settings.get();
+            settings
+                .provider_binary_overrides
+                .insert(ProviderKind::Claude, "/usr/bin/true".into());
+            backend.settings.replace(settings).unwrap();
+            let mut state = backend.task_state.lock();
+            state.projects.push(project.clone());
+            state.push_session(parent);
+            backend.task_store.save(&mut state).unwrap();
+        }
+
+        let ResponsePayload::ChildTaskCreated {
+            session: child,
+            start_options,
+        } = backend
+            .create_child_task(ChildTaskRequest {
+                parent_task_id: parent_id,
+                provider: None,
+                model: None,
+                mode: Some(RuntimeMode::FullAccess),
+                reasoning_effort: None,
+                interaction_mode: None,
+                title: Some("  Child  ".into()),
+            })
+            .unwrap()
+        else {
+            panic!("expected a created child task");
+        };
+        assert_eq!(child.parent_task_id, Some(parent_id));
+        assert_eq!(child.project_id, project.id);
+        assert_eq!(child.title, "Child");
+        assert_eq!(child.runtime_mode, RuntimeMode::Ask);
+        assert_eq!(child.model.as_deref(), Some("parent-model"));
+        assert_eq!(start_options.cwd, project.path);
+        assert_eq!(start_options.binary, PathBuf::from("/usr/bin/true"));
+        assert_eq!(start_options.mode, "ask");
+        assert_eq!(backend.task_parent(child.id), Some(parent_id));
+
+        // Child Tasks execute their assigned work directly; only a root Task
+        // may orchestrate further Tasks.
+        let refused = backend
+            .create_child_task(ChildTaskRequest::plain(child.id))
+            .unwrap_err();
+        assert!(
+            refused
+                .downcast_ref::<RpcError>()
+                .is_some_and(RpcError::is_refusal)
+        );
+
+        // A draft owns no row until its first prompt; once started, the link
+        // survives the list-only reload.
+        {
+            let mut state = backend.task_state.lock();
+            state.session_mut(child.id).unwrap().begin_turn("start");
+            backend.task_store.save(&mut state).unwrap();
+        }
+        let reloaded = StateStore::daemon(root.join("app.db")).load().unwrap();
+        let reloaded_child = reloaded
+            .sessions
+            .iter()
+            .find(|session| session.id == child.id)
+            .unwrap();
+        assert_eq!(reloaded_child.parent_task_id, Some(parent_id));
         drop(backend);
         std::fs::remove_dir_all(root).unwrap();
     }

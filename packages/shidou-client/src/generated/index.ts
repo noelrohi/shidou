@@ -80,6 +80,7 @@ export type { SkillsCatalog } from "./SkillsCatalog";
 export type { SlashCommand } from "./SlashCommand";
 export type { StoredAttachment } from "./StoredAttachment";
 export type { StoredTranscriptBlockContent } from "./StoredTranscriptBlockContent";
+export type { TaskSummary } from "./TaskSummary";
 export type { TokenTotals } from "./TokenTotals";
 export type { TranscriptBlock } from "./TranscriptBlock";
 export type { TurnStatus } from "./TurnStatus";

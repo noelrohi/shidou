@@ -60,6 +60,7 @@ pub struct AcpDriver {
     mode: RuntimeMode,
     interaction_mode: InteractionMode,
     computer_use: Option<super::support::HeadlessComputerUseRuntime>,
+    preamble: crate::orchestration::FirstPromptPreamble,
 }
 
 /// Per-provider launch details. Everything after process launch is ACP.
@@ -114,6 +115,7 @@ impl AcpDriver {
             context_window: _,
             agent_preset: _,
             computer_use_enabled,
+            task_credential,
             provider_cursor,
         } = options;
         let fork_context = match &provider_cursor {
@@ -135,7 +137,7 @@ impl AcpDriver {
             None => None,
         };
 
-        let launch = launch_for(provider)?;
+        let mut launch = launch_for(provider)?;
         let computer_use = (provider == ProviderKind::Grok && computer_use_enabled)
             .then(|| super::support::HeadlessComputerUseRuntime::start(provider, events.clone()))
             .transpose()?;
@@ -144,6 +146,11 @@ impl AcpDriver {
             .and_then(super::support::HeadlessComputerUseRuntime::grok_home)
             .map(ToOwned::to_owned);
         let stderr_lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        if let Some(credential) = &task_credential {
+            launch
+                .env
+                .extend(crate::orchestration::credential_environment(credential));
+        }
         let agent = sdk_agent(
             &binary,
             &cwd,
@@ -195,6 +202,10 @@ impl AcpDriver {
             mode,
             interaction_mode,
             computer_use,
+            preamble: crate::orchestration::FirstPromptPreamble::new(
+                task_credential.as_ref(),
+                false,
+            ),
         })
     }
 }
@@ -1552,6 +1563,30 @@ fn handle_permission_request(
         })
         .collect::<Vec<_>>();
 
+    // The CLI talking to the daemon is bounded by its Task Credential, so it
+    // never needs the user; prefer a one-shot allow so nothing else inherits it.
+    let orchestrates = params
+        .pointer("/toolCall/rawInput/command")
+        .is_some_and(crate::orchestration::is_cli_invocation_value);
+    if orchestrates {
+        let choice = request
+            .options
+            .iter()
+            .find(|option| option.kind == PermissionOptionKind::AllowOnce)
+            .or_else(|| {
+                request
+                    .options
+                    .iter()
+                    .find(|option| option.kind == PermissionOptionKind::AllowAlways)
+            });
+        if let Some(choice) = choice {
+            return responder.respond(RequestPermissionResponse::new(
+                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                    choice.option_id.clone(),
+                )),
+            ));
+        }
+    }
     if auto_approve {
         let choice = request
             .options
@@ -1831,7 +1866,9 @@ fn classify(kind: &str) -> ActivityKind {
 
 impl DriverControl for AcpDriver {
     fn prompt(&self, prompt: String) {
-        let _ = self.commands.try_send(CommandMessage::Prompt(prompt));
+        let _ = self
+            .commands
+            .try_send(CommandMessage::Prompt(self.preamble.apply(prompt)));
     }
 
     fn supports_steer(&self) -> bool {
@@ -2422,6 +2459,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,
@@ -2476,6 +2514,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,
@@ -2535,6 +2574,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,

@@ -35,12 +35,10 @@ impl Shidou {
             Query::Ready(result) => match result.as_ref() {
                 Ok(Some(snapshot)) => {
                     let snapshot = snapshot.clone();
-                    self.cache_sidebar_branch_label(&workspace_path, snapshot.display_branch());
                     self.visible_branch_snapshot = Some((workspace_path, snapshot.clone()));
                     Some(snapshot)
                 }
                 Ok(None) => {
-                    self.cache_sidebar_branch_label(&workspace_path, None);
                     if self
                         .visible_branch_snapshot
                         .as_ref()
@@ -82,12 +80,6 @@ impl Shidou {
                     let _ = shidou.update(cx, |shidou, cx| {
                         if !shidou.branch_snapshots.fulfill(token, result.clone()) {
                             return;
-                        }
-                        match &result {
-                            Ok(Some(snapshot)) => shidou
-                                .cache_sidebar_branch_label(&fetch_path, snapshot.display_branch()),
-                            Ok(None) => shidou.cache_sidebar_branch_label(&fetch_path, None),
-                            Err(_) => {}
                         }
                         let selected = shidou
                             .selected_workspace_path()
@@ -348,7 +340,6 @@ impl Shidou {
                 match result {
                     Ok(snapshot) => {
                         let current = snapshot.current.clone();
-                        shidou.cache_sidebar_branch_label(&path, snapshot.display_branch());
                         shidou.visible_branch_snapshot = Some((path.clone(), snapshot));
                         shidou.branch_snapshots.invalidate(&path);
                         let selected_path = shidou

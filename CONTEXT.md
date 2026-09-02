@@ -191,6 +191,23 @@ The collapsed section at the foot of the sidebar that holds every Archived
 Task, newest first, revealed in pages.
 _Avoid_: archive folder, trash, history
 
+**Child Task**:
+A Task another Task's agent opened through the `shidou` CLI. It runs in the
+parent's project and workspace with the parent's access mode or less, keeps
+its own transcript, and sits nested under the parent in the sidebar. A Child
+Task cannot create Tasks of its own. The parent is recorded as
+`parent_task_id` and never changes (ADR 0005).
+_Avoid_: subagent (that is a provider-native worker inside one transcript),
+subtask, worker
+
+**Task Credential**:
+The token and daemon address the daemon places in a provider process's
+environment so the `shidou` CLI inside it can reach back. Minted when a root
+Task's runtime starts, bound to that Task, revoked when the runtime ends, and
+honored only for creating, prompting, and reading that Task's Child Tasks.
+Child Tasks do not receive one.
+_Avoid_: daemon token (the full-access client token), API key
+
 **Projection**:
 A session's reduced transcript — turns, messages, and activity — built by
 folding the runtime's event stream. The daemon's projection is the record;

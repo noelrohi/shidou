@@ -7,6 +7,7 @@ license = "GPL-3.0-only"
 
 [workspace]
 members = [
+    "crates/shidou-cli",
     "crates/shidou-client",
     "crates/shidou-core",
     "crates/shidou-daemon",
@@ -15,6 +16,7 @@ members = [
 ]
 default-members = [
     ".",
+    "crates/shidou-cli",
     "crates/shidou-client",
     "crates/shidou-core",
     "crates/shidou-daemon",

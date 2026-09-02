@@ -1,0 +1,17 @@
+[package]
+name = "shidou-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Command-line client a running Shidou task uses to orchestrate child tasks"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "shidou-cli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde_json = "1.0"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+shidou-client = { path = "../shidou-client" }
+shidou-protocol = { path = "../shidou-protocol" }

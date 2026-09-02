@@ -94,6 +94,7 @@ pub struct DeepSeekDriver {
     agent_preset: Option<String>,
     commands: Sender<CommandMessage>,
     completed_turn_seqs: Arc<Mutex<Vec<u64>>>,
+    preamble: crate::orchestration::FirstPromptPreamble,
 }
 
 impl DeepSeekDriver {
@@ -109,6 +110,7 @@ impl DeepSeekDriver {
             context_window: _,
             agent_preset,
             computer_use_enabled: _,
+            task_credential,
             provider_cursor,
         } = options;
         let (requested_session_id, resuming) = match provider_cursor {
@@ -260,13 +262,21 @@ impl DeepSeekDriver {
             agent_preset: selected_agent_preset,
             commands,
             completed_turn_seqs,
+            // One DeepSeek Harness server serves every Task, so the credential
+            // cannot ride in the process environment; the agent puts it inline.
+            preamble: crate::orchestration::FirstPromptPreamble::new(
+                task_credential.as_ref(),
+                true,
+            ),
         })
     }
 }
 
 impl DriverControl for DeepSeekDriver {
     fn prompt(&self, prompt: String) {
-        let _ = self.commands.send(CommandMessage::Prompt(prompt));
+        let _ = self
+            .commands
+            .send(CommandMessage::Prompt(self.preamble.apply(prompt)));
     }
 
     fn supports_steer(&self) -> bool {

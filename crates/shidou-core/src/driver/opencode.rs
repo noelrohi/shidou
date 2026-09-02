@@ -108,6 +108,7 @@ pub struct OpenCodeDriver {
     mode: RuntimeMode,
     interaction_mode: InteractionMode,
     computer_use: Option<super::support::HeadlessComputerUseRuntime>,
+    preamble: crate::orchestration::FirstPromptPreamble,
 }
 
 impl OpenCodeDriver {
@@ -123,6 +124,7 @@ impl OpenCodeDriver {
             context_window: _,
             agent_preset: _,
             computer_use_enabled,
+            task_credential,
             provider_cursor,
         } = options;
         let resume_session_id = match provider_cursor {
@@ -530,13 +532,21 @@ impl OpenCodeDriver {
             mode,
             interaction_mode,
             computer_use,
+            // One OpenCode server serves every Task, so the credential cannot
+            // ride in the process environment; the agent puts it inline.
+            preamble: crate::orchestration::FirstPromptPreamble::new(
+                task_credential.as_ref(),
+                true,
+            ),
         })
     }
 }
 
 impl DriverControl for OpenCodeDriver {
     fn prompt(&self, prompt: String) {
-        let _ = self.commands.send(CommandMessage::Prompt(prompt));
+        let _ = self
+            .commands
+            .send(CommandMessage::Prompt(self.preamble.apply(prompt)));
     }
 
     fn supports_steer(&self) -> bool {
@@ -1166,7 +1176,15 @@ fn request_permission(
     {
         return;
     }
-    if auto_approve || permission_state.is_approved(&permission_request) {
+    // A bash request's patterns are the command itself. The CLI talking to the
+    // daemon is bounded by its Task Credential, so it never needs the user.
+    let orchestrates = permission_request.permission == "bash"
+        && !permission_request.patterns.is_empty()
+        && permission_request
+            .patterns
+            .iter()
+            .all(|pattern| crate::orchestration::is_cli_invocation(pattern));
+    if auto_approve || orchestrates || permission_state.is_approved(&permission_request) {
         permission_state.responding.insert(request_id.to_owned());
         drop(permission_state);
         let _ = commands.send(CommandMessage::Respond {
@@ -1452,6 +1470,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,
@@ -1541,6 +1560,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,

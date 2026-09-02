@@ -18,6 +18,7 @@ import { derivedBuildNumber } from "./version";
 const appName = "Shidou";
 const executableName = "Shidou";
 const jsReplExecutableName = "shidou_js_repl";
+const cliExecutableName = "shidou-cli";
 const daemonExecutableName = "shidou-daemon";
 const computerUseHelperName = "Shidou Computer Use";
 const packageName = "shidou";
@@ -275,6 +276,7 @@ const releaseJsReplExecutable = join(
   jsReplExecutableName,
 );
 const releaseDaemonExecutable = join(releaseDirectory, daemonExecutableName);
+const releaseCliExecutable = join(releaseDirectory, cliExecutableName);
 const appBundle = join(releaseDirectory, `${appName}.app`);
 const contentsDirectory = join(appBundle, "Contents");
 const bundledJsReplExecutable = join(
@@ -286,6 +288,12 @@ const bundledDaemonExecutable = join(
   contentsDirectory,
   "MacOS",
   daemonExecutableName,
+);
+const bundledCliExecutable = join(
+  contentsDirectory,
+  "Resources",
+  "bin",
+  "shidou",
 );
 const bundledComputerUseSkill = join(
   contentsDirectory,
@@ -394,6 +402,7 @@ try {
       releaseExecutable,
       releaseJsReplExecutable,
       releaseDaemonExecutable,
+      releaseCliExecutable,
     ]) {
       try {
         await access(executable);
@@ -416,6 +425,7 @@ try {
     join(contentsDirectory, "MacOS", executableName),
     bundledDaemonExecutable,
     bundledJsReplExecutable,
+    bundledCliExecutable,
     bundledComputerUseSkill,
     bundledPiComputerUseExtension,
     bundledComputerUseHelper,
@@ -429,6 +439,7 @@ try {
 
   await $`codesign --verify --strict --verbose=2 ${bundledJsReplExecutable}`;
   await $`codesign --verify --strict --verbose=2 ${bundledDaemonExecutable}`;
+  await $`codesign --verify --strict --verbose=2 ${bundledCliExecutable}`;
   await $`codesign --verify --deep --strict --verbose=2 ${bundledComputerUseHelper}`;
   await verifyJavaScriptRepl(bundledJsReplExecutable);
   logStep(
@@ -484,6 +495,7 @@ try {
     "MacOS",
     daemonExecutableName,
   );
+  const mountedCli = join(mountedContents, "Resources", "bin", "shidou");
   const mountedComputerUseHelper = join(
     mountedContents,
     "Helpers",
@@ -497,6 +509,7 @@ try {
   for (const artifact of [
     join(mountedContents, "MacOS", executableName),
     mountedDaemon,
+    mountedCli,
     mountedJsRepl,
     join(
       mountedContents,
@@ -540,6 +553,7 @@ try {
   }
   await $`codesign --verify --strict --verbose=2 ${mountedJsRepl}`;
   await $`codesign --verify --strict --verbose=2 ${mountedDaemon}`;
+  await $`codesign --verify --strict --verbose=2 ${mountedCli}`;
   await $`codesign --verify --deep --strict --verbose=2 ${mountedComputerUseHelper}`;
   await $`codesign --verify --strict --verbose=2 ${mountedSparkleFramework}`;
   await $`codesign --verify --deep --strict --verbose=2 ${mountedApp}`;

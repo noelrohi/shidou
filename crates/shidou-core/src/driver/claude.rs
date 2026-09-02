@@ -188,6 +188,7 @@ impl ClaudeDriver {
             context_window,
             agent_preset: _,
             computer_use_enabled: _,
+            task_credential,
             provider_cursor,
         } = options;
         let (resume_session_id, resume_at) = match provider_cursor {
@@ -223,6 +224,13 @@ impl ClaudeDriver {
             command.args(["--resume", &session_id]);
         } else {
             command.args(["--session-id", &session_id]);
+        }
+        if let Some(credential) = &task_credential {
+            crate::orchestration::apply_task_credential(&mut command, credential);
+            command.args([
+                "--append-system-prompt",
+                &crate::orchestration::agent_instructions(credential, false),
+            ]);
         }
 
         let command = command
@@ -1664,7 +1672,15 @@ fn request_permission(
     let Some(request_id) = value.get("request_id").and_then(Value::as_str) else {
         return;
     };
-    if auto_approve {
+    let request = value.get("request").unwrap_or(&Value::Null);
+    // The CLI talking to the daemon is bounded by its Task Credential, not by
+    // the user, so Supervised mode never has to ask about it.
+    let orchestrates = request.get("tool_name").and_then(Value::as_str) == Some("Bash")
+        && request
+            .pointer("/input/command")
+            .and_then(Value::as_str)
+            .is_some_and(crate::orchestration::is_cli_invocation);
+    if auto_approve || orchestrates {
         let _ = commands.send(CommandMessage::Respond {
             request_id: request_id.to_owned(),
             option_id: "allow".into(),
@@ -1672,7 +1688,6 @@ fn request_permission(
         return;
     }
 
-    let request = value.get("request").unwrap_or(&Value::Null);
     let tool = request
         .get("display_name")
         .or_else(|| request.get("tool_name"))
@@ -1883,6 +1898,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,
@@ -1952,6 +1968,7 @@ mod tests {
                 context_window: None,
                 agent_preset: None,
                 computer_use_enabled: false,
+                task_credential: None,
                 provider_cursor: None,
             },
             events,

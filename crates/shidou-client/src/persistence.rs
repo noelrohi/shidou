@@ -1056,7 +1056,11 @@ impl StateStore {
         move || {
             let client = daemon.client();
             client
-                .request(session_id, Uuid::nil(), Command::ArchiveSession { archived })
+                .request(
+                    session_id,
+                    Uuid::nil(),
+                    Command::ArchiveSession { archived },
+                )
                 .map_err(to_io_error)?;
             client
                 .request(Uuid::nil(), Uuid::nil(), Command::LoadTaskState)

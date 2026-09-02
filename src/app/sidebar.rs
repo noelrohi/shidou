@@ -258,6 +258,36 @@ fn sort_sidebar_sessions(sessions: &mut Vec<&AgentSession>, ordering: SidebarOrd
     }
 }
 
+/// Reorder one group's Tasks so every Child Task follows its parent, in the
+/// order the group already had. A child whose parent is not in the group (an
+/// archived or filtered parent) keeps its own place.
+fn nest_child_sessions(sessions: &[Uuid], parents: &HashMap<Uuid, Uuid>) -> Vec<Uuid> {
+    let present = sessions.iter().copied().collect::<HashSet<_>>();
+    let mut children_of: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    let mut roots = Vec::with_capacity(sessions.len());
+    for session in sessions {
+        match parents
+            .get(session)
+            .filter(|parent| present.contains(parent))
+        {
+            Some(parent) => children_of.entry(*parent).or_default().push(*session),
+            None => roots.push(*session),
+        }
+    }
+    if children_of.is_empty() {
+        return roots;
+    }
+    let mut ordered = Vec::with_capacity(sessions.len());
+    let mut stack = roots.into_iter().rev().collect::<Vec<_>>();
+    while let Some(session) = stack.pop() {
+        ordered.push(session);
+        if let Some(children) = children_of.remove(&session) {
+            stack.extend(children.into_iter().rev());
+        }
+    }
+    ordered
+}
+
 fn project_sidebar_groups(
     sessions: &[&AgentSession],
     projectless_project_ids: &HashSet<Uuid>,
@@ -349,6 +379,10 @@ fn build_sidebar_rows(
         .into_iter()
         .partition(|session| session.archived_at.is_some());
 
+    let parents = sorted_sessions
+        .iter()
+        .filter_map(|session| Some((session.id, session.parent_task_id?)))
+        .collect::<HashMap<_, _>>();
     let mut rows = vec![SidebarRow::Search];
     match state.grouping {
         SidebarGrouping::Updated => {
@@ -367,7 +401,7 @@ fn build_sidebar_rows(
                 append_sidebar_group_rows(
                     &mut rows,
                     group,
-                    &grouped_sessions[date_group.index()],
+                    &nest_child_sessions(&grouped_sessions[date_group.index()], &parents),
                     state.collapsed_groups.contains(&group),
                     false,
                 );
@@ -393,7 +427,7 @@ fn build_sidebar_rows(
                 append_sidebar_group_rows(
                     &mut rows,
                     group,
-                    &visible_sessions,
+                    &nest_child_sessions(&visible_sessions, &parents),
                     state.collapsed_groups.contains(&group),
                     show_more,
                 );
@@ -433,15 +467,6 @@ fn build_sidebar_rows(
 
 fn sidebar_project_is_projectless(project: &Project, projectless_root: Option<&Path>) -> bool {
     projectless_root.is_some_and(|root| project.path.starts_with(root))
-}
-
-fn persisted_sidebar_branch_label(workspace: &SessionWorkspace) -> Option<&str> {
-    match workspace {
-        SessionWorkspace::Local => None,
-        SessionWorkspace::NewWorktree { base_branch } => base_branch.as_deref(),
-        SessionWorkspace::Worktree { branch, .. } => Some(branch.as_str()),
-    }
-    .filter(|branch| !branch.is_empty())
 }
 
 /// Compact "how long ago" for the sidebar: "just now", then one coarse unit —
@@ -1008,112 +1033,6 @@ impl Shidou {
             })
     }
 
-    /// Resolve every ordinary local project's branch in one background pass.
-    /// The render path only computes an allocation-free source fingerprint;
-    /// collection building and daemon requests happen once when that moves.
-    fn ensure_sidebar_branch_labels(&self, cx: &mut Context<Self>) {
-        if self.state.sidebar_grouping != SidebarGrouping::Project {
-            return;
-        }
-
-        let mut fingerprint = 0xb4a7_c4e5_51de_ba11;
-        for session in &self.state.sessions {
-            if session.has_started() && matches!(&session.workspace, SessionWorkspace::Local) {
-                fingerprint = mix_uuid(fingerprint, session.id);
-                fingerprint = mix_uuid(fingerprint, session.project_id);
-            }
-        }
-        for project in &self.state.projects {
-            fingerprint = mix_uuid(fingerprint, project.id);
-        }
-        if self.sidebar_branch_scan_fingerprint.get() == Some(fingerprint) {
-            return;
-        }
-        self.sidebar_branch_scan_fingerprint.set(Some(fingerprint));
-        let generation = self.sidebar_branch_scan_generation.get().wrapping_add(1);
-        self.sidebar_branch_scan_generation.set(generation);
-
-        let local_project_ids = self
-            .state
-            .sessions
-            .iter()
-            .filter(|session| {
-                session.has_started() && matches!(&session.workspace, SessionWorkspace::Local)
-            })
-            .map(|session| session.project_id)
-            .collect::<HashSet<_>>();
-        let projectless_root = crate::projectless::workspace_root();
-        let paths = self
-            .state
-            .projects
-            .iter()
-            .filter(|project| local_project_ids.contains(&project.id))
-            .filter(|project| !sidebar_project_is_projectless(project, projectless_root.as_deref()))
-            .map(|project| project.path.clone())
-            .collect::<HashSet<_>>();
-        if paths.is_empty() {
-            self.sidebar_branch_labels.borrow_mut().clear();
-            self.sidebar_branch_scanned_paths.borrow_mut().clear();
-            return;
-        }
-
-        let scanned_paths = paths.clone();
-        let workspace = shidou_client::WorkspaceClient::new(self.daemon.client());
-        cx.spawn(async move |shidou, cx| {
-            let labels = cx
-                .background_executor()
-                .spawn(async move {
-                    let mut labels = HashMap::new();
-                    for path in paths {
-                        let branch = match workspace.request(
-                            shidou_client::WorkspaceOperation::InspectBranches {
-                                cwd: path.clone(),
-                            },
-                        ) {
-                            Ok(shidou_client::WorkspaceResult::Branches {
-                                snapshot: Some(snapshot),
-                            }) => snapshot.display_branch().map(str::to_owned),
-                            _ => None,
-                        };
-                        if let Some(branch) = branch {
-                            labels.insert(path, branch);
-                        }
-                    }
-                    labels
-                })
-                .await;
-            let _ = shidou.update(cx, |shidou, cx| {
-                if shidou.sidebar_branch_scan_generation.get() != generation {
-                    return;
-                }
-                *shidou.sidebar_branch_labels.borrow_mut() = labels
-                    .into_iter()
-                    .map(|(path, branch)| (path, SharedString::from(branch)))
-                    .collect();
-                // Extend rather than replace: an individually cached path that
-                // joined after this scan started must stay marked as scanned.
-                shidou
-                    .sidebar_branch_scanned_paths
-                    .borrow_mut()
-                    .extend(scanned_paths);
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    pub(super) fn cache_sidebar_branch_label(&self, path: &Path, branch: Option<&str>) {
-        self.sidebar_branch_scanned_paths
-            .borrow_mut()
-            .insert(path.to_path_buf());
-        let mut labels = self.sidebar_branch_labels.borrow_mut();
-        if let Some(branch) = branch.filter(|branch| !branch.is_empty()) {
-            labels.insert(path.to_path_buf(), SharedString::from(branch.to_owned()));
-        } else {
-            labels.remove(path);
-        }
-    }
-
     pub(super) fn render_sidebar(
         &self,
         width: f32,
@@ -1121,7 +1040,6 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = Theme::current(cx);
-        self.ensure_sidebar_branch_labels(cx);
         let is_resizing = self
             .panel_resize_drag
             .is_some_and(|drag| drag.target == PanelResizeTarget::Sidebar);
@@ -1225,6 +1143,10 @@ impl Shidou {
             }
             fingerprint = mix_uuid(fingerprint, session.id);
             fingerprint = mix_uuid(fingerprint, session.project_id);
+            fingerprint = match session.parent_task_id {
+                Some(parent_id) => mix_uuid(fingerprint, parent_id),
+                None => mix(fingerprint, 0),
+            };
             fingerprint = mix(fingerprint, sidebar_session_timestamp(session));
             // The archive mark both removes a Task from its group and orders
             // it inside the shelf, so the whole value participates.
@@ -1814,9 +1736,6 @@ impl Shidou {
         }
         self.state.sidebar_grouping = grouping;
         self.sidebar_rows_fingerprint.set(None);
-        self.sidebar_branch_scan_fingerprint.set(None);
-        self.sidebar_branch_scan_generation
-            .set(self.sidebar_branch_scan_generation.get().wrapping_add(1));
         self.sidebar_list_state.scroll_to(ListOffset {
             item_ix: 0,
             offset_in_item: Pixels::ZERO,
@@ -2119,51 +2038,15 @@ impl Shidou {
             session.status,
             SessionStatus::Connecting | SessionStatus::Working
         );
-        let project = self
-            .state
-            .projects
-            .iter()
-            .find(|project| project.id == session.project_id);
         let grouped_by_project = self.state.sidebar_grouping == SidebarGrouping::Project;
         let left_padding = if grouped_by_project {
             SIDEBAR_GROUP_CHILD_PADDING
         } else {
             8.0
-        };
-        let detail_label = if grouped_by_project {
-            persisted_sidebar_branch_label(&session.workspace)
-                .map(|branch| SharedString::from(branch.to_owned()))
-                .or_else(|| {
-                    if !matches!(&session.workspace, SessionWorkspace::Local) {
-                        return None;
-                    }
-                    project.and_then(|project| {
-                        self.sidebar_branch_labels
-                            .borrow()
-                            .get(&project.path)
-                            .cloned()
-                    })
-                })
+        } + if session.parent_task_id.is_some() {
+            14.0
         } else {
-            Some(SharedString::from(
-                project
-                    .map(Project::display_name)
-                    .unwrap_or_else(|| tr!("sidebar.unknown_project")),
-            ))
-        };
-        let has_detail_label = detail_label.is_some();
-        let compact_without_branch = grouped_by_project
-            && matches!(&session.workspace, SessionWorkspace::Local)
-            && project.is_some_and(|project| {
-                self.sidebar_branch_scanned_paths
-                    .borrow()
-                    .contains(&project.path)
-            })
-            && !has_detail_label;
-        let detail_icon = if grouped_by_project {
-            "icons/git-branch.svg"
-        } else {
-            "icons/folder.svg"
+            0.0
         };
         let rename_input =
             (self.session_rename == Some(session_id)).then(|| self.session_rename_input.clone());
@@ -2203,97 +2086,67 @@ impl Shidou {
                 .child(SharedString::from(localized_session_title(session)))
                 .into_any_element()
         };
-        let status_indicator = || -> Option<AnyElement> {
-            if working {
-                Some(motion::spin_slow(icon(
-                    "icons/loader-circle.svg",
-                    12.0,
-                    status_color(&theme, session.status),
-                )))
-            } else if session.status == SessionStatus::Waiting {
-                Some(
-                    icon(
-                        "icons/alert.svg",
-                        12.0,
-                        status_color(&theme, session.status),
-                    )
-                    .into_any_element(),
-                )
-            } else if session.status == SessionStatus::Failed {
-                Some(
-                    icon("icons/x.svg", 12.0, status_color(&theme, session.status))
-                        .into_any_element(),
-                )
+        let provider_mark = div()
+            .id(SharedString::from(format!("session-provider-{session_id}")))
+            .flex_none()
+            .child(icon(
+                provider_icon(session.provider),
+                14.0,
+                theme.text_tertiary,
+            ));
+        let status_dot = (session.status != SessionStatus::Idle).then(|| {
+            let label = match session.status {
+                SessionStatus::Connecting | SessionStatus::Working => {
+                    tr!("sidebar.status_working")
+                }
+                SessionStatus::Waiting => tr!("sidebar.status_waiting"),
+                SessionStatus::Failed => tr!("sidebar.status_failed"),
+                SessionStatus::Idle => unreachable!(),
+            };
+            let dot = if working {
+                pulse_dot(7.0, status_color(&theme, session.status))
             } else {
-                None
-            }
-        };
-        let time_text = session_time_label(session, unix_time()).map(|label| {
+                div()
+                    .size(px(7.0))
+                    .flex_none()
+                    .rounded_full()
+                    .bg(status_color(&theme, session.status))
+                    .into_any_element()
+            };
             div()
+                .id(SharedString::from(format!("session-status-{session_id}")))
                 .flex_none()
-                .text_size(sp(12.5))
-                .text_color(if session.is_busy() {
-                    theme.text_tertiary
-                } else {
-                    theme.text_ghost
-                })
-                .child(SharedString::from(label))
+                .child(dot)
+                .tooltip(Tooltip::text(label))
+                .into_any_element()
         });
-        let title_row = div()
+        let trailing = if working {
+            Some(motion::spin_slow(icon(
+                "icons/loader-circle.svg",
+                12.0,
+                theme.text_secondary,
+            )))
+        } else {
+            session_time_label(session, unix_time()).map(|label| {
+                div()
+                    .flex_none()
+                    .text_size(sp(12.0))
+                    .text_color(theme.text_ghost)
+                    .child(SharedString::from(label))
+                    .into_any_element()
+            })
+        };
+        let content = div()
             .flex()
             .items_center()
-            .gap(px(6.0))
+            .gap(px(9.0))
             .overflow_hidden()
             .line_height(sp(18.0))
-            .child(title);
-        let content = if compact_without_branch {
-            title_row
-                .child(
-                    div()
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(5.0))
-                        .when_some(status_indicator(), |element, indicator| {
-                            element.child(indicator)
-                        })
-                        .when_some(time_text, |element, time| element.child(time)),
-                )
-                .into_any_element()
-        } else {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .child(
-                    title_row.when_some(status_indicator(), |element, indicator| {
-                        element.child(indicator)
-                    }),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(5.0))
-                        .text_size(sp(if grouped_by_project { 12.5 } else { 13.0 }))
-                        .line_height(sp(15.0))
-                        .when_some(detail_label, |element, label| {
-                            element
-                                .child(icon(detail_icon, 12.5, theme.text_tertiary))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_color(theme.text_tertiary)
-                                        .child(label),
-                                )
-                        })
-                        .when(!has_detail_label, |element| element.child(div().flex_1()))
-                        .when_some(time_text, |element, time| element.child(time)),
-                )
-                .into_any_element()
-        };
+            .child(provider_mark)
+            .when_some(status_dot, |element, dot| element.child(dot))
+            .child(title)
+            .when_some(trailing, |element, trailing| element.child(trailing))
+            .into_any_element();
         let shidou = cx.entity().downgrade();
         let marked_count = self.sidebar_gesture_targets(session_id).len();
         let remove_label = if marked_count > 1 {
@@ -2934,6 +2787,24 @@ mod tests {
     }
 
     #[test]
+    fn child_tasks_follow_their_parent_in_group_order() {
+        let parent = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let child_a = Uuid::new_v4();
+        let child_b = Uuid::new_v4();
+        let orphan = Uuid::new_v4();
+        let parents = HashMap::from([
+            (child_a, parent),
+            (child_b, parent),
+            (orphan, Uuid::new_v4()),
+        ]);
+        // Newest first: both children are newer than the parent, the orphan's
+        // parent is not in the group.
+        let ordered = nest_child_sessions(&[child_b, orphan, child_a, other, parent], &parents);
+        assert_eq!(ordered, vec![orphan, other, parent, child_b, child_a]);
+    }
+
+    #[test]
     fn collapsed_sidebar_group_keeps_only_its_header_and_spacer() {
         let sessions = [Uuid::from_u128(1), Uuid::from_u128(2)];
         let group = SidebarGroup::Updated(SessionDateGroup::Today);
@@ -3115,25 +2986,6 @@ mod tests {
         assert!(sidebar_project_is_projectless(&projectless, Some(root)));
         assert!(!sidebar_project_is_projectless(&ordinary, Some(root)));
         assert!(!sidebar_project_is_projectless(&projectless, None));
-    }
-
-    #[test]
-    fn persisted_worktree_branches_supply_sidebar_labels() {
-        let local = SessionWorkspace::Local;
-        let planned = SessionWorkspace::NewWorktree {
-            base_branch: Some("develop".to_owned()),
-        };
-        let worktree = SessionWorkspace::Worktree {
-            path: PathBuf::from("/tmp/worktree"),
-            branch: "feature/sidebar".to_owned(),
-        };
-
-        assert_eq!(persisted_sidebar_branch_label(&local), None);
-        assert_eq!(persisted_sidebar_branch_label(&planned), Some("develop"));
-        assert_eq!(
-            persisted_sidebar_branch_label(&worktree),
-            Some("feature/sidebar")
-        );
     }
 
     /// A started Task at `timestamp`, optionally carrying the archive mark.

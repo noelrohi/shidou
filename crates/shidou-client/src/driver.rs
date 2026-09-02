@@ -152,6 +152,9 @@ pub struct DriverStartOptions {
     pub agent_preset: Option<String>,
     pub computer_use_enabled: bool,
     pub provider_cursor: Option<ProviderResumeCursor>,
+    /// Set only by the daemon: lets the provider process orchestrate child
+    /// Tasks through the `shidou` CLI. Desktop-side starts leave it `None`.
+    pub task_credential: Option<shidou_protocol::TaskCredential>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
