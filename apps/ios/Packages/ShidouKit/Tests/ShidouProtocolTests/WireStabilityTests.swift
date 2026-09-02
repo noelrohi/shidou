@@ -171,6 +171,23 @@ final class WireStabilityTests: XCTestCase {
         XCTAssertFalse(plain.isArchived)
     }
 
+    func testParentTaskIdDecodesButIsNotWrittenBySessionSaves() throws {
+        let parentId = "00000000-0000-0000-0000-00000000002b"
+        let snapshot = #"{"id":"00000000-0000-0000-0000-00000000002a","title":"Task","#
+            + #""project_id":"00000000-0000-0000-0000-000000000000","provider":"claude","#
+            + #""runtime_mode":"fullAccess","status":"idle","created_at":1,"updated_at":2,"#
+            + #""parent_task_id":"\#(parentId)"}"#
+        let child = try JSONDecoder().decode(AgentSession.self, from: Data(snapshot.utf8))
+        XCTAssertEqual(child.parentTaskId?.wireString, parentId)
+
+        let object = try json(Command.saveTaskState(
+            projects: [], liveSessionIds: [child.id], sessions: [child]
+        ))
+        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
+        XCTAssertNil(sessions[0]["parent_task_id"])
+        XCTAssertNil(sessions[0]["parentTaskId"])
+    }
+
     /// A save must never carry the mark. Saves merge, so a snapshot this phone
     /// took before another client archived a task would otherwise clear it —
     /// the bug `ArchiveSession` exists to prevent.

@@ -278,6 +278,9 @@ extension SessionListPresentation {
                 live, projectsById: projectsById, revealed: revealed, now: now,
                 projectlessName: projectlessName)
             : dateGroups(live, ordering: ordering, now: now, calendar: calendar)
+        for index in groups.indices {
+            groups[index].items = nestChildTasks(groups[index].items)
+        }
         if groups.isEmpty {
             // An empty result still needs its first header, or the section
             // actions disappear along with the history.
@@ -295,6 +298,32 @@ extension SessionListPresentation {
         }
         if let shelf = shelfGroup(shelved, revealed: revealed) { groups.append(shelf) }
         return groups
+    }
+
+    /// Places each visible Child Task directly after its parent while keeping
+    /// root Tasks in the selected sort order. If the parent is outside this
+    /// section, the child remains a root here rather than disappearing.
+    private static func nestChildTasks(_ items: [SessionListItem]) -> [SessionListItem] {
+        let present = Set(items.map(\.session.id))
+        var childrenByParent: [UUID: [SessionListItem]] = [:]
+        var roots: [SessionListItem] = []
+        for item in items {
+            guard let parent = item.session.parentTaskId, present.contains(parent) else {
+                roots.append(item)
+                continue
+            }
+            childrenByParent[parent, default: []].append(item)
+        }
+
+        var nested: [SessionListItem] = []
+        var stack = Array(roots.reversed())
+        while let item = stack.popLast() {
+            nested.append(item)
+            if let children = childrenByParent[item.session.id] {
+                stack.append(contentsOf: children.reversed())
+            }
+        }
+        return nested
     }
 
     /// The Task Shelf: one section under every group, in both grouping modes,

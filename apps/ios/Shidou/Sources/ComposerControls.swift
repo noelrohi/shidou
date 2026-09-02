@@ -645,9 +645,11 @@ struct ProjectPickerSheet: View {
     let projects: [Project]
     let onChoose: (Project) -> Void
     let onBrowse: () -> Void
-    let onProjectless: () -> Void
+    let onProjectless: () async throws -> Project
 
     @Environment(\.dismiss) private var dismiss
+    @State private var creatingProjectless = false
+    @State private var projectlessError: String?
 
     var body: some View {
         PickerSheet(title: String(localized: "Project")) {
@@ -672,14 +674,41 @@ struct ProjectPickerSheet: View {
                     Label("Browse…", systemImage: "folder.badge.plus")
                 }
                 Button {
-                    dismiss()
-                    onProjectless()
+                    creatingProjectless = true
+                    Task {
+                        defer { creatingProjectless = false }
+                        do {
+                            let project = try await onProjectless()
+                            onChoose(project)
+                            dismiss()
+                        } catch {
+                            projectlessError = error.localizedDescription
+                        }
+                    }
                 } label: {
-                    Label("Don't work in a project", systemImage: "xmark.circle")
+                    if creatingProjectless {
+                        ProgressView()
+                            .accessibilityLabel("Don't work in a project")
+                    } else {
+                        Label("Don't work in a project", systemImage: "xmark.circle")
+                    }
                 }
             } footer: {
                 Text("Browse the folders on your daemon's computer to add a project.")
             }
+        }
+        .disabled(creatingProjectless)
+        .interactiveDismissDisabled(creatingProjectless)
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { projectlessError != nil },
+                set: { if !$0 { projectlessError = nil } }
+            )
+        ) {
+            Button("OK") { projectlessError = nil }
+        } message: {
+            Text(projectlessError ?? "")
         }
     }
 }
