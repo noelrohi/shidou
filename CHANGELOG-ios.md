@@ -9,6 +9,11 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2029]
+
+- Nest Child Tasks beneath their parent in the task list
+- Make “Don't work in a project” reliably switch new tasks to a scratch workspace
+
 ## [0.2.13-build.2028]
 
 - Maintenance release with no user-visible changes
