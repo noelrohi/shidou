@@ -15,6 +15,10 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.15]
+
+- Keep task names intact when archiving older tasks
+
 ## [0.2.14]
 
 - Use Pi and Oh My Pi extension commands from the task composer, including
