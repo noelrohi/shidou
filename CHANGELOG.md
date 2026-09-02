@@ -15,6 +15,11 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.16]
+
+- Task rows are now compact, with provider icons, status dots, and child tasks indented beneath their parent
+- A root task's agent can now open and drive direct child tasks with the bundled `shidou` command; they appear nested under it in the sidebar
+
 ## [0.2.15]
 
 - Keep task names intact when archiving older tasks
