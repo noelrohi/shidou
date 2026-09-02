@@ -41,16 +41,19 @@ front door, `bun run ship`, chooses the channel and drives it.
 
 ## Consequences
 
-- `Cargo.toml` is the Desktop version; `apps/ios/project.yml` is the iOS
-  version. `bun run bump --app <desktop|ios>` edits one of them. The two
-  numbers drift apart from 0.2.14 on, which is intended.
+- `Cargo.toml` is the Desktop version. `apps/ios/project.yml` carries the iOS
+  App Store marketing version and latest build baseline. Routine TestFlight
+  deliveries keep the marketing version and increment the globally ordered
+  build number. `bun run ship ios --app-store-version <x.y.z>` changes the
+  marketing version only when preparing an App Store update.
 - Desktop notes live in `CHANGELOG.md` and iOS notes in `CHANGELOG-ios.md`;
   both are generated from `.changes/` by `bun run ship`. Browser notes are
   saved on the GitHub deployment record and are not yet shown to users.
 - A channel counts as shipped only when users or internal testers can
   receive it: a `desktop/v*` tag exists once the GitHub release is published,
-  an `ios/v*` tag once App Store Connect reports the build in internal
-  testing, and a Worker deployment once its GitHub deployment status is
+  an `ios/v<marketing-version>-build.<build-number>` tag once App Store
+  Connect reports that build in internal testing, and a Worker deployment
+  once its GitHub deployment status is
   `success`. Drafts, local artifacts, and processing uploads are not shipped.
 - Browser and website still deploy automatically on merge to `master`.
   Desktop and iOS ship only on an explicit request, and one such request

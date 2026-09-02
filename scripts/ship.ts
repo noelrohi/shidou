@@ -45,19 +45,23 @@ Usage:
 
 Channels: desktop, ios, browser, website
 
-Desktop and iOS ship on request. One run bumps the app's version, writes its
-changelog from the pending Change Notes, opens a release pull request, waits
-for CI, squash-merges it, publishes, and records the delivery as a
-desktop/v<version> or ios/v<version> tag. A run interrupted after the merge
-resumes from the publish step on the next invocation.
+Desktop and iOS ship on request. Desktop bumps its version. A routine iOS
+TestFlight upload keeps its marketing version and increments its build number;
+--app-store-version changes the marketing version for an App Store update.
+Both write pending Change Notes, land a release pull request, publish, and
+record the delivered commit. iOS records include both values:
+ios/v<marketing-version>-build.<build-number>.
 
 Browser and website deploy automatically when a pull request merges to
 master; here they only report what master holds beyond the last successful
 deployment. --force redeploys master.
 
 Options:
-  --minor, --major          Bump that field instead of the patch (desktop, ios)
-  --version <x.y.z>         Use this exact version instead of bumping
+  --minor, --major          Bump that field instead of the patch (Desktop)
+  --version <x.y.z>         Use this exact Desktop version instead of bumping
+  --app-store-version <x.y.z>
+                            Change the iOS marketing version for an App Store
+                            update. Routine TestFlight uploads omit this.
   --force                   Rebuild or redeploy already shipped code. Never
                             bypasses the clean-tree, test, note, or protocol
                             checks.
@@ -78,6 +82,7 @@ const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     "allow-empty-notes": { type: "boolean" },
+    "app-store-version": { type: "string" },
     "dry-run": { type: "boolean" },
     force: { type: "boolean" },
     "force-protocol": { type: "boolean" },
@@ -100,9 +105,13 @@ if (positionals.length > 1) {
 if ([values.major, values.minor, values.version].filter(Boolean).length > 1) {
   throw new Error("Use one of --major, --minor, or --version.");
 }
+if (values["app-store-version"] && (values.major || values.minor || values.version)) {
+  throw new Error("--app-store-version cannot be combined with Desktop version options.");
+}
 
 const options = {
   version: values.version,
+  appStoreVersion: values["app-store-version"],
   level: values.version ?? (values.major ? "major" : values.minor ? "minor" : "patch"),
   force: values.force ?? false,
   forceProtocol: values["force-protocol"] ?? false,
@@ -223,7 +232,11 @@ async function checkProtocol(channel: Channel, master: string): Promise<void> {
 
 type ReleasePlan = {
   channel: "desktop" | "ios";
+  /** Desktop version, or iOS `<marketing-version>-build.<build-number>`. */
   version: string;
+  /** Version stamped into the app. Equal to version for Desktop. */
+  appVersion: string;
+  buildNumber?: string;
   previous: string;
   notes: ChangeNote[];
   master: string;
@@ -246,9 +259,33 @@ function changelogHasSection(changelog: string | null, version: string): boolean
   return !!changelog && new RegExp(`^## \\[${version.replace(/\./g, "\\.")}\\]`, "m").test(changelog);
 }
 
+/** Resolve the next globally increasing TestFlight build number without
+ *  archiving. The iOS release command owns ASC authentication and selection. */
+async function resolveIosBuildNumber(): Promise<string> {
+  const output = await $`bun run ios-release --print-next-build-number`.quiet().text();
+  const buildNumber = output.trim().split("\n").at(-1) ?? "";
+  if (!/^\d+$/.test(buildNumber)) {
+    throw new Error(`Could not resolve the next iOS build number: ${output.trim()}`);
+  }
+  return buildNumber;
+}
+
+function pendingIosDelivery(
+  changelog: string | null,
+  marketingVersion: string,
+): { version: string; buildNumber: string } | null {
+  const escaped = marketingVersion.replace(/\./g, "\\.");
+  const match = changelog?.match(
+    new RegExp(`^## \\[(${escaped}-build\\.(\\d+))\\]`, "m"),
+  );
+  return match?.[1] && match[2]
+    ? { version: match[1], buildNumber: match[2] }
+    : null;
+}
+
 /** Decide between resuming a release commit already on master and starting
- *  a new one. A release commit is master carrying a version with a changelog
- *  section but no Delivery Record. */
+ *  a new one. Desktop versions each release. TestFlight builds keep the iOS
+ *  marketing version unless --app-store-version explicitly changes it. */
 async function planRelease(
   channel: "desktop" | "ios",
   status: ChannelStatus,
@@ -257,6 +294,43 @@ async function planRelease(
   const masterVersion = await versionAt(channel, masterRef);
   const prefix = tagPrefix[channel]!;
   const changelog = await fileAt(masterRef, changelogPath[channel]);
+
+  if (channel === "ios") {
+    const marketingVersion = options.appStoreVersion
+      ? nextVersion(masterVersion, options.appStoreVersion)
+      : masterVersion;
+    const pending = pendingIosDelivery(changelog, marketingVersion);
+    if (pending && !(await tagExists(`${prefix}${pending.version}`))) {
+      return {
+        channel,
+        version: pending.version,
+        appVersion: marketingVersion,
+        buildNumber: pending.buildNumber,
+        previous: status.record?.version ?? "none",
+        notes: [],
+        master,
+        resume: true,
+      };
+    }
+    if (status.notes.length === 0 && !options.allowEmptyNotes) {
+      throw new Error(
+        "No pending Change Notes for iOS Release. Add notes under .changes/, " +
+          "or pass --allow-empty-notes for a maintenance TestFlight build.",
+      );
+    }
+    const buildNumber = await resolveIosBuildNumber();
+    return {
+      channel,
+      version: `${marketingVersion}-build.${buildNumber}`,
+      appVersion: marketingVersion,
+      buildNumber,
+      previous: status.record?.version ?? "none",
+      notes: status.notes,
+      master,
+      resume: false,
+    };
+  }
+
   if (!(await tagExists(`${prefix}${masterVersion}`)) && changelogHasSection(changelog, masterVersion)) {
     if (options.version && options.version !== masterVersion) {
       throw new Error(
@@ -267,6 +341,7 @@ async function planRelease(
     return {
       channel,
       version: masterVersion,
+      appVersion: masterVersion,
       previous: status.record?.version ?? "none",
       notes: [],
       master,
@@ -281,12 +356,23 @@ async function planRelease(
         "maintenance release.",
     );
   }
-  return { channel, version, previous: masterVersion, notes: status.notes, master, resume: false };
+  return {
+    channel,
+    version,
+    appVersion: version,
+    previous: masterVersion,
+    notes: status.notes,
+    master,
+    resume: false,
+  };
 }
 
 function printPlan(plan: ReleasePlan, status: ChannelStatus): void {
   console.log(`\n${channelNames[plan.channel]} plan`);
   console.log(`  version   ${plan.previous} → ${plan.version}${plan.resume ? "  (resuming: release commit already on master)" : ""}`);
+  if (plan.buildNumber) {
+    console.log(`  app       ${plan.appVersion} (build ${plan.buildNumber})`);
+  }
   console.log(`  commit    ${plan.master.slice(0, 10)} (${masterRef})`);
   console.log(`  record    ${status.record ? status.record.label : "none yet"}`);
   if (!plan.resume) {
@@ -312,7 +398,13 @@ async function landReleasePullRequest(plan: ReleasePlan): Promise<string> {
   logStep(`Preparing ${branch}`);
   await $`git checkout --quiet -b ${branch} ${masterRef}`;
   try {
-    const bump = channel === "desktop" ? await bumpDesktop(version) : await bumpIos(version);
+    const currentAppVersion = await versionAt(channel, "HEAD");
+    const bump =
+      channel === "desktop"
+        ? await bumpDesktop(version)
+        : plan.appVersion !== currentAppVersion
+          ? await bumpIos(plan.appVersion)
+          : { files: [] as string[] };
     const app = channel as NoteApp;
     const folded = await shipChangeNotes(projectRoot, app);
     const bullets = changelogBullets(folded, app);
@@ -370,9 +462,9 @@ async function landReleasePullRequest(plan: ReleasePlan): Promise<string> {
   await $`git pull --quiet --ff-only`;
   const merged = await git("rev-parse", "HEAD");
   const landed = await versionAt(channel, "HEAD");
-  if (landed !== version) {
+  if (landed !== plan.appVersion) {
     throw new Error(
-      `master is at ${landed} after the merge, not ${version}; something else landed. ` +
+      `master is at ${landed} after the merge, not ${plan.appVersion}; something else landed. ` +
         "Run ship again to resume from the release commit.",
     );
   }
@@ -483,8 +575,11 @@ async function publishDesktop(version: string, sha: string): Promise<void> {
   console.log(`\nDesktop ${version} is live. Delivery Record: ${tag}.`);
 }
 
-/** Archive, upload, and wait for TestFlight; then record the delivery. */
-async function publishIos(version: string, sha: string): Promise<void> {
+/** Archive, upload, and wait for TestFlight; then record the marketing
+ *  version and build number at the delivered commit. */
+async function publishIos(plan: ReleasePlan, sha: string): Promise<void> {
+  const { appVersion, buildNumber, version } = plan;
+  if (!buildNumber) throw new Error("The iOS release plan has no build number.");
   const tag = `${tagPrefix.ios}${version}`;
   if ((await tagExists(tag)) && !options.force) {
     console.log(`  ok   ${tag} already exists.`);
@@ -493,20 +588,19 @@ async function publishIos(version: string, sha: string): Promise<void> {
   logStep("Running the ShidouKit tests");
   await $`swift test --package-path ${join(projectRoot, "apps/ios/Packages/ShidouKit")}`;
 
-  logStep(`Uploading iOS ${version} to TestFlight`);
-  // --next-build-number keeps a retry on the same marketing version and only
-  // raises the build number; --wait returns once internal testers have it.
-  await $`bun run ios-release --upload --next-build-number --wait`;
+  logStep(`Uploading iOS ${appVersion} (build ${buildNumber}) to TestFlight`);
+  await $`bun run ios-release --upload --build-number ${buildNumber} --wait`;
 
   logStep(`Recording the delivery as ${tag}`);
   if (await tagExists(tag)) {
-    // A forced re-upload of a shipped version keeps the original record.
     console.log(`  ok   ${tag} kept at ${(await git("rev-list", "-n", "1", tag)).slice(0, 10)}`);
   } else {
-    await $`git tag -a ${tag} ${sha} -m ${`iOS ${version}`}`;
+    await $`git tag -a ${tag} ${sha} -m ${`iOS ${appVersion} build ${buildNumber}`}`;
     await $`git push --quiet origin ${`refs/tags/${tag}`}`;
   }
-  console.log(`\niOS ${version} is in TestFlight. Delivery Record: ${tag}.`);
+  console.log(
+    `\niOS ${appVersion} (build ${buildNumber}) is in TestFlight. Delivery Record: ${tag}.`,
+  );
 }
 
 async function shipRelease(channel: "desktop" | "ios", status: ChannelStatus): Promise<void> {
@@ -520,7 +614,7 @@ async function shipRelease(channel: "desktop" | "ios", status: ChannelStatus): P
   }
   const sha = plan.resume ? master : await landReleasePullRequest(plan);
   if (channel === "desktop") await publishDesktop(plan.version, sha);
-  else await publishIos(plan.version, sha);
+  else await publishIos(plan, sha);
 }
 
 async function shipWorker(channel: "browser" | "website", status: ChannelStatus): Promise<void> {

@@ -59,6 +59,22 @@ export function derivedBuildNumber(version: string): string {
   }
 }
 
+/** Pick the next TestFlight build number. App Store Connect requires build
+ *  numbers to increase across the app, not merely within one marketing
+ *  version, so every uploaded build participates in the maximum. */
+export function nextIosBuildNumber(
+  marketingVersion: string,
+  uploadedBuildNumbers: string[],
+): string {
+  const highestUploaded = uploadedBuildNumbers
+    .map(Number)
+    .filter(Number.isSafeInteger)
+    .reduce((highest, build) => Math.max(highest, build), 0);
+  return String(
+    Math.max(highestUploaded + 1, Number(derivedBuildNumber(marketingVersion))),
+  );
+}
+
 /** The iOS marketing version from `apps/ios/project.yml`. The iOS Client has
  *  its own release line (see docs/adr/0004-independent-delivery-channels.md),
  *  so its version lives beside the Xcode project rather than in Cargo.toml. */
@@ -71,8 +87,8 @@ export function findIosVersion(projectYml: string): { line: number; version: str
   throw new Error("No MARKETING_VERSION in apps/ios/project.yml.");
 }
 
-/** Rewrite the iOS version and its derived build number in `project.yml`.
- *  Both keys must exist: a silent no-op would ship a stale version. */
+/** Rewrite the iOS marketing version and advance its build baseline in
+ *  `project.yml`. Both keys must exist: a silent no-op would ship stale data. */
 export function setIosVersion(projectYml: string, version: string): string {
   const { line } = findIosVersion(projectYml);
   const lines = projectYml.split("\n");
@@ -83,7 +99,13 @@ export function setIosVersion(projectYml: string, version: string): string {
     throw new Error("No CURRENT_PROJECT_VERSION in apps/ios/project.yml.");
   }
   const buildIndent = lines[buildLine]!.match(/^\s*/)![0];
-  lines[buildLine] = `${buildIndent}CURRENT_PROJECT_VERSION: ${derivedBuildNumber(version)}`;
+  const currentBuild = lines[buildLine]!.match(
+    /^\s*CURRENT_PROJECT_VERSION:\s*(\S+)\s*$/,
+  )?.[1];
+  if (!currentBuild) {
+    throw new Error("CURRENT_PROJECT_VERSION has no build number in apps/ios/project.yml.");
+  }
+  lines[buildLine] = `${buildIndent}CURRENT_PROJECT_VERSION: ${nextIosBuildNumber(version, [currentBuild])}`;
   return lines.join("\n");
 }
 

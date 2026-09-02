@@ -4,8 +4,8 @@ How a build gets from `master` to a phone through TestFlight. The iOS
 Release is its own Delivery Channel
 ([ADR 0004](adr/0004-independent-delivery-channels.md)): its version is
 `MARKETING_VERSION` in [`apps/ios/project.yml`](../apps/ios/project.yml), its
-notes live in [`CHANGELOG-ios.md`](../CHANGELOG-ios.md), and its Delivery
-Record is an `ios/v<version>` tag. The desktop process lives in
+notes live in [`CHANGELOG-ios.md`](../CHANGELOG-ios.md), and each TestFlight
+Delivery Record is an `ios/v<marketing-version>-build.<build-number>` tag. The desktop process lives in
 [RELEASING.md](../RELEASING.md), which also explains the pull request labels
 and Change Notes every change needs first.
 
@@ -15,12 +15,13 @@ and Change Notes every change needs first.
 bun run ship ios
 ```
 
-From a clean `master` it bumps the iOS version (`--minor`, `--major`, or
-`--version` instead of the patch), writes the `CHANGELOG-ios.md` section from
-the pending Change Notes, opens and merges the release pull request once
-checks pass, runs the ShidouKit tests, uploads with `--next-build-number
---wait`, and pushes the `ios/v<version>` tag when App Store Connect reports
-the build in internal testing. `--dry-run` prints the plan and stops.
+From a clean `master` it keeps the current marketing version, resolves the
+next build number across all ASC uploads, writes the `CHANGELOG-ios.md`
+section from the pending Change Notes, opens and merges the release pull
+request once checks pass, runs the ShidouKit tests, uploads that build, and
+pushes its build-specific tag when App Store Connect reports it in internal
+testing. `--dry-run` prints the plan and stops. For an App Store update, pass
+`--app-store-version <x.y.z>` to change the marketing version explicitly.
 
 Underneath it is the channel command:
 
@@ -48,21 +49,21 @@ the upload, so the script checks first.
 
 ### Build numbers
 
-ASC refuses a build number it has already seen for the same marketing
-version. The default derives from the iOS version — `major*1_000_000 +
-minor*1_000 + patch`, the same scheme as the desktop's `CFBundleVersion`
-([`scripts/version.ts`](../scripts/version.ts)) — which is right for the
-**first upload of a version**. A retry keeps the marketing version and only
-raises the build number; ask ASC for the next free one, or pass it yourself:
+ASC requires build numbers to increase across the app, including across
+marketing versions. `--next-build-number` reads all uploaded builds and uses
+the larger of the highest build plus one or the number derived from the
+marketing version (`major*1_000_000 + minor*1_000 + patch`). Routine
+TestFlight uploads keep the marketing version and raise only this build
+number:
 
 ```sh
 bun run ios-release --upload --next-build-number   # what bun run ship ios does
-bun run ios-release --upload --build-number 2015
+bun run ios-release --upload --build-number 2028
 ```
 
-`bun run bump --app ios` writes the derived pair into `project.yml`, so a
-manual Xcode archive carries correct values without the script. A new iOS
-Release always changes the marketing version; only retries reuse one.
+`bun run bump --app ios` is reserved for App Store marketing-version changes
+and keeps the build number increasing. A manual archive must also use a build
+number above the latest ASC upload.
 
 ### Credentials
 

@@ -6,7 +6,12 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { derivedBuildNumber, findIosVersion, parseVersion } from "./version";
+import {
+  derivedBuildNumber,
+  findIosVersion,
+  nextIosBuildNumber,
+  parseVersion,
+} from "./version";
 import { AscApi } from "./asc";
 
 const projectRoot = resolve(import.meta.dir, "..");
@@ -24,8 +29,8 @@ Usage:
 Steps, in order:
   1. Regenerate the Xcode project (xcodegen) and archive the Shidou scheme
      against Release for a generic iOS device, stamping MARKETING_VERSION
-     from apps/ios/project.yml (the iOS Client's own version; bump it with
-     \`bun run bump --app ios\`) and CURRENT_PROJECT_VERSION from it.
+     from apps/ios/project.yml and CURRENT_PROJECT_VERSION from the selected
+     build number.
   2. Verify the archive: the version keys took, export compliance and the
      local-networking ATS exemption survived into the built Info.plist, and
      the compiled app carries its asset catalogue. App Store Connect rejects
@@ -40,12 +45,11 @@ Steps, in order:
   5. --upload: upload the IPA with altool (implies --export). Needs an
      App Store Connect API key.
 
-Build numbers: ASC refuses a build number it has already seen for the same
-marketing version. The default derives from the iOS version (see
-scripts/version.ts), which is right for the first upload of a version; for
-a re-upload, pass --next-build-number to ask ASC for the highest build of
-this version and go one higher, or an explicit --build-number. See
-docs/releasing-ios.md for the dashboard steps this script cannot do.
+Build numbers: ASC requires them to increase across the app. The default
+derives from the iOS marketing version (see scripts/version.ts); use
+--next-build-number to ask ASC for the highest uploaded build and go one
+higher, or pass --build-number explicitly. See docs/releasing-ios.md for
+the dashboard steps this script cannot do.
 
 Options:
   --export               Export a signed IPA after archiving
@@ -59,9 +63,11 @@ Options:
                          SHIDOU_BUILD_NUMBER); default derives from the
                          iOS version
   --next-build-number    Ask App Store Connect for the highest build number
-                         already uploaded for this version and use the next
-                         one (needs the API key); the retry-safe default
-                         that \`bun run ship ios\` uses
+                         uploaded across all marketing versions and use the
+                         next one (needs the API key)
+  --print-next-build-number
+                         Print that number without building; used by
+                         \`bun run ship ios\` to plan its Delivery Record
   --wait                 After --upload, poll App Store Connect until the
                          build is VALID and in internal testing, so the
                          command ends only when testers can install it
@@ -145,6 +151,7 @@ async function main(): Promise<void> {
       "create-app-record": { type: "boolean" },
       export: { type: "boolean" },
       "next-build-number": { type: "boolean" },
+      "print-next-build-number": { type: "boolean" },
       wait: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       output: { type: "string" },
@@ -163,7 +170,9 @@ async function main(): Promise<void> {
   const uploading = values.upload ?? false;
   const exporting = values.export ?? false;
   const waiting = values.wait ?? false;
-  const nextBuildNumber = values["next-build-number"] ?? false;
+  const printNextBuildNumber = values["print-next-build-number"] ?? false;
+  const nextBuildNumber =
+    (values["next-build-number"] ?? false) || printNextBuildNumber;
   const profile = values.profile ?? process.env.SHIDOU_IOS_PROFILE;
   const ensureAppRecord = uploading || (values["create-app-record"] ?? false);
   const appName = values["app-name"] ?? "Shidou";
@@ -272,20 +281,29 @@ async function main(): Promise<void> {
 
   let buildNumber = explicitBuildNumber ?? derivedBuildNumber(version);
   if (nextBuildNumber) {
-    // A retry of the same marketing version keeps the version and raises
-    // only the build number. ASC is the only record of what it has seen.
+    // ASC is the source of truth because build numbers increase across the
+    // app, including when the marketing version changes.
     const asc = await ascClient();
-    const builds = await asc.listBuilds(await appRecordId(asc), { version });
+    const builds = await asc.listBuilds(await appRecordId(asc));
+    buildNumber = nextIosBuildNumber(
+      version,
+      builds.map((build) => build.version),
+    );
     const highest = builds
       .map((build) => Number(build.version))
-      .filter((n) => Number.isSafeInteger(n))
-      .reduce((max, n) => Math.max(max, n), 0);
-    if (highest > 0) {
-      buildNumber = String(Math.max(highest + 1, Number(derivedBuildNumber(version))));
-      console.log(`  ok   ASC has build ${highest} for ${version}; using ${buildNumber}.`);
-    } else {
-      console.log(`  ok   ASC has no build for ${version} yet; using ${buildNumber}.`);
+      .filter(Number.isSafeInteger)
+      .reduce((max, build) => Math.max(max, build), 0);
+    if (!printNextBuildNumber) {
+      console.log(
+        highest > 0
+          ? `  ok   ASC has build ${highest}; using ${buildNumber}.`
+          : `  ok   ASC has no builds yet; using ${buildNumber}.`,
+      );
     }
+  }
+  if (printNextBuildNumber) {
+    console.log(buildNumber);
+    return;
   }
 
   /** Find-or-create the ASC app record, idempotently. Creates nothing when

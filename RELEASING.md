@@ -112,7 +112,7 @@ status` compares `master` with it:
 | Channel | Record | Written when |
 | --- | --- | --- |
 | Desktop Release | `desktop/v<version>` tag | the GitHub release is published (created at the built commit) |
-| iOS Release | `ios/v<version>` tag | App Store Connect reports the build VALID and in internal testing |
+| iOS Release | `ios/v<marketing-version>-build.<build-number>` tag | App Store Connect reports the build VALID and in internal testing |
 | Browser Deployment | GitHub deployment, environment `browser` | deploy-workers marks the deployment `success` |
 | Website Deployment | GitHub deployment, environment `website` | deploy-workers marks the deployment `success` |
 
@@ -130,14 +130,16 @@ code or notes; with several it lists them and asks (in CI it fails and wants
    Release unless `--force-protocol`;
 2. prints the plan — channel, version, commit, pending notes — and stops
    there with `--dry-run`;
-3. creates `release/<channel>-<version>`, bumps that app (patch by default;
-   `--minor`, `--major`, or `--version`), writes the changelog section from
+3. creates `release/<channel>-<version>`, writes the changelog section from
    the pending notes (refusing an empty one without `--allow-empty-notes`),
    marks the notes shipped, opens the release pull request, waits for checks,
-   and squash-merges it;
+   and squash-merges it. Desktop bumps its version. iOS keeps its marketing
+   version for routine TestFlight builds; `--app-store-version <x.y.z>` makes
+   the explicit marketing-version change for an App Store update;
 4. publishes: Desktop dispatches the Release workflow on `master`, publishes
-   the draft, and waits for the R2 sync; iOS runs the ShidouKit tests, uploads
-   with `--next-build-number --wait`, and pushes the `ios/v*` tag.
+   the draft, and waits for the R2 sync; iOS runs the ShidouKit tests, chooses
+   the next build across all ASC uploads, waits for internal testing, and
+   pushes the build-specific `ios/v*` tag.
 
 An interrupted run resumes from step 4 when `master` already carries the
 release commit. `--force` rebuilds or redeploys shipped code; it never skips

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   findIosVersion,
   nextVersion,
+  nextIosBuildNumber,
   setIosVersion,
   derivedBuildNumber,
   findPackageVersion,
@@ -100,6 +101,12 @@ describe("derivedBuildNumber", () => {
   });
 });
 
+describe("nextIosBuildNumber", () => {
+  test("increments the latest build across marketing versions", () => {
+    expect(nextIosBuildNumber("0.2.14", ["2027"])).toBe("2028");
+  });
+});
+
 describe("findIosVersion / setIosVersion", () => {
   const projectYml = [
     "targets:",
@@ -115,11 +122,17 @@ describe("findIosVersion / setIosVersion", () => {
     expect(findIosVersion(projectYml)).toEqual({ line: 4, version: "0.2.14" });
   });
 
-  test("rewrites the version and its derived build number in place", () => {
+  test("rewrites the marketing version and advances the build baseline", () => {
     const updated = setIosVersion(projectYml, "0.3.0");
     expect(updated).toContain("        MARKETING_VERSION: 0.3.0");
     expect(updated).toContain("        CURRENT_PROJECT_VERSION: 3000");
     expect(updated).toContain("INFOPLIST_KEY_CFBundleDisplayName: Shidou");
+  });
+
+  test("keeps build numbers increasing when the marketing version advances", () => {
+    const updated = setIosVersion(projectYml.replace("2014", "2027"), "0.2.15");
+    expect(updated).toContain("        MARKETING_VERSION: 0.2.15");
+    expect(updated).toContain("        CURRENT_PROJECT_VERSION: 2028");
   });
 
   test("refuses a project without the build number key", () => {
