@@ -17,10 +17,12 @@ working recipe on top of it — the flags, the gotchas, and the poll loop.
 bun run ship ios            # add --dry-run to see the plan first
 ```
 
-From a clean `master` it bumps `apps/ios/project.yml`, writes
-`CHANGELOG-ios.md` from the pending Change Notes, lands the release pull
-request, runs the ShidouKit tests, uploads with `--next-build-number --wait`,
-and pushes the `ios/v<version>` Delivery Record. One explicit "ship iOS"
+From a clean `master` it keeps the TestFlight marketing version, resolves the
+next globally increasing build number, writes `CHANGELOG-ios.md` from the
+pending Change Notes, lands the release pull request, runs the ShidouKit
+tests, uploads and waits, and pushes an
+`ios/v<marketing-version>-build.<build-number>` Delivery Record. Pass
+`--app-store-version <x.y.z>` only for an App Store update. One explicit "ship iOS"
 request authorizes the whole run. If the merge landed but publishing
 failed, run it again; it resumes from the upload. Use the steps below only
 when something in that pipeline needs doing by hand.
@@ -57,11 +59,10 @@ it runs.
 bun run ios-release --upload --next-build-number --wait --profile "Shidou TestFlight 2026-08-28"
 ```
 
-- **Build number**: the default (derived from the iOS version in
-  `apps/ios/project.yml`) is correct only for the *first* upload of a
-  marketing version. `--next-build-number` asks ASC for the highest build of
-  this version and goes one higher, so a retry keeps the version. Pass an
-  explicit `--build-number <n>` only when ASC is unreachable.
+- **Build number**: `--next-build-number` asks ASC for the highest build
+  across every marketing version and goes one higher. Routine TestFlight
+  uploads keep `MARKETING_VERSION`; only the build changes. Pass an explicit
+  `--build-number <n>` only when ASC is unreachable.
 - **Profile**: the named profile is mandatory (`--profile`, or
   `SHIDOU_IOS_PROFILE` in `.env` so `bun run ship ios` picks it up). Cloud
   signing is blocked at the account level, and Apple does not serve profile content to API keys, so
@@ -85,7 +86,7 @@ two endpoints yourself (`scripts/asc.ts` → `AscApi.listBuilds`,
 `buildBetaState`). Only then push the record:
 
 ```sh
-git tag -a ios/v<version> <commit> -m "iOS <version>" && git push origin ios/v<version>
+git tag -a ios/v<version>-build.<build> <commit> -m "iOS <version> build <build>" && git push origin ios/v<version>-build.<build>
 ```
 
 The internal testing group receives every build automatically — manual

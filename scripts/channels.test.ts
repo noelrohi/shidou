@@ -8,6 +8,18 @@ describe("latestVersionTag", () => {
     ).toEqual({ tag: "desktop/v0.2.14", version: "0.2.14" });
   });
 
+  test("picks the latest TestFlight build within a marketing version", () => {
+    expect(
+      latestVersionTag(
+        ["ios/v0.2.13-build.2027", "ios/v0.2.13-build.2028"],
+        "ios/v",
+      ),
+    ).toEqual({
+      tag: "ios/v0.2.13-build.2028",
+      version: "0.2.13-build.2028",
+    });
+  });
+
   test("ignores tags that are not versions", () => {
     expect(latestVersionTag(["desktop/vnext", "desktop/v"], "desktop/v")).toBeNull();
   });
