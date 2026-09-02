@@ -169,7 +169,8 @@ struct SessionListView: View {
                 item: item,
                 now: UInt64(now.timeIntervalSince1970)
             )
-            .padding(.horizontal, 10)
+            .padding(.leading, item.session.parentTaskId == nil ? 10 : 24)
+            .padding(.trailing, 10)
             .padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(

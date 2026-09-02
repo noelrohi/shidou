@@ -979,6 +979,8 @@ public struct AgentSession: Codable, Identifiable, Sendable {
     /// phone cannot clear a mark another client just set.
     /// See `docs/adr/0002-explicit-archive-command.md`.
     public var archivedAt: UInt64?
+    /// The Task whose agent created this one. Daemon-owned and immutable.
+    public var parentTaskId: UUID?
     /// Provider-specific resume state; only round-tripped, never interpreted.
     public var providerCursor: JSONValue?
     public var availableCommands: [ReportedCommand]
@@ -1005,6 +1007,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         case updatedAt = "updated_at"
         case lastReplyAt = "last_reply_at"
         case archivedAt = "archived_at"
+        case parentTaskId = "parent_task_id"
         case providerCursor = "provider_cursor"
         case availableCommands = "available_commands"
         case contextUsage = "context_usage"
@@ -1032,6 +1035,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         updatedAt: UInt64,
         lastReplyAt: UInt64? = nil,
         archivedAt: UInt64? = nil,
+        parentTaskId: UUID? = nil,
         providerCursor: JSONValue? = nil,
         availableCommands: [ReportedCommand] = [],
         contextUsage: ContextUsage? = nil,
@@ -1059,6 +1063,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         self.updatedAt = updatedAt
         self.lastReplyAt = lastReplyAt
         self.archivedAt = archivedAt
+        self.parentTaskId = parentTaskId
         self.providerCursor = providerCursor
         self.availableCommands = availableCommands
         self.contextUsage = contextUsage
@@ -1089,6 +1094,7 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         updatedAt = try container.decode(UInt64.self, forKey: .updatedAt)
         lastReplyAt = try container.decodeIfPresent(UInt64.self, forKey: .lastReplyAt)
         archivedAt = try container.decodeIfPresent(UInt64.self, forKey: .archivedAt)
+        parentTaskId = try container.decodeIfPresent(UUID.self, forKey: .parentTaskId)
         let cursor = try container.decodeIfPresent(JSONValue.self, forKey: .providerCursor)
         providerCursor = cursor?.isNull == true ? nil : cursor
         availableCommands = try container.decodeIfPresent([ReportedCommand].self, forKey: .availableCommands) ?? []
@@ -1121,8 +1127,8 @@ public struct AgentSession: Codable, Identifiable, Sendable {
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(lastReplyAt, forKey: .lastReplyAt)
-        // The archive mark is deliberately not encoded: saves are merge-only,
-        // and only `archiveSession` may write the mark.
+        // Daemon-owned catalog fields are deliberately not encoded. Saves are
+        // merge-only; only the daemon may archive or parent a Task.
         try container.encode(providerCursor ?? .null, forKey: .providerCursor)
         if !availableCommands.isEmpty {
             try container.encode(availableCommands, forKey: .availableCommands)

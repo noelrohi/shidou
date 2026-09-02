@@ -177,6 +177,23 @@ final class SessionListPresentationTests: XCTestCase {
         XCTAssertEqual(groups.map(\.folderName), ["shidou", "No project"])
     }
 
+    func testChildTasksFollowTheirParentWithinASection() {
+        let parent = session(title: "parent", agoSeconds: 120)
+        var child = session(title: "child", agoSeconds: 60)
+        child.parentTaskId = parent.id
+        let unrelated = session(title: "unrelated")
+
+        let groups = SessionListPresentation.groups(
+            sessions: [child, unrelated, parent], projects: [project],
+            now: now, calendar: calendar
+        )
+
+        XCTAssertEqual(
+            groups[0].items.map(\.session.title),
+            ["unrelated", "parent", "child"]
+        )
+    }
+
     func testOldestFirstReversesSectionsAndRows() {
         let groups = SessionListPresentation.groups(
             sessions: [
