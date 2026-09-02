@@ -2767,11 +2767,13 @@ mod tests {
         parent.runtime_mode = RuntimeMode::Ask;
         parent.model = Some("parent-model".into());
         let parent_id = parent.id;
+        let provider_binary = std::env::current_exe().unwrap();
         {
             let mut settings = backend.settings.get();
-            settings
-                .provider_binary_overrides
-                .insert(ProviderKind::Claude, "/usr/bin/true".into());
+            settings.provider_binary_overrides.insert(
+                ProviderKind::Claude,
+                provider_binary.to_string_lossy().into_owned(),
+            );
             backend.settings.replace(settings).unwrap();
             let mut state = backend.task_state.lock();
             state.projects.push(project.clone());
@@ -2802,7 +2804,7 @@ mod tests {
         assert_eq!(child.runtime_mode, RuntimeMode::Ask);
         assert_eq!(child.model.as_deref(), Some("parent-model"));
         assert_eq!(start_options.cwd, project.path);
-        assert_eq!(start_options.binary, PathBuf::from("/usr/bin/true"));
+        assert_eq!(start_options.binary, provider_binary);
         assert_eq!(start_options.mode, "ask");
         assert_eq!(backend.task_parent(child.id), Some(parent_id));
 
