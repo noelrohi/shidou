@@ -208,6 +208,42 @@ export class AscApi {
     return result.data;
   }
 
+  /** Builds uploaded for an app, newest first, optionally narrowed to one
+   *  marketing version. `processingState` is `PROCESSING` until App Store
+   *  Connect has finished with the upload and `VALID` once testers can get it. */
+  async listBuilds(
+    appId: string,
+    options: { version?: string; limit?: number } = {},
+  ): Promise<Array<{ id: string; version: string; processingState: string }>> {
+    const query = new URLSearchParams({
+      "filter[app]": appId,
+      sort: "-uploadedDate",
+      limit: String(options.limit ?? 50),
+    });
+    if (options.version) query.set("filter[preReleaseVersion.version]", options.version);
+    const result = (await this.request("GET", `/v1/builds?${query}`)) as {
+      data?: Array<{
+        id: string;
+        attributes: { version: string; processingState: string };
+      }>;
+    };
+    return (result.data ?? []).map((build) => ({
+      id: build.id,
+      version: build.attributes.version,
+      processingState: build.attributes.processingState,
+    }));
+  }
+
+  /** The internal-testing state of one build; `IN_BETA_TESTING` means the
+   *  internal group can install it. */
+  async buildBetaState(buildId: string): Promise<string | null> {
+    const result = (await this.request(
+      "GET",
+      `/v1/builds/${encodeURIComponent(buildId)}/buildBetaDetail`,
+    )) as { data?: { attributes?: { internalBuildState?: string } } };
+    return result.data?.attributes?.internalBuildState ?? null;
+  }
+
   async createApp(options: {
     name: string;
     sku: string;

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  findIosVersion,
+  nextVersion,
+  setIosVersion,
   derivedBuildNumber,
   findPackageVersion,
   parseVersion,
@@ -94,5 +97,52 @@ describe("derivedBuildNumber", () => {
 
   test("throws on a version it cannot parse", () => {
     expect(() => derivedBuildNumber("1.2")).toThrow(/build number/);
+  });
+});
+
+describe("findIosVersion / setIosVersion", () => {
+  const projectYml = [
+    "targets:",
+    "  Shidou:",
+    "    settings:",
+    "      base:",
+    "        MARKETING_VERSION: 0.2.14",
+    "        CURRENT_PROJECT_VERSION: 2014",
+    "        INFOPLIST_KEY_CFBundleDisplayName: Shidou",
+  ].join("\n");
+
+  test("reads the marketing version", () => {
+    expect(findIosVersion(projectYml)).toEqual({ line: 4, version: "0.2.14" });
+  });
+
+  test("rewrites the version and its derived build number in place", () => {
+    const updated = setIosVersion(projectYml, "0.3.0");
+    expect(updated).toContain("        MARKETING_VERSION: 0.3.0");
+    expect(updated).toContain("        CURRENT_PROJECT_VERSION: 3000");
+    expect(updated).toContain("INFOPLIST_KEY_CFBundleDisplayName: Shidou");
+  });
+
+  test("refuses a project without the build number key", () => {
+    expect(() => setIosVersion("MARKETING_VERSION: 1.0.0\n", "1.0.1")).toThrow(
+      /CURRENT_PROJECT_VERSION/,
+    );
+  });
+});
+
+describe("nextVersion", () => {
+  test("bumps each level", () => {
+    expect(nextVersion("0.2.14", "patch")).toBe("0.2.15");
+    expect(nextVersion("0.2.14", "minor")).toBe("0.3.0");
+    expect(nextVersion("0.2.14", "major")).toBe("1.0.0");
+  });
+
+  test("accepts an explicit later version and a prerelease promotion", () => {
+    expect(nextVersion("0.2.14", "0.4.0")).toBe("0.4.0");
+    expect(nextVersion("0.2.6-beta.1", "0.2.6")).toBe("0.2.6");
+  });
+
+  test("refuses the same or an older version", () => {
+    expect(() => nextVersion("0.2.14", "0.2.14")).toThrow(/already/);
+    expect(() => nextVersion("0.2.14", "0.2.9")).toThrow(/older/);
   });
 });

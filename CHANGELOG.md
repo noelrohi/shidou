@@ -6,9 +6,10 @@ extracts the section whose heading matches the version being released
 (`Cargo.toml`) and publishes it next to the update, so Sparkle shows it in
 the update prompt.
 
-Format follows [Keep a Changelog](https://keepachangelog.com). Add a new
-`## [<version>]` section at the top for each release, matching the version in
-`Cargo.toml`.
+Format follows [Keep a Changelog](https://keepachangelog.com). `bun run ship
+desktop` adds the `## [<version>]` section for each Desktop Release from the
+pending Change Notes under `.changes/`, matching the version in `Cargo.toml`.
+iOS notes live in `CHANGELOG-ios.md`.
 
 Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into

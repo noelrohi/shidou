@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun ./scripts/dev.ts",
+    "ship": "bun ./scripts/ship.ts",
     "release": "bun ./scripts/release.ts",
     "ios-release": "bun ./scripts/ios-release.ts",
     "bump": "bun ./scripts/bump.ts",

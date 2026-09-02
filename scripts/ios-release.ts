@@ -6,12 +6,12 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { derivedBuildNumber, findPackageVersion, parseVersion } from "./version";
+import { derivedBuildNumber, findIosVersion, parseVersion } from "./version";
 import { AscApi } from "./asc";
 
 const projectRoot = resolve(import.meta.dir, "..");
-const manifestPath = join(projectRoot, "Cargo.toml");
 const iosDir = join(projectRoot, "apps/ios");
+const iosProjectYmlPath = join(iosDir, "project.yml");
 const defaultOutputDir = join(projectRoot, "dist/ios");
 const teamId = "2Z79866758";
 const appBundleId = "dev.shidou.ios";
@@ -24,8 +24,8 @@ Usage:
 Steps, in order:
   1. Regenerate the Xcode project (xcodegen) and archive the Shidou scheme
      against Release for a generic iOS device, stamping MARKETING_VERSION
-     and CURRENT_PROJECT_VERSION from Cargo.toml — the same source of truth
-     as the desktop release.
+     from apps/ios/project.yml (the iOS Client's own version; bump it with
+     \`bun run bump --app ios\`) and CURRENT_PROJECT_VERSION from it.
   2. Verify the archive: the version keys took, export compliance and the
      local-networking ATS exemption survived into the built Info.plist, and
      the compiled app carries its asset catalogue. App Store Connect rejects
@@ -41,9 +41,10 @@ Steps, in order:
      App Store Connect API key.
 
 Build numbers: ASC refuses a build number it has already seen for the same
-marketing version. The default derives from the Cargo version (see
+marketing version. The default derives from the iOS version (see
 scripts/version.ts), which is right for the first upload of a version; for
-a re-upload, pass an explicit increasing --build-number. See
+a re-upload, pass --next-build-number to ask ASC for the highest build of
+this version and go one higher, or an explicit --build-number. See
 docs/releasing-ios.md for the dashboard steps this script cannot do.
 
 Options:
@@ -55,14 +56,23 @@ Options:
                          across the App Store
   --primary-locale <l>   Primary locale (default: en-US)
   --build-number <n>     CURRENT_PROJECT_VERSION override (or
-                         SHIDOU_BUILD_NUMBER); default derives from Cargo.toml
+                         SHIDOU_BUILD_NUMBER); default derives from the
+                         iOS version
+  --next-build-number    Ask App Store Connect for the highest build number
+                         already uploaded for this version and use the next
+                         one (needs the API key); the retry-safe default
+                         that \`bun run ship ios\` uses
+  --wait                 After --upload, poll App Store Connect until the
+                         build is VALID and in internal testing, so the
+                         command ends only when testers can install it
   --output <dir>         Output directory (default: dist/ios)
   --api-key-id <id>      ASC API key id (or SHIDOU_ASC_API_KEY_ID)
   --api-issuer <id>      ASC API issuer id (or SHIDOU_ASC_API_ISSUER_ID)
   --api-key-path <path>  Path to the AuthKey_<id>.p8 file (or
                          SHIDOU_ASC_API_KEY_PATH); altool reads it in place
   --profile <name>       Export with manual signing against this provisioning
-                         profile (App Store type). Needed when cloud signing is
+                         profile (App Store type; or SHIDOU_IOS_PROFILE).
+                         Needed when cloud signing is
                          unavailable — Apple does not serve profile content to
                          API keys, so the profile must be installed locally by
                          Xcode (Settings → Accounts → team → Download Manual
@@ -72,6 +82,7 @@ Options:
 Environment:
   SHIDOU_ASC_API_KEY_ID / SHIDOU_ASC_API_ISSUER_ID / SHIDOU_ASC_API_KEY_PATH
   SHIDOU_BUILD_NUMBER
+  SHIDOU_IOS_PROFILE
 `;
 
 /** ExportOptions.plist for the IPA export. Pure, and exported for tests.
@@ -133,6 +144,8 @@ async function main(): Promise<void> {
       "build-number": { type: "string" },
       "create-app-record": { type: "boolean" },
       export: { type: "boolean" },
+      "next-build-number": { type: "boolean" },
+      wait: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       output: { type: "string" },
       "primary-locale": { type: "string" },
@@ -149,6 +162,9 @@ async function main(): Promise<void> {
 
   const uploading = values.upload ?? false;
   const exporting = values.export ?? false;
+  const waiting = values.wait ?? false;
+  const nextBuildNumber = values["next-build-number"] ?? false;
+  const profile = values.profile ?? process.env.SHIDOU_IOS_PROFILE;
   const ensureAppRecord = uploading || (values["create-app-record"] ?? false);
   const appName = values["app-name"] ?? "Shidou";
   const primaryLocale = values["primary-locale"] ?? "en-US";
@@ -191,6 +207,15 @@ async function main(): Promise<void> {
       "--build-number must contain one to three period-separated integers.",
     );
   }
+  if (nextBuildNumber && explicitBuildNumber) {
+    throw new Error("Use either --next-build-number or --build-number, not both.");
+  }
+  if ((nextBuildNumber || waiting) && (!apiKeyId || !apiIssuer)) {
+    throw new Error("--next-build-number and --wait need an App Store Connect API key.");
+  }
+  if (waiting && !uploading) {
+    throw new Error("--wait only makes sense with --upload.");
+  }
 
   /** First existing standard location for the API key, or null. */
   function findApiKey(): string | null {
@@ -219,14 +244,11 @@ async function main(): Promise<void> {
     ];
   }
 
-  const manifest = await readFile(manifestPath, "utf8");
-  const version = findPackageVersion(manifest).version;
+  const version = findIosVersion(await readFile(iosProjectYmlPath, "utf8")).version;
   parseVersion(version); // Fail on a malformed version before building anything.
-  const buildNumber = explicitBuildNumber ?? derivedBuildNumber(version);
 
-  /** Find-or-create the ASC app record, idempotently. Creates nothing when
-   *  the record already exists, so uploads stay repeatable. */
-  async function ensureAppRecordExists(): Promise<void> {
+  /** An authenticated ASC client, or an error naming the missing key. */
+  async function ascClient(): Promise<AscApi> {
     const keyPath = findApiKey();
     if (!keyPath) {
       throw new Error(
@@ -234,7 +256,42 @@ async function main(): Promise<void> {
           `(${uploadKeyPaths(apiKeyId!).join(", ")}); pass --api-key-path.`,
       );
     }
-    const asc = new AscApi(apiKeyId!, apiIssuer!, await Bun.file(keyPath).text());
+    return new AscApi(apiKeyId!, apiIssuer!, await Bun.file(keyPath).text());
+  }
+
+  /** The app record id, required by the builds endpoints. */
+  async function appRecordId(asc: AscApi): Promise<string> {
+    const app = await asc.findAppByBundleId(appBundleId);
+    if (!app) {
+      throw new Error(
+        `No App Store Connect app record for ${appBundleId}; run with --create-app-record first.`,
+      );
+    }
+    return app.id;
+  }
+
+  let buildNumber = explicitBuildNumber ?? derivedBuildNumber(version);
+  if (nextBuildNumber) {
+    // A retry of the same marketing version keeps the version and raises
+    // only the build number. ASC is the only record of what it has seen.
+    const asc = await ascClient();
+    const builds = await asc.listBuilds(await appRecordId(asc), { version });
+    const highest = builds
+      .map((build) => Number(build.version))
+      .filter((n) => Number.isSafeInteger(n))
+      .reduce((max, n) => Math.max(max, n), 0);
+    if (highest > 0) {
+      buildNumber = String(Math.max(highest + 1, Number(derivedBuildNumber(version))));
+      console.log(`  ok   ASC has build ${highest} for ${version}; using ${buildNumber}.`);
+    } else {
+      console.log(`  ok   ASC has no build for ${version} yet; using ${buildNumber}.`);
+    }
+  }
+
+  /** Find-or-create the ASC app record, idempotently. Creates nothing when
+   *  the record already exists, so uploads stay repeatable. */
+  async function ensureAppRecordExists(): Promise<void> {
+    const asc = await ascClient();
     const existing = await asc.findAppByBundleId(appBundleId);
     if (existing) {
       console.log(
@@ -353,8 +410,8 @@ async function main(): Promise<void> {
   const exportOptionsPath = join(outputDir, "ExportOptions.plist");
   await Bun.write(
     exportOptionsPath,
-    values.profile
-      ? exportOptionsPlist({ teamId, manual: { profile: values.profile } })
+    profile
+      ? exportOptionsPlist({ teamId, manual: { profile } })
       : exportOptionsPlist({ teamId }),
   );
   await $`xcodebuild -exportArchive -archivePath ${archivePath} -exportOptionsPlist ${exportOptionsPath} -exportPath ${outputDir} ${xcodebuildAuth()}`;
@@ -386,10 +443,52 @@ async function main(): Promise<void> {
     API_PRIVATE_KEYS_DIR: dirname(resolve(uploadKeyPath)),
   });
 
+  if (!waiting) {
+    console.log(
+      `\nShidou iOS ${version} (build ${buildNumber}) uploaded. App Store Connect ` +
+        "takes a few minutes to process it; the internal tester group receives " +
+        "it automatically. Pass --wait to block until then.",
+    );
+    return;
+  }
+
+  // Upload ≠ available. The iOS Release counts as shipped only when internal
+  // testers can install it, so poll until ASC says so. The first checks often
+  // come back empty while the upload is still being registered.
+  logStep(`Waiting for App Store Connect to process build ${buildNumber}`);
+  const asc = await ascClient();
+  const appId = await appRecordId(asc);
+  const deadline = Date.now() + 45 * 60 * 1000;
+  let buildId: string | null = null;
+  while (Date.now() < deadline) {
+    const build = (await asc.listBuilds(appId, { version })).find(
+      (candidate) => candidate.version === buildNumber,
+    );
+    if (build?.processingState === "VALID") {
+      buildId = build.id;
+      break;
+    }
+    if (build && build.processingState !== "PROCESSING") {
+      throw new Error(
+        `App Store Connect reports build ${buildNumber} as ${build.processingState}.`,
+      );
+    }
+    console.log(`  ..   ${build ? build.processingState : "not registered yet"}`);
+    await Bun.sleep(30_000);
+  }
+  if (!buildId) {
+    throw new Error(
+      `Build ${buildNumber} was still processing after 45 minutes; check App Store Connect.`,
+    );
+  }
+  while (Date.now() < deadline) {
+    const state = await asc.buildBetaState(buildId);
+    if (state === "IN_BETA_TESTING") break;
+    console.log(`  ..   internal testing: ${state ?? "unknown"}`);
+    await Bun.sleep(30_000);
+  }
   console.log(
-    `\nShidou iOS ${version} (build ${buildNumber}) uploaded. App Store Connect ` +
-      "takes a few minutes to process it; then add it to an internal tester " +
-      "group. See docs/releasing-ios.md for the dashboard steps.",
+    `\nShidou iOS ${version} (build ${buildNumber}) is VALID and in internal testing.`,
   );
 }
 
