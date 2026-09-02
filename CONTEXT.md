@@ -8,6 +8,24 @@ processes.
 
 ### Connection
 
+**Client**:
+Any user-facing Shidou app that connects to a Daemon: the Desktop Client, iOS Client, or Browser Client. Name the specific client when scope matters.
+_Avoid_: client as shorthand for only the browser app
+
+**Desktop Client**:
+The GPUI app released for macOS, Linux, and Windows together with its bundled Daemon and helpers.
+_Avoid_: Mac app
+
+**iOS Client**:
+The SwiftUI app delivered through TestFlight, with its own version line in
+`apps/ios/project.yml`.
+_Avoid_: the phone app, mobile
+
+**Browser Client**:
+The web app served from the `@shidou/web` Cloudflare Worker. It has no
+user-facing version; a deployment is its unit of delivery.
+_Avoid_: client, web app (when the website is meant)
+
 **Daemon**:
 The per-user background process that owns provider sessions and serves them
 over a WebSocket at `/v1`. Clients are viewers; the daemon is the source of
@@ -104,6 +122,50 @@ events between them are gone. The client refetches the session instead of
 applying the surviving tail onto a projection with a hole in it. A phone
 backgrounded through a long run is the ordinary way to get here.
 _Avoid_: desync, missed events
+
+### Delivery
+
+**Delivery Channel**:
+One independently shipped product line: Desktop Release, iOS Release, Browser
+Deployment, or Website Deployment. Each keeps its own version or deployment
+history, changelog, and Delivery Record (ADR 0004).
+_Avoid_: target, platform (ambiguous with macOS/Linux/Windows), release (for
+the Workers)
+
+**Desktop Release**:
+One version of the Desktop Client published for every supported desktop OS
+at once, with its bundled Daemon and helpers, recorded as a `desktop/v*` tag
+once the GitHub release is published. Never a subset of the operating systems.
+
+**iOS Release**:
+One marketing version of the iOS Client in TestFlight internal testing,
+recorded as an `ios/v*` tag. A retry keeps the version and raises only the
+build number.
+
+**Browser Deployment** / **Website Deployment**:
+A successful deploy of the `@shidou/web` or `website` Worker from `master`,
+recorded as a GitHub deployment in the `browser` or `website` environment.
+Automatic on merge.
+
+**Delivery Record**:
+The exact commit a Delivery Channel last delivered to users or internal
+testers: the channel's newest tag, or its newest successful deployment. What
+`master` holds beyond it is that channel's unshipped work. A draft release,
+local artifact, or processing upload is not a record.
+_Avoid_: last release (for the Workers), latest tag (for the Workers)
+
+**Change Note**:
+One file under `.changes/` per user-visible change, added by the pull request
+that lands it, holding release-note wording for each Client the PR is labeled
+with. Each channel's release folds its wording into that channel's changelog
+and marks the note shipped; the file is deleted once every named channel has
+shipped it.
+_Avoid_: changelog entry (that is the output), changeset
+
+**Shipped**:
+A change is shipped for a channel only when its users or internal testers
+can receive it. Merged, built, drafted, or uploaded-but-processing is not
+shipped.
 
 ### Task
 

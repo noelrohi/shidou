@@ -1,6 +1,7 @@
 /** Release version helpers shared by the desktop and iOS release scripts.
- *  Cargo.toml's root `[package]` version is the single source of truth for
- *  both; `bun run bump` is the only thing that writes it. */
+ *  Cargo.toml's root `[package]` version is the Desktop version and
+ *  apps/ios/project.yml's MARKETING_VERSION the iOS one (ADR 0004);
+ *  `bun run bump --app <desktop|ios>` is the only thing that writes them. */
 
 /** The `version` line of the root `[package]` table. Later tables carry their
  *  own `version` keys (dependencies, metadata), so the search stops at the
@@ -56,4 +57,69 @@ export function derivedBuildNumber(version: string): string {
         "pass --build-number.",
     );
   }
+}
+
+/** The iOS marketing version from `apps/ios/project.yml`. The iOS Client has
+ *  its own release line (see docs/adr/0004-independent-delivery-channels.md),
+ *  so its version lives beside the Xcode project rather than in Cargo.toml. */
+export function findIosVersion(projectYml: string): { line: number; version: string } {
+  const lines = projectYml.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]?.match(/^\s*MARKETING_VERSION:\s*(\S+)\s*$/);
+    if (match?.[1]) return { line: i, version: match[1].replace(/^["']|["']$/g, "") };
+  }
+  throw new Error("No MARKETING_VERSION in apps/ios/project.yml.");
+}
+
+/** Rewrite the iOS version and its derived build number in `project.yml`.
+ *  Both keys must exist: a silent no-op would ship a stale version. */
+export function setIosVersion(projectYml: string, version: string): string {
+  const { line } = findIosVersion(projectYml);
+  const lines = projectYml.split("\n");
+  const indent = lines[line]!.match(/^\s*/)![0];
+  lines[line] = `${indent}MARKETING_VERSION: ${version}`;
+  const buildLine = lines.findIndex((entry) => /^\s*CURRENT_PROJECT_VERSION:/.test(entry));
+  if (buildLine === -1) {
+    throw new Error("No CURRENT_PROJECT_VERSION in apps/ios/project.yml.");
+  }
+  const buildIndent = lines[buildLine]!.match(/^\s*/)![0];
+  lines[buildLine] = `${buildIndent}CURRENT_PROJECT_VERSION: ${derivedBuildNumber(version)}`;
+  return lines.join("\n");
+}
+
+/** The next version after `current` for a bump level, or an explicit
+ *  version, refusing anything that would move backwards. Only the numeric
+ *  triple is compared, so promoting a prerelease (0.2.6-beta.1 → 0.2.6)
+ *  passes. */
+export function nextVersion(current: string, requested: string): string {
+  const [major, minor, patch] = parseVersion(current);
+  let version: string;
+  switch (requested) {
+    case "major":
+      version = `${major + 1}.0.0`;
+      break;
+    case "minor":
+      version = `${major}.${minor + 1}.0`;
+      break;
+    case "patch":
+      version = `${major}.${minor}.${patch + 1}`;
+      break;
+    default:
+      version = requested;
+  }
+  const target = parseVersion(version);
+  const source = [major, minor, patch];
+  if (version === current) {
+    throw new Error(`The version is already ${version}.`);
+  }
+  for (let field = 0; field < 3; field++) {
+    if (target[field]! > source[field]!) break;
+    if (target[field]! < source[field]!) {
+      throw new Error(
+        `${version} is older than the current ${current}. Build numbers derive ` +
+          "from the version, so versions only move forward.",
+      );
+    }
+  }
+  return version;
 }

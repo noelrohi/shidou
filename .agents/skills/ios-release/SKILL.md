@@ -11,11 +11,24 @@ description: >
 The canonical process lives in `docs/releasing-ios.md`; this skill is the
 working recipe on top of it — the flags, the gotchas, and the poll loop.
 
-## 0. Commit first
+## 0. Prefer the front door
 
-The archive is built from the working tree, so `git status` must be clean
-before uploading. Commit and push the changes being shipped; never release
-uncommitted state.
+```sh
+bun run ship ios            # add --dry-run to see the plan first
+```
+
+From a clean `master` it bumps `apps/ios/project.yml`, writes
+`CHANGELOG-ios.md` from the pending Change Notes, lands the release pull
+request, runs the ShidouKit tests, uploads with `--next-build-number --wait`,
+and pushes the `ios/v<version>` Delivery Record. One explicit "ship iOS"
+request authorizes the whole run. If the merge landed but publishing
+failed, run it again; it resumes from the upload. Use the steps below only
+when something in that pipeline needs doing by hand.
+
+The change being shipped must already be on `master` through a pull request
+labeled `app:ios` with a Change Note carrying `ios:` wording (or
+`no-release`). The archive is built from the working tree, so `git status`
+must be clean; never release uncommitted state.
 
 ## 1. Verify before anything leaves the machine
 
@@ -41,16 +54,17 @@ it runs.
 ## 2. Upload
 
 ```sh
-bun run ios-release --upload --build-number <n> --profile "Shidou TestFlight 2026-08-28"
+bun run ios-release --upload --next-build-number --wait --profile "Shidou TestFlight 2026-08-28"
 ```
 
-- **Build number**: the default (derived from Cargo.toml) is correct only for
-  the *first* upload of a marketing version. Re-uploading the same version
-  needs an explicit increasing number. Query the highest used one first via
-  the ASC API (`scripts/asc.ts` → `AscApi`, app record `6806198658`,
-  `GET /v1/builds?filter[app]=…&sort=-uploadedDate`) and pass `max + 1`.
-- **Profile**: the named profile is mandatory. Cloud signing is blocked at
-  the account level, and Apple does not serve profile content to API keys, so
+- **Build number**: the default (derived from the iOS version in
+  `apps/ios/project.yml`) is correct only for the *first* upload of a
+  marketing version. `--next-build-number` asks ASC for the highest build of
+  this version and goes one higher, so a retry keeps the version. Pass an
+  explicit `--build-number <n>` only when ASC is unreachable.
+- **Profile**: the named profile is mandatory (`--profile`, or
+  `SHIDOU_IOS_PROFILE` in `.env` so `bun run ship ios` picks it up). Cloud
+  signing is blocked at the account level, and Apple does not serve profile content to API keys, so
   the profile was created via the API and installed locally (2027 expiry). If
   the upload fails with a *cloud signing permission error*, the profile name
   is the missing flag — it is not a certificate problem.
@@ -63,11 +77,16 @@ bun run ios-release --upload --build-number <n> --profile "Shidou TestFlight 202
 
 ## 3. Poll until it is live
 
-Upload ≠ available. Poll with the ASC API until
-`processingState == "VALID"` (`GET /v1/builds?filter[app]=…&filter[version]=<n>`,
-30 s interval; first check often comes back empty). Then confirm
-`GET /v1/builds/<id>/buildBetaDetail` reports `internalBuildState:
-IN_BETA_TESTING`.
+Upload ≠ available, and the iOS Release counts as shipped only once testers
+can install it. `--wait` polls the ASC API until `processingState == "VALID"`
+and `buildBetaDetail` reports `internalBuildState: IN_BETA_TESTING` (30 s
+interval; the first checks often come back empty). Without it, poll the same
+two endpoints yourself (`scripts/asc.ts` → `AscApi.listBuilds`,
+`buildBetaState`). Only then push the record:
+
+```sh
+git tag -a ios/v<version> <commit> -m "iOS <version>" && git push origin ios/v<version>
+```
 
 The internal testing group receives every build automatically — manual
 assignment is rejected by design (422). There is no dashboard step.

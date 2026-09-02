@@ -98,6 +98,23 @@
   dev watcher against the exact provider interaction; a successful Rust build
   alone is insufficient.
 
+## Shipping
+
+- Four Delivery Channels ship independently: Desktop Release, iOS Release,
+  Browser Deployment, Website Deployment. Name the channel; never say
+  "release" for the Workers or "client" for the browser alone. See
+  [RELEASING.md](RELEASING.md) → Shipping and ADR 0004.
+- Every pull request carries `app:desktop`, `app:ios`, `app:browser`,
+  `app:website`, or `no-release`, and a user-visible change adds a Change
+  Note under `.changes/` with wording for each labeled Client. CI rejects a
+  PR whose labels omit an app that clearly changed.
+- Ship with `bun run ship <channel>`. For "ship the changes" with no channel
+  named, run `bun run ship status`; proceed only when exactly one channel has
+  unshipped work, otherwise show the channels and ask. Desktop and iOS ship
+  only on an explicit request; one such request authorizes the whole run.
+- Never bump versions or edit `CHANGELOG.md` / `CHANGELOG-ios.md` by hand for
+  a release; `ship` generates them from the notes.
+
 ## Agent skills
 
 ### Issue tracker

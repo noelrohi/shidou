@@ -1,9 +1,14 @@
 name: Release
 
+# `bun run ship desktop` dispatches this on master once the release pull
+# request has merged, publishes the draft it leaves, and the published
+# release's desktop/v<version> tag is the Desktop Delivery Record. The tag
+# trigger only covers a hand-pushed tag; publishing a release also pushes its
+# tag, which the published-release check below turns into a no-op run.
 on:
   push:
     tags:
-      - "v*"
+      - "desktop/v*"
   workflow_dispatch:
 
 permissions:
@@ -39,15 +44,15 @@ jobs:
           # Cargo.toml is the source of truth. A tag push must agree with it;
           # a manual run has no tag and simply releases what Cargo.toml says.
           if [ "$GITHUB_EVENT_NAME" = push ]; then
-            tag="${GITHUB_REF_NAME#v}"
+            tag="${GITHUB_REF_NAME#desktop/v}"
             if [ "$tag" != "$version" ]; then
               echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}"
               exit 1
             fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "Releasing $version as v$version"
+          echo "tag=desktop/v$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version as desktop/v$version"
 
       # A published release for this version is already the finished product,
       # so rebuilding it would burn 90 minutes and could replace artifacts
@@ -424,7 +429,7 @@ jobs:
         with:
           draft: true
           # A manual run has no tag yet; publishing the draft creates this one
-          # at the commit that was built.
+          # at the commit that was built, and that tag is the Delivery Record.
           tag_name: ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: ${{ needs.version.outputs.tag }}

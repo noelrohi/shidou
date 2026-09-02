@@ -7,15 +7,23 @@ download a notarized **`.dmg`**; existing users get smaller in-app updates
 `https://releases.shidou.dev/appcast.xml`, verifies each build's EdDSA signature,
 and installs it. One release command produces and publishes both.
 
-The iOS app ships through TestFlight instead; that process — archive, export,
-upload, and the App Store Connect dashboard steps — lives in
-[docs/releasing-ios.md](docs/releasing-ios.md).
-
-Once set up, cutting a release is:
+Shidou has four **Delivery Channels** that ship independently
+([ADR 0004](docs/adr/0004-independent-delivery-channels.md)): the **Desktop
+Release** described here, the **iOS Release** through TestFlight
+([docs/releasing-ios.md](docs/releasing-ios.md)), and the **Browser** and
+**Website Deployments**, two Cloudflare Workers that deploy on every merge to
+`master`. Desktop and iOS each have their own version and changelog. One
+front door drives all of them:
 
 ```sh
-bun run release
+bun run ship            # show every channel; ship the one that changed
+bun run ship desktop    # or: ios, browser, website
+bun run ship status     # what each channel last shipped, and what master holds beyond it
 ```
+
+`bun run release` (this document) and `bun run ios-release` remain the
+channel-specific commands underneath. See [Shipping](#shipping) for the pull
+request labels and Change Notes every change needs first.
 
 - Updater code: [`src/updater.rs`](src/updater.rs) — loads the embedded
   Sparkle.framework at runtime and starts `SPUUpdater` with Shidou's custom user
@@ -34,10 +42,110 @@ bun run release
   [`scripts/changelog.ts`](scripts/changelog.ts).
 - GitHub Actions: [`.github/workflows/release.yml`](.github/workflows/release.yml)
   builds Linux (x86_64, arm64), Windows (x86_64, arm64), and macOS archives on
-  a `v*` tag — or on a manual **Run workflow**, which takes the version from
-  `Cargo.toml` — and opens a draft GitHub release;
+  a `desktop/v*` tag — or on a manual **Run workflow**, which takes the
+  version from `Cargo.toml` — and opens a draft GitHub release;
   [`.github/workflows/sync-release.yml`](.github/workflows/sync-release.yml)
   copies published assets into the R2 bucket.
+- Channel tooling: [`scripts/ship.ts`](scripts/ship.ts) (the front door),
+  [`scripts/changes.ts`](scripts/changes.ts) (Change Notes),
+  [`scripts/channels.ts`](scripts/channels.ts) (Delivery Records),
+  [`scripts/pr-check.ts`](scripts/pr-check.ts) (the pull request gate).
+
+---
+
+## Shipping
+
+### Pull request labels
+
+Anything that can ship reaches `master` through a pull request labeled with
+the apps it affects: `app:desktop`, `app:ios`, `app:browser`, `app:website`,
+or `no-release` when nothing user-visible ships (docs, CI, tests, refactors;
+it may sit beside `app:*` labels). The
+[Pull request labels and notes](.github/workflows/pr-check.yml) workflow
+enforces this on every pull request:
+
+- A change under a path that belongs to one app must carry that app's label:
+  `src/`, `resources/`, `crates/shidou-client/`, `crates/shidou-daemon/` →
+  `app:desktop`; `apps/ios/` → `app:ios`; `apps/web/` → `app:browser`;
+  `website/` → `app:website`. Extra labels are always allowed.
+- Shared code (`crates/shidou-core/`, `crates/shidou-protocol/`,
+  `packages/shidou-client/`, `bun.lock`) only warns: the author knows which
+  Clients it reaches.
+- A change to `PROTOCOL_VERSION` needs `app:desktop`, `app:ios`,
+  `app:browser`, and `protocol:breaking`, and the three Clients then ship
+  together (Desktop first, with `--force-protocol`). Prefer a compatible
+  protocol change.
+
+Create the labels once with `./scripts/setup-labels.sh`.
+
+### Change Notes
+
+Every user-visible change adds one file under [`.changes/`](.changes/README.md)
+with wording for each labeled Client:
+
+```markdown
+---
+desktop: Choose Claude Fable 5.1 from the model picker
+ios: same-as desktop
+browser: Pick Claude Fable 5.1 in the model menu
+---
+```
+
+Keys are `desktop`, `ios`, and `browser` (`app:website` PRs need no note);
+`same-as <app>` reuses another app's wording; a body below the frontmatter is
+optional and never published. Write for the product users receive, not the
+development history: when a feature is still unreleased, edit its existing
+note instead of adding another. CI fails a PR whose `app:*` label has no
+matching wording, and a `no-release` PR that adds a note.
+
+Releases fold the pending notes into the channel's changelog
+(`CHANGELOG.md` for Desktop, `CHANGELOG-ios.md` for iOS) and add the channel
+to the note's `shipped:` list; the Browser deployment marks its notes from
+CI. A note is deleted once every Client it names has shipped it.
+`bun scripts/changes.ts check` validates the directory.
+
+### Delivery Records
+
+Each channel records the exact commit it last delivered, and `bun run ship
+status` compares `master` with it:
+
+| Channel | Record | Written when |
+| --- | --- | --- |
+| Desktop Release | `desktop/v<version>` tag | the GitHub release is published (created at the built commit) |
+| iOS Release | `ios/v<version>` tag | App Store Connect reports the build VALID and in internal testing |
+| Browser Deployment | GitHub deployment, environment `browser` | deploy-workers marks the deployment `success` |
+| Website Deployment | GitHub deployment, environment `website` | deploy-workers marks the deployment `success` |
+
+A draft release, a local build, or an upload still processing is not a
+record. Plain `v*` tags end at `v0.2.14`.
+
+### `bun run ship`
+
+With no channel, it shows every channel and ships the one with unshipped
+code or notes; with several it lists them and asks (in CI it fails and wants
+`bun run ship <channel>`); with none it exits. For Desktop and iOS, one run:
+
+1. refuses a dirty tree or a `master` that is not at `origin/master`, and
+   refuses a Client whose `PROTOCOL_VERSION` differs from the last Desktop
+   Release unless `--force-protocol`;
+2. prints the plan — channel, version, commit, pending notes — and stops
+   there with `--dry-run`;
+3. creates `release/<channel>-<version>`, bumps that app (patch by default;
+   `--minor`, `--major`, or `--version`), writes the changelog section from
+   the pending notes (refusing an empty one without `--allow-empty-notes`),
+   marks the notes shipped, opens the release pull request, waits for checks,
+   and squash-merges it;
+4. publishes: Desktop dispatches the Release workflow on `master`, publishes
+   the draft, and waits for the R2 sync; iOS runs the ShidouKit tests, uploads
+   with `--next-build-number --wait`, and pushes the `ios/v*` tag.
+
+An interrupted run resumes from step 4 when `master` already carries the
+release commit. `--force` rebuilds or redeploys shipped code; it never skips
+the tree, test, note, or protocol checks. Browser and website report status,
+and `--force` dispatches deploy-workers for that Worker.
+
+One explicit "ship Desktop" or "ship iOS" request authorizes the whole run;
+the plan is printed first and there is no second prompt.
 
 ---
 
@@ -120,11 +228,15 @@ sets the matching GitHub secrets for CI.
 
 ## Cutting a release
 
+`bun run ship desktop` does all of the below from a clean `master`. The steps
+are listed for understanding it and for doing a release by hand.
+
 1. **Bump the version:**
    ```sh
-   bun run bump patch   # or: minor, major, or an explicit 0.3.0
+   bun run bump --app desktop patch   # or: minor, major, or an explicit 0.3.0
    ```
-   `version` in `Cargo.toml` is the single source of truth.
+   `version` in `Cargo.toml` is the Desktop version (iOS has its own in
+   `apps/ios/project.yml`).
    `CFBundleShortVersionString` is the version, and `CFBundleVersion` is
    derived from it (`major*1e6 + minor*1e3 + patch`, so `0.2.0` → `2000`),
    which keeps Sparkle's build-number comparison monotonic without a manual
@@ -142,7 +254,10 @@ sets the matching GitHub secrets for CI.
    --locked`); `bun run release` refuses to build a version the report does not
    list.
 2. **Write the release notes** — add a `## [<version>]` section at the top of
-   [`CHANGELOG.md`](CHANGELOG.md).
+   [`CHANGELOG.md`](CHANGELOG.md) from the pending Change Notes
+   (`bun scripts/changes.ts pending desktop`), then mark them shipped
+   (`bun scripts/changes.ts ship desktop`). Commit through a pull request
+   labeled `no-release`.
 3. **Run it:**
    ```sh
    bun run release
@@ -167,11 +282,12 @@ Test by keeping an older build around, launching it, and choosing
 
 The Release workflow runs two ways:
 
-- **Push a `v*` tag** — the tag must match the `version` in `Cargo.toml`, or the
-  run fails before anything builds.
-- **Actions → Release → Run workflow** — no tag needed. The run releases
-  whatever `Cargo.toml` says and drafts it as `v<version>`; that tag is created
-  at the built commit when you publish the draft.
+- **Actions → Release → Run workflow** (what `bun run ship desktop` does) —
+  no tag needed. The run releases whatever `Cargo.toml` says and drafts it as
+  `desktop/v<version>`; that tag is created at the built commit when the
+  draft is published, and it is the Desktop Delivery Record.
+- **Push a `desktop/v*` tag** — the tag must match the `version` in
+  `Cargo.toml`, or the run fails before anything builds.
 
 macOS CI runs `bun run release --local`, which signs, notarizes, and writes the
 same artifacts as a local release:

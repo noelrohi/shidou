@@ -1,5 +1,10 @@
 name: Deploy Workers
 
+# Browser Deployment and Website Deployment: the two Cloudflare Workers
+# deploy automatically when master changes under their paths. Each
+# successful deploy is recorded as a GitHub deployment (environment
+# `browser` or `website`), which is that channel's Delivery Record — what
+# `bun run ship status` compares master against. See RELEASING.md.
 on:
   push:
     branches: [master]
@@ -9,6 +14,16 @@ on:
       - "packages/**"
       - "bun.lock"
   workflow_dispatch:
+    inputs:
+      worker:
+        description: Which Worker to deploy
+        type: choice
+        options: [both, web, website]
+        default: both
+      force_protocol:
+        description: Deploy the Browser Client even if PROTOCOL_VERSION differs from the last Desktop Release
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,6 +39,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
+      any: ${{ steps.select.outputs.any }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -34,10 +50,15 @@ jobs:
         id: select
         env:
           BEFORE: ${{ github.event.before }}
+          WORKER: ${{ inputs.worker }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            web=true
-            website=true
+            web=false; website=false
+            case "$WORKER" in
+              both) web=true; website=true ;;
+              web) web=true ;;
+              website) website=true ;;
+            esac
           else
             web=false
             website=false
@@ -45,34 +66,44 @@ jobs:
               case "$file" in
                 apps/web/*) web=true ;;
                 website/*) website=true ;;
-                packages/*|bun.lock)
-                  web=true
-                  website=true
-                  ;;
+                # The browser client is the only Worker built from the
+                # workspace packages; the website has no dependency on them.
+                packages/*) web=true ;;
+                # Either Worker's dependencies may have moved.
+                bun.lock) web=true; website=true ;;
               esac
             done < <(git diff --name-only "$BEFORE" "$GITHUB_SHA")
           fi
 
-          if [ "$web" = true ] && [ "$website" = true ]; then
-            matrix='{"include":[{"workspace":"website","directory":"website"},{"workspace":"@shidou/web","directory":"apps/web"}]}'
-          elif [ "$web" = true ]; then
-            matrix='{"include":[{"workspace":"@shidou/web","directory":"apps/web"}]}'
-          else
-            matrix='{"include":[{"workspace":"website","directory":"website"}]}'
+          entries=()
+          [ "$website" = true ] && entries+=('{"workspace":"website","directory":"website","environment":"website"}')
+          [ "$web" = true ] && entries+=('{"workspace":"@shidou/web","directory":"apps/web","environment":"browser"}')
+          if [ "${#entries[@]}" -eq 0 ]; then
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          joined=$(IFS=,; echo "${entries[*]}")
+          echo "any=true" >> "$GITHUB_OUTPUT"
+          echo "matrix={\"include\":[$joined]}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy ${{ matrix.workspace }}
     needs: changes
+    if: needs.changes.outputs.any == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: write
+      deployments: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -80,9 +111,102 @@ jobs:
       - name: Install JavaScript dependencies
         run: bun install --frozen-lockfile
 
+      # A Browser Client whose wire protocol differs from the Daemon inside the
+      # last Desktop Release cannot connect to it, so it does not deploy until
+      # Desktop has shipped the new protocol (or the operator forces it).
+      - name: Check the wire protocol against the last Desktop Release
+        if: matrix.environment == 'browser'
+        env:
+          FORCE: ${{ inputs.force_protocol }}
+        run: |
+          git fetch --quiet --tags origin
+          tag=$(git tag --list 'desktop/v*' | sort -V | tail -1)
+          if [ -z "$tag" ]; then
+            echo "No desktop/v* tag yet; skipping the protocol check."
+            exit 0
+          fi
+          file=crates/shidou-protocol/src/protocol.rs
+          shipped=$(git show "$tag:$file" | sed -n 's/.*pub const PROTOCOL_VERSION: u32 = \([0-9]*\);.*/\1/p')
+          current=$(sed -n 's/.*pub const PROTOCOL_VERSION: u32 = \([0-9]*\);.*/\1/p' "$file")
+          if [ "$shipped" != "$current" ]; then
+            if [ "$FORCE" = "true" ]; then
+              echo "::warning::PROTOCOL_VERSION is $current but $tag shipped $shipped; deploying anyway (force_protocol)."
+            else
+              echo "::error::PROTOCOL_VERSION is $current but the last Desktop Release ($tag) shipped $shipped. Ship Desktop first, or re-run with force_protocol."
+              exit 1
+            fi
+          fi
+
+      - name: Collect the pending Browser notes
+        id: notes
+        if: matrix.environment == 'browser'
+        run: |
+          {
+            echo 'notes<<EOF'
+            bun scripts/changes.ts pending browser
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open the deployment record
+        id: deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          # GitHub caps descriptions at 140 characters; the full notes go to
+          # the job summary below.
+          description=$(printf '%s' "$NOTES" | tr '\n' ' ' | cut -c1-140)
+          id=$(gh api "repos/$GITHUB_REPOSITORY/deployments" \
+            -f ref="$GITHUB_SHA" -f environment="$ENVIRONMENT" \
+            -f description="${description:-Deploy $ENVIRONMENT}" \
+            -F auto_merge=false -f 'required_contexts[]' \
+            --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=in_progress -f log_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+          if [ -n "$NOTES" ]; then
+            {
+              echo "## Browser notes shipping in this deployment"
+              echo
+              printf '%s\n' "$NOTES"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Build and deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: ${{ matrix.directory }}
         run: bun run deploy
+
+      - name: Record the delivery
+        if: always() && steps.deployment.outputs.id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            -f state="$STATE" -f log_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+
+      # The notes this deployment shipped are now owed only to the other
+      # Clients. The commit uses GITHUB_TOKEN, so it triggers no workflows.
+      - name: Mark the Browser notes shipped
+        if: success() && matrix.environment == 'browser' && github.ref == 'refs/heads/master'
+        run: |
+          bun scripts/changes.ts ship browser
+          if git diff --quiet -- .changes; then
+            echo "No notes to mark."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .changes
+          git commit -m "chore(changes): mark notes shipped for browser"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:master; then exit 0; fi
+            git pull --rebase origin master
+          done
+          echo "::error::Could not push the shipped-note update to master."
+          exit 1

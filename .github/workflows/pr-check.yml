@@ -1,0 +1,36 @@
+name: Pull request labels and notes
+
+# Every pull request names the apps it affects (app:desktop, app:ios,
+# app:browser, app:website, or no-release) and carries a Change Note under
+# .changes/ for each labeled Client. scripts/pr-check.ts holds the rules.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Labels agree with the diff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Check labels, changed files, and Change Notes
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bun scripts/pr-check.ts

@@ -1,20 +1,39 @@
 # Releasing Shidou for iOS
 
-How a build gets from `master` to a phone through TestFlight. The desktop
-release process lives in [RELEASING.md](RELEASING.md); this is the iOS
-counterpart. Cargo.toml's version is the source of truth for both.
+How a build gets from `master` to a phone through TestFlight. The iOS
+Release is its own Delivery Channel
+([ADR 0004](adr/0004-independent-delivery-channels.md)): its version is
+`MARKETING_VERSION` in [`apps/ios/project.yml`](../apps/ios/project.yml), its
+notes live in [`CHANGELOG-ios.md`](../CHANGELOG-ios.md), and its Delivery
+Record is an `ios/v<version>` tag. The desktop process lives in
+[RELEASING.md](../RELEASING.md), which also explains the pull request labels
+and Change Notes every change needs first.
 
 ## The one command
+
+```sh
+bun run ship ios
+```
+
+From a clean `master` it bumps the iOS version (`--minor`, `--major`, or
+`--version` instead of the patch), writes the `CHANGELOG-ios.md` section from
+the pending Change Notes, opens and merges the release pull request once
+checks pass, runs the ShidouKit tests, uploads with `--next-build-number
+--wait`, and pushes the `ios/v<version>` tag when App Store Connect reports
+the build in internal testing. `--dry-run` prints the plan and stops.
+
+Underneath it is the channel command:
 
 ```sh
 bun run ios-release                 # archive + verify
 bun run ios-release --export        # + signed IPA
 bun run ios-release --upload        # + App Store Connect upload
+bun run ios-release --upload --wait # + block until testers can install it
 ```
 
 `scripts/ios-release.ts` regenerates the Xcode project (xcodegen), archives
 the Shidou scheme against **Release** for a generic iOS device, stamps
-`MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` from Cargo.toml, then
+`MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` from `project.yml`, then
 verifies the archive before anything leaves the machine:
 
 - the marketing version and build number actually took,
@@ -30,19 +49,20 @@ the upload, so the script checks first.
 ### Build numbers
 
 ASC refuses a build number it has already seen for the same marketing
-version. The default derives from the Cargo version — `major*1_000_000 +
+version. The default derives from the iOS version — `major*1_000_000 +
 minor*1_000 + patch`, the same scheme as the desktop's `CFBundleVersion`
-([`scripts/version.ts`](scripts/version.ts)) — which is right for the **first
-upload of a version**. Re-uploading the same marketing version needs an
-explicit, increasing override:
+([`scripts/version.ts`](../scripts/version.ts)) — which is right for the
+**first upload of a version**. A retry keeps the marketing version and only
+raises the build number; ask ASC for the next free one, or pass it yourself:
 
 ```sh
-bun run ios-release --upload --build-number 2010
+bun run ios-release --upload --next-build-number   # what bun run ship ios does
+bun run ios-release --upload --build-number 2015
 ```
 
-(`bun run bump` also writes the derived pair into
-[`apps/ios/project.yml`](apps/ios/project.yml), so a manual Xcode archive
-carries correct values without the script.)
+`bun run bump --app ios` writes the derived pair into `project.yml`, so a
+manual Xcode archive carries correct values without the script. A new iOS
+Release always changes the marketing version; only retries reuse one.
 
 ### Credentials
 
