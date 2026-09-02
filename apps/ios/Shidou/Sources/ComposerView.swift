@@ -575,7 +575,7 @@ struct ComposerView: View {
                 projects: store.projects,
                 onChoose: choose(project:),
                 onBrowse: { self.sheet = .browseProject },
-                onProjectless: createProjectlessTask
+                onProjectless: { try await store.createProjectlessProject() }
             )
         case .workspace:
             WorkspaceKindSheet(session: session, projectless: project?.isProjectless ?? false) {
@@ -904,13 +904,6 @@ struct ComposerView: View {
         store.moveDraft(from: source, to: .newSession(projectId: project.id))
         loadedDraftKey = nil
         loadDraft()
-    }
-
-    private func createProjectlessTask() {
-        run {
-            let project = try await store.createProjectlessProject()
-            choose(project: project)
-        }
     }
 
     private func switchBranch(_ branch: String, cwd: String, create: Bool) {
