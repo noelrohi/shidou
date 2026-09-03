@@ -9,6 +9,10 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2031]
+
+- Remove queued follow-ups after steering them into the running turn
+
 ## [0.2.13-build.2029]
 
 - Nest Child Tasks beneath their parent in the task list
