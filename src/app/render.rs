@@ -267,8 +267,8 @@ impl Render for Shidou {
                 .into_any_element();
             return self.render_window_frame(content, window, cx);
         }
-        // Re-armed every frame this window shows time labels; parks while
-        // settings covers them and while the window isn't drawing at all.
+        // Keeps live elapsed and idle recency labels current, parking between
+        // their next visible boundaries.
         self.schedule_time_label_wake(cx);
 
         let theme = Theme::current(cx);

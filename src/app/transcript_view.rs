@@ -2118,6 +2118,16 @@ impl Shidou {
                         })
                         .children(background_badge)
                         .children(open_file_button)
+                        .when(activity.failed, |element| {
+                            element.child(icon("icons/x.svg", 10.0, theme.danger))
+                        })
+                        .when(!activity.complete && !activity.failed, |element| {
+                            element.child(motion::spin_slow(icon(
+                                "icons/loader-circle.svg",
+                                11.0,
+                                theme.text_secondary,
+                            )))
+                        })
                         .when(has_detail, |element| {
                             element.child(icon(
                                 if item_expanded {
@@ -2128,17 +2138,6 @@ impl Shidou {
                                 10.0,
                                 theme.text_tertiary,
                             ))
-                        })
-                        .when(!has_detail && reasoning.is_none(), |element| {
-                            element
-                                .when(activity.failed, |element| {
-                                    element.child(
-                                        icon("icons/x.svg", 10.0, theme.danger).into_any_element(),
-                                    )
-                                })
-                                .when(!activity.complete && !activity.failed, |element| {
-                                    element.child(pulse_dot(5.0, theme.accent))
-                                })
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if has_detail {

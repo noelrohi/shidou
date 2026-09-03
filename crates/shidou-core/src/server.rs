@@ -66,8 +66,8 @@ impl Drop for ConnectionPermit {
 /// told the snapshot is stale.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RuntimeEventOutcome {
-    /// The daemon changed the Task catalog while reducing — it cleared an
-    /// archive mark because the Task became active again.
+    /// Reducing changed a field visible in Task catalog snapshots, such as
+    /// status, recency, title, or the archive mark.
     pub task_catalog_changed: bool,
 }
 
@@ -205,7 +205,7 @@ impl From<&Project> for ProjectCatalogEntry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct SessionCatalogEntry {
+pub(crate) struct SessionCatalogEntry {
     title: String,
     auto_title: Option<String>,
     project_id: Uuid,

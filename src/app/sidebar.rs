@@ -220,26 +220,6 @@ const SIDEBAR_GROUP_CHILD_PADDING: f32 = 28.0;
 const SIDEBAR_PROJECT_RECENT_WINDOW_SECONDS: u64 = 3 * 24 * 60 * 60;
 const SIDEBAR_PROJECT_REVEAL_BATCH: usize = 30;
 
-/// The session row's trailing time: how long the live turn has been working,
-/// or how long ago the agent last replied. A session that has never replied
-/// shows nothing.
-pub(super) fn session_time_label(session: &AgentSession, now: u64) -> Option<String> {
-    if session.is_busy()
-        && let Some(turn) = session
-            .turns
-            .last()
-            .filter(|turn| turn.status == TurnStatus::Running)
-    {
-        return Some(tr!(
-            "sidebar.working",
-            elapsed = format_working_elapsed(now.saturating_sub(turn.started_at))
-        ));
-    }
-    session
-        .last_reply_at
-        .map(|last_reply_at| format_time_ago(now.saturating_sub(last_reply_at)))
-}
-
 /// Recency for sidebar ordering and date groups. A submitted turn promotes the
 /// task immediately, while metadata edits such as a rename do not; a task with
 /// no turns stays anchored to when it was created.
@@ -2034,10 +2014,6 @@ impl Shidou {
             session_id,
         );
         let marked = self.sidebar_session_marked(session_id);
-        let working = matches!(
-            session.status,
-            SessionStatus::Connecting | SessionStatus::Working
-        );
         let grouped_by_project = self.state.sidebar_grouping == SidebarGrouping::Project;
         let left_padding = if grouped_by_project {
             SIDEBAR_GROUP_CHILD_PADDING
@@ -2094,48 +2070,45 @@ impl Shidou {
                 14.0,
                 theme.text_tertiary,
             ));
-        let status_dot = (session.status != SessionStatus::Idle).then(|| {
-            let label = match session.status {
-                SessionStatus::Connecting | SessionStatus::Working => {
-                    tr!("sidebar.status_working")
-                }
-                SessionStatus::Waiting => tr!("sidebar.status_waiting"),
-                SessionStatus::Failed => tr!("sidebar.status_failed"),
-                SessionStatus::Idle => unreachable!(),
-            };
-            let dot = if working {
-                pulse_dot(7.0, status_color(&theme, session.status))
-            } else {
-                div()
-                    .size(px(7.0))
-                    .flex_none()
-                    .rounded_full()
-                    .bg(status_color(&theme, session.status))
-                    .into_any_element()
-            };
+        let trailing = match session.status {
+            SessionStatus::Connecting | SessionStatus::Working => Some((
+                motion::spin_slow(icon("icons/loader-circle.svg", 12.0, theme.text_secondary)),
+                tr!("sidebar.status_working"),
+            )),
+            SessionStatus::Waiting => Some((
+                icon("icons/circle-help.svg", 12.0, theme.warning).into_any_element(),
+                tr!("sidebar.status_waiting"),
+            )),
+            SessionStatus::Failed => Some((
+                icon("icons/x.svg", 12.0, theme.danger).into_any_element(),
+                tr!("sidebar.status_failed"),
+            )),
+            SessionStatus::Idle => None,
+        }
+        .map(|(indicator, label)| {
             div()
                 .id(SharedString::from(format!("session-status-{session_id}")))
+                .w(px(14.0))
                 .flex_none()
-                .child(dot)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(indicator)
                 .tooltip(Tooltip::text(label))
                 .into_any_element()
-        });
-        let trailing = if working {
-            Some(motion::spin_slow(icon(
-                "icons/loader-circle.svg",
-                12.0,
-                theme.text_secondary,
-            )))
-        } else {
-            session_time_label(session, unix_time()).map(|label| {
+        })
+        .or_else(|| {
+            session.last_reply_at.map(|last_reply_at| {
                 div()
                     .flex_none()
                     .text_size(sp(12.0))
                     .text_color(theme.text_ghost)
-                    .child(SharedString::from(label))
+                    .child(SharedString::from(format_time_ago(
+                        unix_time().saturating_sub(last_reply_at),
+                    )))
                     .into_any_element()
             })
-        };
+        });
         let content = div()
             .flex()
             .items_center()
@@ -2143,7 +2116,6 @@ impl Shidou {
             .overflow_hidden()
             .line_height(sp(18.0))
             .child(provider_mark)
-            .when_some(status_dot, |element, dot| element.child(dot))
             .child(title)
             .when_some(trailing, |element, trailing| element.child(trailing))
             .into_any_element();

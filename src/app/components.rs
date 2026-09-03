@@ -3,22 +3,6 @@ use super::*;
 use chrono::{Datelike, Days};
 use std::path::Path;
 
-pub(super) fn pulse_dot(size: f32, color: Hsla) -> AnyElement {
-    motion::pulse(Duration::from_millis(1600), move |phase| {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .flex_none()
-            .rounded_full()
-            .bg(color)
-            .opacity(pulsating_between(0.3, 1.0)(phase))
-            .into_any_element()
-    })
-    // Mounted for whole activities; its pane must not tick at full rate.
-    .every(2)
-    .into_any_element()
-}
-
 /// Three dots chasing a brightness wave, the transcript's "still working"
 /// signal. Each dot rides the shared pulse clock with a phase offset, so the
 /// bright spot travels left to right. Under reduce-motion the clock holds the

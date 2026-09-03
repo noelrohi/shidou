@@ -1783,12 +1783,10 @@ pub use terminal_close_dialog::init as init_terminal_close_dialog_keys;
 use transcript::*;
 use transcript_view::ConversationNavigationRail;
 
-/// Seconds until any session's time label next changes value, or `None` when
-/// no label is on the clock at all. A running turn's elapsed counter moves
-/// every second; a settled reply's "5m"/"3h"/"2d" moves only at its unit
-/// boundary, so the wake-up this feeds gets rarer as the history ages.
+/// Seconds until a visible time-derived label changes. Live transcript elapsed
+/// text advances every second; idle Task recency advances at its unit boundary.
 pub(super) fn next_time_label_change(sessions: &[AgentSession], now: u64) -> Option<u64> {
-    let mut next: Option<u64> = None;
+    let mut next = None;
     for session in sessions {
         if session.is_busy()
             && session
@@ -1798,7 +1796,9 @@ pub(super) fn next_time_label_change(sessions: &[AgentSession], now: u64) -> Opt
         {
             return Some(1);
         }
-        if let Some(last_reply_at) = session.last_reply_at {
+        if session.status == SessionStatus::Idle
+            && let Some(last_reply_at) = session.last_reply_at
+        {
             let elapsed = now.saturating_sub(last_reply_at);
             let step = match elapsed {
                 0..=3_599 => 60,
@@ -1806,7 +1806,7 @@ pub(super) fn next_time_label_change(sessions: &[AgentSession], now: u64) -> Opt
                 _ => 86_400,
             };
             let remaining = (step - elapsed % step).max(1);
-            next = Some(next.map_or(remaining, |next| next.min(remaining)));
+            next = Some(next.map_or(remaining, |current: u64| current.min(remaining)));
         }
     }
     next
@@ -1947,21 +1947,8 @@ impl Shidou {
         });
     }
 
-    /// Arm one wake-up for the moment a time-derived label next changes —
-    /// the sidebar's relative reply times and every "Working for Ns" elapsed.
-    ///
-    /// There is deliberately no standing timer. Render calls this each frame;
-    /// while the scheduled instant is unchanged it is a `Cell` comparison and
-    /// nothing spawns. The timer fires exactly when a visible label rolls to
-    /// its next value, notifies once, and the frame that draws the new value
-    /// arms the next boundary. An idle window with hour-old sessions wakes
-    /// once an hour; with nothing to show it wakes never. (T3 Code's
-    /// equivalent is one minute-aligned interval gated on subscribers; label
-    /// boundaries make even that unnecessary.) A busy session pins the chain
-    /// to one-second steps — that is what keeps its elapsed counters moving
-    /// under reduce-motion, where the pulse animations that normally drive
-    /// frames are suppressed, and while a background turn sits between
-    /// stream events.
+    /// Arm one wake-up for live transcript elapsed text and idle Task recency.
+    /// There is no standing interval: the next visible boundary owns one timer.
     fn schedule_time_label_wake(&self, cx: &mut Context<Self>) {
         let now = unix_time();
         let target = next_time_label_change(&self.state.sessions, now).map(|seconds| now + seconds);

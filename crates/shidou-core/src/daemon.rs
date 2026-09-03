@@ -23,6 +23,7 @@ use crate::model::{
     Project, ProviderKind, ProviderResumeCursor, RuntimeEventCursor, RuntimeMode, SessionStatus,
 };
 use crate::persistence::{ComposerDraftStore, PersistedState, StateStore};
+use crate::server::SessionCatalogEntry;
 use crate::settings::DaemonSettingsStore;
 use shidou_protocol::RpcError;
 use shidou_protocol::provider_session::{ProviderSessionFork, ProviderSessionForkRequest};
@@ -948,6 +949,7 @@ impl Backend for ShidouBackend {
         let accepted_turn = matches!(&driver_event, DriverEvent::TurnAccepted { .. });
         let process_exited = matches!(&driver_event, DriverEvent::ProcessExited);
         let becomes_active = returns_an_archived_task(&driver_event);
+        let catalog_before = SessionCatalogEntry::from(&state.sessions[index]);
         let was_failed = state.sessions[index].status == SessionStatus::Failed;
         let reduction = self
             .reducers
@@ -978,7 +980,12 @@ impl Backend for ShidouBackend {
         if returned {
             state.sessions[index].archived_at = None;
         }
-        if accepted_turn || provider_cursor_changed || reduction.finished_turn.is_some() || returned
+        let catalog_after = SessionCatalogEntry::from(&state.sessions[index]);
+        let task_catalog_changed = returned || catalog_before != catalog_after;
+        if accepted_turn
+            || provider_cursor_changed
+            || reduction.finished_turn.is_some()
+            || task_catalog_changed
         {
             state.mark_session_dirty(event.session_id);
             self.task_store.save(&mut state)?;
@@ -989,7 +996,7 @@ impl Backend for ShidouBackend {
                 .remove(&(event.session_id, event.runtime_id));
         }
         Ok(RuntimeEventOutcome {
-            task_catalog_changed: returned,
+            task_catalog_changed,
         })
     }
 
@@ -2737,6 +2744,80 @@ mod tests {
             sequence,
             event: event_to_wire(event).unwrap(),
         }
+    }
+
+    #[test]
+    fn runtime_status_changes_invalidate_the_task_catalog() {
+        let (root, backend) = test_backend("runtime-catalog-status");
+        let session = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let session_id = session.id;
+        {
+            let mut state = backend.task_state.lock();
+            state.push_session(session);
+            backend.task_store.save(&mut state).unwrap();
+        }
+        let runtime_id = Uuid::new_v4();
+        let epoch = Uuid::new_v4();
+
+        let mut canonical = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        canonical.begin_turn("start");
+        let turn = canonical.turns.pop().unwrap();
+        let messages = std::mem::take(&mut canonical.messages);
+        let accepted = backend
+            .handle_runtime_event(&sequenced_event(
+                session_id,
+                runtime_id,
+                epoch,
+                1,
+                DriverEvent::TurnAccepted {
+                    submission_id: Uuid::new_v4(),
+                    turn,
+                    messages,
+                },
+            ))
+            .unwrap();
+        assert!(accepted.task_catalog_changed);
+
+        let first_chunk = backend
+            .handle_runtime_event(&sequenced_event(
+                session_id,
+                runtime_id,
+                epoch,
+                2,
+                DriverEvent::TextDelta("streaming".into()),
+            ))
+            .unwrap();
+        assert!(first_chunk.task_catalog_changed);
+
+        let next_chunk = backend
+            .handle_runtime_event(&sequenced_event(
+                session_id,
+                runtime_id,
+                epoch,
+                3,
+                DriverEvent::TextDelta(" more".into()),
+            ))
+            .unwrap();
+        assert!(!next_chunk.task_catalog_changed);
+
+        let waiting = backend
+            .handle_runtime_event(&sequenced_event(
+                session_id,
+                runtime_id,
+                epoch,
+                4,
+                DriverEvent::Permission {
+                    request_id: "permission".into(),
+                    title: "Run command?".into(),
+                    detail: String::new(),
+                    options: vec![],
+                },
+            ))
+            .unwrap();
+        assert!(waiting.task_catalog_changed);
+
+        drop(backend);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

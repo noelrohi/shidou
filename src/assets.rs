@@ -29,6 +29,7 @@ const ICONS: &[(&str, &[u8])] = icons![
     "chart-column",
     "check",
     "changes",
+    "circle-help",
     "cloud-upload",
     "chevron-down",
     "chevron-right",
