@@ -6848,7 +6848,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shidou"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
