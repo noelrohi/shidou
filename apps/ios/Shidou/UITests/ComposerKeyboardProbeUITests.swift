@@ -7,6 +7,7 @@ final class ComposerKeyboardProbeUITests: XCTestCase {
     func testTranscriptStaysVisibleWhenComposerFocused() {
         let app = XCUIApplication()
         app.launch()
+        defer { stopTurnIfNeeded(in: app) }
 
         let tryTheDemo = app.buttons["Try the demo"]
         if tryTheDemo.waitForExistence(timeout: 10) {
@@ -52,6 +53,18 @@ final class ComposerKeyboardProbeUITests: XCTestCase {
         assertVisible(
             sentPrompt, above: app.keyboards.firstMatch, "focused after a send",
             fully: false
+        )
+    }
+
+    /// The demo daemon is shared by the UI suite. Do not leave its one
+    /// scripted Task mid-turn for the next test that needs to send.
+    private func stopTurnIfNeeded(in app: XCUIApplication) {
+        let stop = app.buttons["Stop"]
+        guard stop.exists else { return }
+        stop.tap()
+        XCTAssertTrue(
+            stop.waitForNonExistence(timeout: 5),
+            "stopping should return the shared demo Task to idle"
         )
     }
 

@@ -56,24 +56,17 @@ final class SurfacesNavigationUITests: XCTestCase {
         XCTAssertTrue(row.isHittable, "the drawer should settle with the rows hittable")
     }
 
-    /// The list row is one accessibility button whose label folds in the
-    /// project and the timestamp, so it is matched by prefix rather than by
-    /// the title alone.
-    private func openTask(_ title: String = "Rate limiting in the public API") {
-        taskRow(title).tap()
+    /// The demo row has a stable accessibility identifier across device class,
+    /// localization, and the brief interval before the catalog arrives.
+    private func openTask() {
+        taskRow().tap()
     }
 
-    /// On iPhone a row is a `NavigationLink` and reads as a button; on iPad the
-    /// same row is a selectable `List` cell and reads as a cell. Both fold the
-    /// project and the timestamp into one label, so both are matched by prefix.
-    private func taskRow(
-        _ title: String = "Rate limiting in the public API",
-        in application: XCUIApplication? = nil
-    ) -> XCUIElement {
+    private func taskRow(in application: XCUIApplication? = nil) -> XCUIElement {
         let target: XCUIApplication = application ?? app
-        let predicate = NSPredicate(format: "label BEGINSWITH %@", title)
-        let button = target.buttons.matching(predicate).firstMatch
-        return button.exists ? button : target.cells.containing(predicate).firstMatch
+        return target.descendants(matching: .any)[
+            "session-5eed0000-0000-0000-0000-000000020001"
+        ]
     }
 
     /// A section row folds its trailing stat into one accessibility label

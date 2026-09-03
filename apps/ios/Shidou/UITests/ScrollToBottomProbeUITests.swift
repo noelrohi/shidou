@@ -6,6 +6,7 @@ final class ScrollToBottomProbeUITests: XCTestCase {
     func testButtonAppearsAwayFromTailAndReturnsToBottom() {
         let app = XCUIApplication()
         app.launch()
+        defer { stopTurnIfNeeded(in: app) }
         dismissSystemAlerts()
 
         let tryTheDemo = app.buttons["Try the demo"]
@@ -47,6 +48,18 @@ final class ScrollToBottomProbeUITests: XCTestCase {
         XCTAssertTrue(
             jump.waitForNonExistence(timeout: 3),
             "the jump button should hide after returning to the tail"
+        )
+    }
+
+    /// Leave the shared demo Task ready for the navigation tests that run
+    /// after this probe in the release suite.
+    private func stopTurnIfNeeded(in app: XCUIApplication) {
+        let stop = app.buttons["Stop"]
+        guard stop.exists else { return }
+        stop.tap()
+        XCTAssertTrue(
+            stop.waitForNonExistence(timeout: 5),
+            "stopping should return the shared demo Task to idle"
         )
     }
 
