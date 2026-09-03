@@ -37,6 +37,7 @@ pub struct ShidouBackend {
     reducers: Mutex<HashMap<(Uuid, Uuid), Reducer>>,
     removed_session_ids: Mutex<HashSet<Uuid>>,
     removed_project_ids: Mutex<HashSet<Uuid>>,
+    removed_queued_message_ids: Mutex<HashSet<(Uuid, Uuid)>>,
     #[cfg(test)]
     active_runtime_overrides: Mutex<HashMap<Uuid, Uuid>>,
     composer_drafts: ComposerDraftStore,
@@ -81,6 +82,7 @@ impl ShidouBackend {
             reducers: Mutex::new(HashMap::new()),
             removed_session_ids: Mutex::new(HashSet::new()),
             removed_project_ids: Mutex::new(HashSet::new()),
+            removed_queued_message_ids: Mutex::new(HashSet::new()),
             #[cfg(test)]
             active_runtime_overrides: Mutex::new(HashMap::new()),
             composer_drafts,
@@ -399,6 +401,7 @@ impl Backend for ShidouBackend {
                 let removed_project_ids = self.removed_project_ids.lock();
                 merge_saved_projects(&mut state.projects, projects, &removed_project_ids);
                 drop(removed_project_ids);
+                let removed_queued_message_ids = self.removed_queued_message_ids.lock();
                 let sessions = sessions
                     .into_iter()
                     .filter(|session| !removed_session_ids.contains(&session.id))
@@ -408,9 +411,13 @@ impl Backend for ShidouBackend {
                         // carries is discarded here so a stale one can neither
                         // set nor clear a mark (ADR 0002).
                         session.archived_at = None;
+                        session.queued_messages.retain(|message| {
+                            !removed_queued_message_ids.contains(&(session.id, message.id))
+                        });
                         session
                     })
                     .collect::<Vec<_>>();
+                drop(removed_queued_message_ids);
                 drop(removed_session_ids);
                 let saved_ids = sessions
                     .iter()
@@ -544,6 +551,26 @@ impl Backend for ShidouBackend {
                 }
                 Ok(ResponsePayload::TaskSummaries { summaries })
             }
+            Command::RemoveQueuedMessage { message_id } => {
+                let mut state = self.task_state.lock();
+                let Some(session) = state
+                    .sessions
+                    .iter_mut()
+                    .find(|session| session.id == session_id)
+                else {
+                    bail!("that task is no longer available");
+                };
+                self.task_store.hydrate(session)?;
+                self.removed_queued_message_ids
+                    .lock()
+                    .insert((session_id, message_id));
+                session
+                    .queued_messages
+                    .retain(|message| message.id != message_id);
+                state.mark_session_dirty(session_id);
+                self.task_store.save(&mut state)?;
+                Ok(ResponsePayload::Ack)
+            }
             Command::ArchiveSession { archived } => {
                 let mut state = self.task_state.lock();
                 let Some(session) = state
@@ -579,6 +606,9 @@ impl Backend for ShidouBackend {
                 {
                     let mut state = self.task_state.lock();
                     self.removed_session_ids.lock().insert(session_id);
+                    self.removed_queued_message_ids
+                        .lock()
+                        .retain(|(candidate, _)| *candidate != session_id);
                     let project_id = state
                         .sessions
                         .iter()
@@ -2308,6 +2338,7 @@ fn handle_driver_command(
         | Command::LoadTaskState
         | Command::SaveTaskState { .. }
         | Command::RemoveSession
+        | Command::RemoveQueuedMessage { .. }
         | Command::ArchiveSession { .. }
         | Command::CreateChildTask { .. }
         | Command::ListProviderModels { .. }
