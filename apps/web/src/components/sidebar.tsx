@@ -576,7 +576,9 @@ function SessionRow({
   // Task back is always allowed, because it can only return it to view.
   const working = item.session.status === 'working' || item.session.status === 'connecting'
   const busy = working || item.session.status === 'waiting'
-  const timeLabel = working ? null : sessionTimeLabel(item.session, nowSeconds, t)
+  const timeLabel = item.session.status === 'idle'
+    ? sessionTimeLabel(item.session, nowSeconds, t)
+    : null
 
   async function commitRename() {
     if (skipRenameCommit.current) {
@@ -624,7 +626,6 @@ function SessionRow({
               label={providerMeta(item.session.provider).name}
               provider={item.session.provider}
             />
-            <SessionStatusDot status={item.session.status} t={t} />
             <Input
               autoFocus
               className="h-[22px] min-w-0 flex-1 rounded border-ring bg-[var(--inset)] px-1 text-[13.5px]"
@@ -645,9 +646,7 @@ function SessionRow({
                 }
               }}
             />
-            {working && (
-              <ShidouIcon className="size-3 text-[var(--text-secondary)] motion-safe:animate-spin" name="loaderCircle" />
-            )}
+            <SessionStatusIndicator status={item.session.status} t={t} />
           </div>
         ) : (
           <button
@@ -670,17 +669,11 @@ function SessionRow({
               label={providerMeta(item.session.provider).name}
               provider={item.session.provider}
             />
-            <SessionStatusDot status={item.session.status} t={t} />
             <span className="min-w-0 flex-1 truncate text-[13.5px] text-foreground">
               {currentTitle}
             </span>
-            {working ? (
-              <ShidouIcon
-                className="size-3 text-[var(--text-secondary)] motion-safe:animate-spin"
-                label={t('sidebar.status_working')}
-                name="loaderCircle"
-              />
-            ) : timeLabel ? (
+            <SessionStatusIndicator status={item.session.status} t={t} />
+            {timeLabel ? (
               <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-ghost)]">
                 {timeLabel}
               </span>
@@ -737,25 +730,23 @@ function SessionRow({
   )
 }
 
-function SessionStatusDot({ status, t }: { status: AgentSession['status']; t: Translator }) {
+function SessionStatusIndicator({ status, t }: { status: AgentSession['status']; t: Translator }) {
   if (status === 'idle') return null
   const working = status === 'working' || status === 'connecting'
-  const label = working
-    ? t('sidebar.status_working')
-    : status === 'waiting'
-      ? t('sidebar.status_waiting')
-      : t('sidebar.status_failed')
   return (
-    <span
-      aria-label={label}
+    <ShidouIcon
       className={cn(
-        'size-[7px] shrink-0 rounded-full',
-        working && 'bg-ring motion-safe:animate-pulse',
-        status === 'waiting' && 'bg-[var(--warning)]',
-        status === 'failed' && 'bg-destructive',
+        'size-3 shrink-0',
+        working && 'text-[var(--text-secondary)] motion-safe:animate-spin',
+        status === 'waiting' && 'text-[var(--warning)]',
+        status === 'failed' && 'text-destructive',
       )}
-      role="img"
-      title={label}
+      label={working
+        ? t('sidebar.status_working')
+        : status === 'waiting'
+          ? t('sidebar.status_waiting')
+          : t('sidebar.status_failed')}
+      name={working ? 'loaderCircle' : status === 'waiting' ? 'circleHelp' : 'x'}
     />
   )
 }

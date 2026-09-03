@@ -1903,11 +1903,16 @@ function ActivityState({
   hasDetail: boolean
   t: Translator
 }) {
-  if (hasDetail) return <ShidouIcon className="size-2.5 text-[var(--text-tertiary)]" name={expanded ? 'chevronDown' : 'chevronRight'} />
-  if (activity.reasoning) return null
-  if (activity.failed) return <ShidouIcon label={t('background.status.failed')} className="size-3 text-destructive" name="alert" />
-  if (activity.complete) return null
-  return <span aria-label={t('background.status.running')} className="size-1.5 rounded-full bg-ring motion-safe:animate-pulse" role="img" />
+  const status = activity.failed
+    ? <ShidouIcon label={t('background.status.failed')} className="size-3 text-destructive" name="x" />
+    : !activity.complete
+      ? <ShidouIcon label={t('background.status.running')} className="size-3 text-[var(--text-secondary)] motion-safe:animate-spin" name="loaderCircle" />
+      : null
+  const disclosure = hasDetail
+    ? <ShidouIcon className="size-2.5 text-[var(--text-tertiary)]" name={expanded ? 'chevronDown' : 'chevronRight'} />
+    : null
+  if (!status && !disclosure) return null
+  return <span className="flex shrink-0 items-center gap-1">{status}{disclosure}</span>
 }
 
 function ChangedFilesCard({

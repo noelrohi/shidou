@@ -537,17 +537,19 @@ private struct ActivityRow: View {
             .accessibilityHidden(true)
     }
 
-    /// Status only where status is news: failed. A glyph as well as a
-    /// colour, so it survives a colour-blind reader and a screenshot in
-    /// grayscale, and the spoken label carries it regardless. Running is not
-    /// marked here — the turn's own indicator already says work is under
-    /// way, and a dotted circle beside every open row was chrome, not news.
+    /// Status stays independent of disclosure: a detailed running activity
+    /// keeps both its spinner and chevron, while failures use a distinct shape.
     @ViewBuilder
     private var statusGlyph: some View {
         if activity.failed {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption2)
-                .foregroundStyle(Color.orange)
+            Image(systemName: "xmark")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.red)
+                .accessibilityHidden(true)
+        } else if !activity.complete {
+            ProgressView()
+                .controlSize(.mini)
+                .tint(.secondary)
                 .accessibilityHidden(true)
         }
     }

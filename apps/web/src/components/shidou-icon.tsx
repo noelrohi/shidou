@@ -34,6 +34,7 @@ export const SHIDOU_ICONS = {
   bot: iconAsset('bot.svg'),
   chartColumn: iconAsset('chart-column.svg'),
   check: iconAsset('check.svg'),
+  circleHelp: iconAsset('circle-help.svg'),
   chevronDown: iconAsset('chevron-down.svg'),
   chevronRight: iconAsset('chevron-right.svg'),
   cloudUpload: iconAsset('cloud-upload.svg'),
