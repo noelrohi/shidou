@@ -837,7 +837,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
 
   const removeQueuedMessage = useCallback(
     async (sessionId: string, messageId: string) => {
-      if (!config) throw new Error(translate(localeRef.current, 'errors.daemon_disconnected'))
+      if (!client || !config) {
+        throw new Error(translate(localeRef.current, 'errors.daemon_disconnected'))
+      }
       const key = daemonKeys.session(config.address, sessionId)
       const session = queryClient.getQueryData<AgentSession>(key)
       if (!session) throw new Error(translate(localeRef.current, 'errors.task_not_loaded'))
@@ -846,9 +848,13 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         queued_messages: (session.queued_messages ?? []).filter((message) => message.id !== messageId),
       }
       cacheSession(next)
-      await persistOrdered(next)
+      await client.request(
+        { type: 'removeQueuedMessage', messageId },
+        sessionId,
+        entries.current.get(sessionId)?.runtimeId,
+      )
     },
-    [config, queryClient, cacheSession, persistOrdered],
+    [client, config, queryClient, cacheSession],
   )
 
   const cancel = useCallback(

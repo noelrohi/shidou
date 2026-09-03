@@ -921,6 +921,7 @@ fn command_targets_runtime(command: &Command) -> bool {
             | Command::CloseTerminal
             | Command::CloseSession
             | Command::RemoveSession
+            | Command::RemoveQueuedMessage { .. }
     )
 }
 
@@ -1928,6 +1929,68 @@ for line in sys.stdin:
             panic!("expected task state");
         };
         assert!(sessions.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removed_queued_message_stays_removed_after_a_stale_save() {
+        let daemon = ShidouTestDaemon::new("remove-queued-race", |_| {});
+        let stale_client = daemon.connect();
+        let remover = daemon.connect();
+        let project = Project::from_path(daemon.root.join("repo"));
+        let mut session = AgentSession::new(project.id, ProviderKind::Codex);
+        session.begin_turn("persist me");
+        let queued = crate::model::QueuedMessage::new("steer me");
+        let queued_id = queued.id;
+        session.queued_messages.push(queued);
+        stale_client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project.clone()],
+                    live_session_ids: vec![session.id],
+                    sessions: vec![session.clone()],
+                },
+            )
+            .unwrap();
+
+        remover
+            .request(
+                session.id,
+                Uuid::nil(),
+                Command::RemoveQueuedMessage {
+                    message_id: queued_id,
+                },
+            )
+            .unwrap();
+        stale_client
+            .request(
+                Uuid::nil(),
+                Uuid::nil(),
+                Command::SaveTaskState {
+                    projects: vec![project],
+                    live_session_ids: vec![session.id],
+                    sessions: vec![session.clone()],
+                },
+            )
+            .unwrap();
+
+        let ResponsePayload::Session {
+            session: Some(hydrated),
+        } = remover
+            .request(
+                session.id,
+                Uuid::nil(),
+                Command::HydrateSession {
+                    session_id: session.id,
+                },
+            )
+            .unwrap()
+        else {
+            panic!("expected hydrated task");
+        };
+        assert!(hydrated.queued_messages.is_empty());
     }
 
     /// Persists one started, quiet task through the wire, the way a client

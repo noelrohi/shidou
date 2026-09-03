@@ -114,7 +114,11 @@ final class WireStabilityTests: XCTestCase {
         XCTAssertEqual(try json(Command.attachSession)["type"] as? String, "attachSession")
         XCTAssertEqual(try json(Command.removeSession)["type"] as? String, "removeSession")
 
-        var object = try json(Command.hydrateSession(sessionId: sessionId))
+        var object = try json(Command.removeQueuedMessage(messageId: sessionId))
+        XCTAssertEqual(object["type"] as? String, "removeQueuedMessage")
+        XCTAssertEqual(object["messageId"] as? String, "00000000-0000-0000-0000-00000000002a")
+
+        object = try json(Command.hydrateSession(sessionId: sessionId))
         XCTAssertEqual(object["type"] as? String, "hydrateSession")
         XCTAssertEqual(object["sessionId"] as? String, "00000000-0000-0000-0000-00000000002a")
 

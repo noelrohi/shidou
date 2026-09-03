@@ -167,6 +167,7 @@ public enum Command: Sendable {
     case loadTaskState
     case saveTaskState(projects: [Project], liveSessionIds: [UUID], sessions: [AgentSession])
     case removeSession
+    case removeQueuedMessage(messageId: UUID)
     /// Set or clear the archive mark on one task. Explicit because saves merge
     /// and can neither carry the mark nor be refused; the daemon refuses this
     /// while the task is Working or Waiting.
@@ -192,7 +193,7 @@ extension Command: Encodable {
         case binaryOverride, discoverModels, probeVersion
         case projects, liveSessionIds, sessions, sessionId, reference, path
         case turnCount, operation, settings, key, controlId, window, projectRoots
-        case dirs, enabled, archived
+        case dirs, enabled, archived, messageId
         case drafts, generation, changes, mimeType, bytes, name, upload
         case cliVersion
     }
@@ -270,6 +271,9 @@ extension Command: Encodable {
             try container.encode(sessions, forKey: .sessions)
         case .removeSession:
             try container.encode("removeSession", forKey: .type)
+        case .removeQueuedMessage(let messageId):
+            try container.encode("removeQueuedMessage", forKey: .type)
+            try container.encode(messageId.wireString, forKey: .messageId)
         case .archiveSession(let archived):
             try container.encode("archiveSession", forKey: .type)
             try container.encode(archived, forKey: .archived)

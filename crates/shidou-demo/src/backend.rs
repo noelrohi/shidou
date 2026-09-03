@@ -269,6 +269,7 @@ impl Backend for DemoBackend {
                     .collect(),
             }),
             Command::RemoveSession
+            | Command::RemoveQueuedMessage { .. }
             | Command::ArchiveSession { .. }
             | Command::RemoveProject { .. } => Ok(ResponsePayload::Ack),
             // The Demo Session executes nothing, so it cannot spawn anything.

@@ -806,12 +806,17 @@ extension SessionStore {
     }
 
     public func removeQueuedMessage(_ model: SessionRuntimeModel, messageId: UUID) async throws {
+        let sessionId = model.currentProjection.id
+        _ = try await request(
+            .removeQueuedMessage(messageId: messageId),
+            sessionId: sessionId,
+            runtimeId: model.runtimeId ?? .zero
+        )
         var session = model.currentProjection
         session.queuedMessages.removeAll { $0.id == messageId }
         session.updatedAt = unixTime()
         model.replaceSession(session)
         applyLocally(session)
-        try await persistAndWait(session)
     }
 
     // MARK: - Attachments

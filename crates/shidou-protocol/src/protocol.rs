@@ -210,6 +210,12 @@ pub enum Command {
     /// merge-only so a stale client snapshot cannot delete tasks another
     /// client just created.
     RemoveSession,
+    /// Remove one queued follow-up by identity. Queue deletions cannot travel
+    /// in a merge-only task snapshot: omission might only mean the client is
+    /// stale, so the daemon needs an explicit deletion command.
+    RemoveQueuedMessage {
+        message_id: Uuid,
+    },
     /// Explicitly set or clear the archive mark on one daemon-owned task.
     /// Saves never carry the mark, so a stale client snapshot cannot clear a
     /// mark another client just set — only this can.
