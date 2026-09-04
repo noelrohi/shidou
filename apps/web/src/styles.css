@@ -293,6 +293,16 @@
   .markdown pre {
     @apply max-w-full overflow-x-auto rounded-xl border bg-muted/45 p-4 font-mono text-[13px] leading-6;
   }
+  .markdown .mermaid-diagram {
+    @apply max-w-full overflow-auto rounded-xl border bg-muted/25 p-4;
+  }
+  .markdown .mermaid-diagram svg {
+    display: block;
+    height: auto;
+    margin-inline: auto;
+    max-width: 100%;
+    background: transparent !important;
+  }
   .markdown table { @apply block max-w-full overflow-x-auto border-collapse text-sm; }
   .markdown th,
   .markdown td { @apply border px-3 py-2 text-left; }

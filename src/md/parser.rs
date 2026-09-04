@@ -900,6 +900,18 @@ mod tests {
     }
 
     #[test]
+    fn mermaid_fences_keep_the_exact_tag_and_source() {
+        let tree = parse("```mermaid\nflowchart LR\nA --> B\n```\n");
+        assert_eq!(
+            tree.blocks[0].block,
+            Block::CodeBlock {
+                language: Some("mermaid".into()),
+                code: "flowchart LR\nA --> B".into(),
+            }
+        );
+    }
+
+    #[test]
     fn inline_styles_nest_and_merge() {
         let tree = parse("plain **bold `code`** and *italic* [link](https://example.com)");
         let Block::Paragraph { runs } = &tree.blocks[0].block else {

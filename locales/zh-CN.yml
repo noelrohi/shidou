@@ -357,6 +357,9 @@ activity.ask_questions: 提问
 activity.arguments: 参数
 activity.output: 输出
 activity.image_output: 图片输出
+markdown.mermaid_diagram: Mermaid 图表
+markdown.show_source: 显示源码
+markdown.hide_source: 隐藏源码
 activity.open_file: 打开文件
 activity.search_for: 搜索：%{query}
 activity.searched_web: 已搜索网页

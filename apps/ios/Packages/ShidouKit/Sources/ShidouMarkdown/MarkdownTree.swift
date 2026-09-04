@@ -82,6 +82,15 @@ public indirect enum MarkdownBlock: Hashable, Sendable {
     /// before and after keeps its order around them.
     case image(source: String?, alt: String)
     case html(String)
+
+    /// Source for a complete fence whose info string is exactly `mermaid`.
+    /// Aliases and additional info remain ordinary readable code blocks.
+    public var settledMermaidSource: String? {
+        guard case .codeBlock(let language, let code, let fenceClosed) = self,
+            language == "mermaid", fenceClosed
+        else { return nil }
+        return code
+    }
 }
 
 /// A top-level block plus the UTF-8 byte range of the source it came from.

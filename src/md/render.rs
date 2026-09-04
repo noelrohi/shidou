@@ -17,9 +17,10 @@
 //! stable while a selection is dragged across it.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -33,6 +34,7 @@ use regex::Regex;
 
 use super::highlight::{self, Lang, TokenClass};
 use super::mend::PENDING_LINK_URL;
+use super::mermaid::{Appearance as MermaidAppearance, Key as MermaidKey};
 use super::parser::{Block, IncrementalParser, InlineRun, ListItem, TableAlign, TopBlock};
 use super::selection::{
     RegisteredText, SelectionRegistry, SelectionState, TextKey, line_range, word_range,
@@ -397,6 +399,11 @@ pub fn flatten_plain(
 
 // ── Per-message state ──────────────────────────────────────────────────────
 
+enum LocalMermaid {
+    Ready(Arc<gpui::Image>),
+    Unavailable,
+}
+
 /// Everything the renderer keeps between frames for one markdown body.
 ///
 /// The flatten cache is keyed by element ordinal and pruned only back to the
@@ -418,6 +425,16 @@ pub struct MarkdownView {
     /// Per-element opacity spans for the live response. Text is committed to
     /// layout immediately; only these paint colors animate.
     veil: RefCell<RowVeil>,
+    /// Mermaid sources are derived only when a body settles, not by each frame
+    /// that happens to show it.
+    mermaid_sources: Vec<(usize, Arc<str>)>,
+    /// Transcript-only Mermaid results by stable code-block ordinal and
+    /// appearance. The process-wide cache owns ready bytes; local unavailable
+    /// markers prevent failed diagrams from probing it every frame.
+    mermaid_images: RefCell<HashMap<(usize, MermaidAppearance), LocalMermaid>>,
+    /// Diagram sources disclosed by the user. Hidden by default so a successful
+    /// render replaces its code block instead of duplicating it.
+    expanded_mermaid_sources: Rc<RefCell<HashSet<usize>>>,
     /// Code-block ordinals currently showing successful copy feedback. Kept
     /// outside the parsed/flattened caches so a three-second icon change never
     /// invalidates text shaping.
@@ -440,6 +457,9 @@ impl MarkdownView {
             volatile_from: Cell::new(0),
             style: Cell::new(None),
             veil: RefCell::new(RowVeil::default()),
+            mermaid_sources: Vec::new(),
+            mermaid_images: RefCell::new(HashMap::new()),
+            expanded_mermaid_sources: Rc::new(RefCell::new(HashSet::new())),
             copied_code_blocks: Rc::new(RefCell::new(HashMap::new())),
             streaming: Cell::new(false),
         }
@@ -479,6 +499,7 @@ impl MarkdownView {
         let changed = self.parser.text() != text;
         if changed {
             self.parser.set_text(text);
+            self.expanded_mermaid_sources.borrow_mut().clear();
         }
         // The mended display tail depends only on the source and the
         // streaming flag. Deriving it re-mends — and, with a hanging marker,
@@ -502,10 +523,78 @@ impl MarkdownView {
                     .retain(|ordinal, _| *ordinal < boundary);
             }
         }
+
+        if mend {
+            if changed || !was_streaming {
+                self.mermaid_sources.clear();
+                self.mermaid_images.borrow_mut().clear();
+            }
+        } else if changed || was_streaming {
+            let mut requests = Vec::new();
+            for (block_ix, block) in self.blocks().enumerate() {
+                let mut ordinal = block_ordinal_base(block_ix);
+                collect_mermaid_requests(block, &mut ordinal, &mut requests);
+            }
+            self.mermaid_sources = requests
+                .into_iter()
+                .map(|(ordinal, source)| (ordinal, Arc::from(source)))
+                .collect();
+            self.mermaid_images.borrow_mut().clear();
+        }
     }
 
     pub fn is_fading(&self) -> bool {
         self.streaming.get() && self.veil.borrow().is_fading()
+    }
+
+    /// Claim settled Mermaid fences for background rendering and snapshot any
+    /// completed images. Called by transcript rows before [`markdown`]; live
+    /// messages deliberately remain ordinary code blocks until they settle.
+    pub fn prepare_mermaid(
+        &self,
+        appearance: MermaidAppearance,
+        target: gpui::EntityId,
+        cx: &mut gpui::App,
+    ) {
+        if self.streaming.get() {
+            return;
+        }
+
+        self.mermaid_images
+            .borrow_mut()
+            .retain(|(_, cached_appearance), _| *cached_appearance == appearance);
+
+        for (ordinal, source) in &self.mermaid_sources {
+            let local_key = (*ordinal, appearance);
+            if self.mermaid_images.borrow().contains_key(&local_key) {
+                continue;
+            }
+            let key = MermaidKey::new(source.clone(), appearance);
+            match super::mermaid::request(&key, target, cx) {
+                super::mermaid::Status::Ready(image) => {
+                    self.mermaid_images
+                        .borrow_mut()
+                        .insert(local_key, LocalMermaid::Ready(image));
+                }
+                super::mermaid::Status::Unavailable => {
+                    self.mermaid_images
+                        .borrow_mut()
+                        .insert(local_key, LocalMermaid::Unavailable);
+                }
+                super::mermaid::Status::Pending => {}
+            }
+        }
+    }
+
+    fn mermaid_image(
+        &self,
+        ordinal: usize,
+        appearance: MermaidAppearance,
+    ) -> Option<Arc<gpui::Image>> {
+        match self.mermaid_images.borrow().get(&(ordinal, appearance)) {
+            Some(LocalMermaid::Ready(image)) => Some(image.clone()),
+            Some(LocalMermaid::Unavailable) | None => None,
+        }
     }
 
     /// Drop cached flats if the style they were built for no longer applies.
@@ -560,6 +649,7 @@ pub struct Ctx<'a> {
     /// Set while rendering the first element of a block, for copy spacing.
     starts_block: Cell<bool>,
     animate_streaming: bool,
+    render_mermaid: bool,
     now: Instant,
 }
 
@@ -581,6 +671,7 @@ impl<'a> Ctx<'a> {
             next_ordinal: Cell::new(0),
             starts_block: Cell::new(true),
             animate_streaming: true,
+            render_mermaid: false,
             now: Instant::now(),
         }
     }
@@ -604,6 +695,13 @@ impl<'a> Ctx<'a> {
         self
     }
 
+    /// Enable settled Mermaid diagrams. Off by default so non-transcript
+    /// Markdown surfaces keep their existing code-fence behavior.
+    pub fn with_mermaid_diagrams(mut self, enabled: bool) -> Self {
+        self.render_mermaid = enabled;
+        self
+    }
+
     fn with_cache(&self, view: &'a MarkdownView) -> Self {
         Self {
             row: self.row.clone(),
@@ -616,6 +714,7 @@ impl<'a> Ctx<'a> {
             next_ordinal: Cell::new(self.next_ordinal.get()),
             starts_block: Cell::new(self.starts_block.get()),
             animate_streaming: self.animate_streaming,
+            render_mermaid: self.render_mermaid,
             now: Instant::now(),
         }
     }
@@ -1083,6 +1182,44 @@ fn block_ordinal_base(block_ix: usize) -> usize {
     block_ix << BLOCK_ORDINAL_STRIDE_BITS
 }
 
+fn is_mermaid_fence(language: Option<&str>) -> bool {
+    language == Some("mermaid")
+}
+
+/// Walk the renderer's element shape so background requests use the same
+/// stable ordinals as rendering, selection, and transcript search.
+fn collect_mermaid_requests<'a>(
+    block: &'a Block,
+    ordinal: &mut usize,
+    requests: &mut Vec<(usize, &'a str)>,
+) {
+    match block {
+        Block::Paragraph { .. } | Block::Heading { .. } | Block::Image { .. } => *ordinal += 1,
+        Block::CodeBlock { language, code } => {
+            if is_mermaid_fence(language.as_deref()) {
+                requests.push((*ordinal, code));
+            }
+            *ordinal += 1;
+        }
+        Block::BlockQuote { children } => {
+            for child in children {
+                collect_mermaid_requests(child, ordinal, requests);
+            }
+        }
+        Block::List { items, .. } => {
+            for item in items {
+                for child in &item.blocks {
+                    collect_mermaid_requests(child, ordinal, requests);
+                }
+            }
+        }
+        Block::Table { header, rows, .. } => {
+            *ordinal += header.len() + rows.iter().map(Vec::len).sum::<usize>();
+        }
+        Block::Rule => {}
+    }
+}
+
 /// Find every non-empty regex match in the text elements produced by the
 /// markdown renderer, in paint order. This deliberately walks the same block
 /// shapes and advances the same element ordinals as [`render_block`], keeping
@@ -1285,7 +1422,28 @@ fn render_block(block: &Block, ctx: &Ctx) -> AnyElement {
                 .into_any_element()
         }
         Block::Image { url, alt } => render_image(url, alt, ctx),
-        Block::CodeBlock { language, code } => render_code_block(language.as_deref(), code, ctx),
+        Block::CodeBlock { language, code } => {
+            let language = language.as_deref();
+            if ctx.render_mermaid && is_mermaid_fence(language) {
+                let appearance = if ctx.palette.is_dark {
+                    MermaidAppearance::Dark
+                } else {
+                    MermaidAppearance::Light
+                };
+                let ordinal = ctx.next_ordinal.get();
+                if let Some(image) = ctx
+                    .cache
+                    .filter(|view| !view.streaming.get())
+                    .and_then(|view| view.mermaid_image(ordinal, appearance))
+                {
+                    render_mermaid_block(image, language, code, ctx)
+                } else {
+                    render_code_block(language, code, ctx)
+                }
+            } else {
+                render_code_block(language, code, ctx)
+            }
+        }
         Block::BlockQuote { children } => {
             let rendered = children
                 .iter()
@@ -1518,10 +1676,16 @@ pub fn decode_data_url(url: &str) -> Option<std::sync::Arc<gpui::Image>> {
     (!bytes.is_empty()).then(|| std::sync::Arc::new(gpui::Image::from_bytes(format, bytes)))
 }
 
-fn render_code_block(language: Option<&str>, code: &str, ctx: &Ctx) -> AnyElement {
+fn render_mermaid_block(
+    image: Arc<gpui::Image>,
+    language: Option<&str>,
+    code: &str,
+    ctx: &Ctx,
+) -> AnyElement {
+    // Keep the same text key as the original code block so selection and find
+    // geometry survive switching the card body between source and diagram.
     let key = ctx.next_key();
-    // Tokenizing is the most expensive flatten in the document, so a settled
-    // code block is exactly the case the cache exists for.
+    let ordinal = key.index;
     let flat = ctx.flat(key.index, || {
         let lang = language.and_then(highlight::lang_for_tag);
         let mut code_font = font(MONO_FAMILY);
@@ -1533,13 +1697,129 @@ fn render_code_block(language: Option<&str>, code: &str, ctx: &Ctx) -> AnyElemen
             code_ranges: Vec::new(),
         }
     });
-    let label = language
-        .filter(|language| !language.is_empty())
-        .map(|language| language.to_ascii_lowercase());
-    // Reuse the cached shaped string. Settled code blocks render every frame,
-    // so cloning the whole source here would turn the copy affordance into a
-    // permanent O(code length) render cost; allocate only when it is invoked.
-    let copy_content = flat.text.clone();
+    let copy_button = code_copy_button(flat.text.clone(), &key, ctx);
+    let source = div()
+        .id(SharedString::from(format!(
+            "mermaid-code-{}-{}",
+            key.row, key.index
+        )))
+        .w_full()
+        .min_w_0()
+        .border_t_1()
+        .border_color(ctx.palette.border)
+        .px(px(10.0))
+        .py(px(8.0))
+        .whitespace_normal()
+        .text_size(px(ctx.metrics.code_text_size))
+        .line_height(px(ctx.metrics.code_line_height))
+        .text_color(ctx.palette.secondary)
+        .child(text_element(&flat, key, ctx));
+    let disclosures = ctx
+        .cache
+        .expect("ready Mermaid images only render through a cached view")
+        .expanded_mermaid_sources
+        .clone();
+    let expanded = disclosures.borrow().contains(&ordinal);
+    let click_disclosures = disclosures.clone();
+    let key_disclosures = disclosures;
+    let disclosure = div()
+        .id(SharedString::from(format!(
+            "mermaid-source-{}-{ordinal}",
+            ctx.row
+        )))
+        .tab_index(0)
+        .h(px(24.0))
+        .px(px(6.0))
+        .rounded(px(5.0))
+        .flex()
+        .items_center()
+        .gap(px(3.0))
+        .cursor_pointer()
+        .focus_visible(|style| style.border_1().border_color(ctx.palette.accent))
+        .hover(|style| style.bg(ctx.palette.overlay))
+        .text_size(px(11.5))
+        .text_color(ctx.palette.ghost)
+        .child(if expanded {
+            tr!("markdown.hide_source")
+        } else {
+            tr!("markdown.show_source")
+        })
+        .child(crate::ui::icon(
+            if expanded {
+                "icons/chevron-down.svg"
+            } else {
+                "icons/chevron-right.svg"
+            },
+            10.0,
+            ctx.palette.ghost,
+        ))
+        .on_click(move |_, _, cx| {
+            toggle_mermaid_source(&click_disclosures, ordinal, cx);
+        })
+        .on_key_down(move |event: &KeyDownEvent, _, cx| {
+            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                toggle_mermaid_source(&key_disclosures, ordinal, cx);
+                cx.stop_propagation();
+            }
+        });
+
+    div()
+        .w_full()
+        .min_w_0()
+        .rounded(px(8.0))
+        .border_1()
+        .border_color(ctx.palette.border)
+        .bg(ctx.palette.inset)
+        .overflow_hidden()
+        .child(
+            div()
+                .h(px(28.0))
+                .px(px(10.0))
+                .flex()
+                .items_center()
+                .text_size(px(12.5))
+                .line_height(px(14.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(ctx.palette.ghost)
+                .child(tr!("markdown.mermaid_diagram"))
+                .child(div().flex_1())
+                .child(disclosure)
+                .child(copy_button),
+        )
+        .when(!expanded, |element| {
+            element.child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .p(px(10.0))
+                    .flex()
+                    .justify_center()
+                    .child(
+                        img(image)
+                            .max_w(relative(1.0))
+                            .max_h(px(420.0))
+                            .object_fit(gpui::ObjectFit::ScaleDown),
+                    ),
+            )
+        })
+        .when(expanded, |element| element.child(source))
+        .into_any_element()
+}
+
+fn toggle_mermaid_source(
+    disclosures: &Rc<RefCell<HashSet<usize>>>,
+    ordinal: usize,
+    cx: &mut gpui::App,
+) {
+    let mut disclosures = disclosures.borrow_mut();
+    if !disclosures.insert(ordinal) {
+        disclosures.remove(&ordinal);
+    }
+    drop(disclosures);
+    cx.refresh_windows();
+}
+
+fn code_copy_button(copy_content: SharedString, key: &TextKey, ctx: &Ctx) -> AnyElement {
     let keyboard_copy_content = copy_content.clone();
     let copy_feedback = ctx.cache.map(|view| view.copied_code_blocks.clone());
     let copied = copy_feedback
@@ -1547,7 +1827,7 @@ fn render_code_block(language: Option<&str>, code: &str, ctx: &Ctx) -> AnyElemen
         .is_some_and(|feedback| feedback.borrow().contains_key(&key.index));
     let keyboard_copy_feedback = copy_feedback.clone();
     let ordinal = key.index;
-    let copy_button = div()
+    let button = div()
         .id(SharedString::from(format!(
             "copy-code-{}-{}",
             key.row, key.index
@@ -1591,6 +1871,31 @@ fn render_code_block(language: Option<&str>, code: &str, ctx: &Ctx) -> AnyElemen
                 cx.stop_propagation();
             }
         });
+    button.into_any_element()
+}
+
+fn render_code_block(language: Option<&str>, code: &str, ctx: &Ctx) -> AnyElement {
+    let key = ctx.next_key();
+    // Tokenizing is the most expensive flatten in the document, so a settled
+    // code block is exactly the case the cache exists for.
+    let flat = ctx.flat(key.index, || {
+        let lang = language.and_then(highlight::lang_for_tag);
+        let mut code_font = font(MONO_FAMILY);
+        code_font.weight = FontWeight::NORMAL;
+        FlatText {
+            text: SharedString::from(code.to_owned()),
+            runs: code_runs(code, lang, &code_font, ctx.palette),
+            links: Vec::new(),
+            code_ranges: Vec::new(),
+        }
+    });
+    let label = language
+        .filter(|language| !language.is_empty())
+        .map(|language| language.to_ascii_lowercase());
+    // Reuse the cached shaped string. Settled code blocks render every frame,
+    // so cloning the whole source here would turn the copy affordance into a
+    // permanent O(code length) render cost; allocate only when it is invoked.
+    let copy_button = code_copy_button(flat.text.clone(), &key, ctx);
 
     div()
         .id(SharedString::from(format!(
@@ -1954,6 +2259,28 @@ mod tests {
     }
 
     #[test]
+    fn mermaid_dispatch_requires_the_exact_fence_tag() {
+        assert!(is_mermaid_fence(Some("mermaid")));
+        assert!(!is_mermaid_fence(Some("Mermaid")));
+        assert!(!is_mermaid_fence(Some("mermaid-js")));
+        assert!(!is_mermaid_fence(None));
+    }
+
+    #[test]
+    fn nested_mermaid_requests_keep_renderer_ordinals() {
+        let tree = parser::parse(
+            "> before\n>\n> ```mermaid\n> flowchart LR; A-->B\n> ```\n\n```rust\nfn main() {}\n```",
+        );
+        let mut requests = Vec::new();
+        for (block_ix, top) in tree.blocks.iter().enumerate() {
+            let mut ordinal = block_ordinal_base(block_ix);
+            collect_mermaid_requests(&top.block, &mut ordinal, &mut requests);
+        }
+
+        assert_eq!(requests, vec![(1, "flowchart LR; A-->B")]);
+    }
+
+    #[test]
     fn code_runs_tile_the_block_including_newlines() {
         let code = "fn main() {\n    let x = 1; // c\n}";
         let mut code_font = font(MONO_FAMILY);
@@ -1973,11 +2300,31 @@ mod tests {
     }
 
     #[test]
+    fn mermaid_rendering_hides_its_source_until_disclosed() {
+        let source = include_str!("render.rs");
+        let start = source
+            .find("\nfn render_mermaid_block(")
+            .expect("Mermaid block renderer");
+        let body = &source[start + 1..];
+        let end = body.find("\nfn render_code_block(").expect("renderer end");
+        let body = &body[..end];
+
+        assert!(body.contains("let key = ctx.next_key()"));
+        assert!(body.contains("mermaid-code-"));
+        assert!(!body.contains("render_code_block(language, code, ctx)"));
+        assert!(body.contains(".when(!expanded, |element|"));
+        assert!(body.contains(".when(expanded, |element| element.child(source))"));
+        assert!(!body.contains("\n        .child(source)\n"));
+        assert!(body.contains("markdown.show_source"));
+        assert!(body.contains("on_key_down"));
+    }
+
+    #[test]
     fn code_block_rendering_wraps_and_exposes_a_keyboard_copy_control() {
         let source = include_str!("render.rs");
         let start = source
-            .find("\nfn render_code_block(")
-            .expect("code block renderer");
+            .find("\nfn code_copy_button(")
+            .expect("code block controls");
         let body = &source[start + 1..];
         let end = body
             .find("\nfn code_runs(")
@@ -2140,6 +2487,17 @@ mod tests {
         let mut empty = MarkdownView::new();
         empty.set_text("", false);
         assert_eq!(empty.blocks().count(), 0);
+    }
+
+    #[test]
+    fn mermaid_requests_are_derived_only_after_streaming_settles() {
+        let mut view = MarkdownView::new();
+        view.set_text("```mermaid\nflowchart LR; A-->B\n```", true);
+        assert!(view.mermaid_sources.is_empty());
+
+        view.set_text("```mermaid\nflowchart LR; A-->B\n```", false);
+        assert_eq!(view.mermaid_sources.len(), 1);
+        assert_eq!(view.mermaid_sources[0].1.as_ref(), "flowchart LR; A-->B");
     }
 
     #[test]

@@ -214,6 +214,7 @@ struct AssistantMessageRow: View {
     let row: MessageRow
     let markdown: MarkdownStore
     let highlights: HighlightStore
+    let mermaid: MermaidStore
     let workspaceCwd: String?
     let onOpenFile: (TranscriptLinkRoute) -> Void
     var isForking = false
@@ -232,6 +233,7 @@ struct AssistantMessageRow: View {
                     streaming: row.message.streaming
                 ),
                 highlights: highlights,
+                mermaid: mermaid,
                 onOpenLink: open
             )
             if let checkpoint = row.checkpoint {
