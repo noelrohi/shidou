@@ -137,6 +137,21 @@ final class MarkdownParserTests: XCTestCase {
         }
         XCTAssertFalse(closed, "highlighting must wait for the closing fence")
     }
+
+    func testOnlySettledExactMermaidFencesBecomeDiagrams() {
+        let settled = MarkdownParser.parse("```mermaid\ngraph TD\n  A --> B\n```\n")
+        XCTAssertEqual(settled.first?.block.settledMermaidSource, "graph TD\n  A --> B")
+
+        let streaming = MarkdownParser.parse("```mermaid\ngraph TD\n  A --> B\n")
+        XCTAssertNil(streaming.first?.block.settledMermaidSource)
+
+        for language in ["Mermaid", "mermaid-js", "mermaid extra"] {
+            let block = MarkdownBlock.codeBlock(
+                language: language, code: "graph TD", fenceClosed: true
+            )
+            XCTAssertNil(block.settledMermaidSource, "\(language) must stay readable code")
+        }
+    }
 }
 
 /// The incremental path must agree with a full parse at every prefix — that

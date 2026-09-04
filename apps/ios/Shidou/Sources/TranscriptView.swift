@@ -54,6 +54,7 @@ struct TranscriptView: View {
     @State private var loadError: String?
     @State private var markdown = MarkdownStore()
     @State private var highlights = HighlightStore()
+    @State private var mermaid = MermaidStore()
     @State private var expandedTurns: Set<UUID> = []
     @State private var isFinding = false
     @State private var query = ""
@@ -521,6 +522,7 @@ struct TranscriptView: View {
                     row: messageRow,
                     markdown: markdown,
                     highlights: highlights,
+                    mermaid: mermaid,
                     workspaceCwd: store?.cwd(for: model.session),
                     onOpenFile: openFileLink,
                     isForking: store?.forking.contains(model.session.id) ?? false,

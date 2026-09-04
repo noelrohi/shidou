@@ -377,6 +377,9 @@ activity.ask_questions: 質問する
 activity.arguments: 引数
 activity.output: 出力
 activity.image_output: 画像出力
+markdown.mermaid_diagram: Mermaid ダイアグラム
+markdown.show_source: ソースを表示
+markdown.hide_source: ソースを非表示
 activity.open_file: ファイルを開く
 activity.search_for: "%{query} を検索"
 activity.searched_web: ウェブを検索しました

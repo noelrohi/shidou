@@ -6,22 +6,20 @@ import viteReact, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 
-// Code surfaces are client-only, but their SSR chunk pulls in every Shiki
-// grammar and pushes the Worker past Cloudflare's size limit. Swap the module
-// for a null-rendering stub in the ssr environment only.
-function ssrStubCodeSurfaces(): Plugin {
+// Keep DOM-heavy client dependencies out of the Cloudflare Worker. The code
+// surface stub avoids bundling every Shiki grammar; the Mermaid stub preserves
+// the readable code fence without bundling the diagram engine into SSR.
+function ssrStubClientOnlyComponents(): Plugin {
+  const stubs = new Map([
+    ['@/components/code-surfaces', './src/components/code-surfaces.ssr.tsx'],
+    ['@/components/mermaid-diagram', './src/components/mermaid-diagram.ssr.tsx'],
+  ])
   return {
-    name: 'ssr-stub-code-surfaces',
+    name: 'ssr-stub-client-only-components',
     enforce: 'pre',
     resolveId(source) {
-      if (
-        this.environment?.name === 'ssr' &&
-        source === '@/components/code-surfaces'
-      ) {
-        return fileURLToPath(
-          new URL('./src/components/code-surfaces.ssr.tsx', import.meta.url),
-        )
-      }
+      const stub = this.environment?.name === 'ssr' ? stubs.get(source) : undefined
+      if (stub) return fileURLToPath(new URL(stub, import.meta.url))
     },
   }
 }
@@ -43,7 +41,7 @@ export default defineConfig({
     format: 'es',
   },
   plugins: [
-    ssrStubCodeSurfaces(),
+    ssrStubClientOnlyComponents(),
     tailwindcss(),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tanstackStart(),

@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Virtuoso, type ListItem, type VirtuosoHandle } from 'react-virtuoso'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { MermaidDiagram } from '@/components/mermaid-diagram'
 import { PreviewableImage } from '@/components/image-preview'
 import { FileTypeIcon, ShidouIcon, type ShidouIconName } from '@/components/shidou-icon'
 import { readAttachmentImage } from '@/lib/attachments'
@@ -20,6 +21,7 @@ import {
   createMarkdownVeilState,
   markdownVeilPlugin,
 } from '@/lib/markdown-veil'
+import { mermaidFence, type MarkdownElement } from '@/lib/mermaid-fence'
 import type {
   BackgroundWorkItem,
   BackgroundWorkKey,
@@ -1553,6 +1555,13 @@ function Markdown({
               source={src}
             />
           ) : null,
+          pre: ({ children, node, ...props }) => {
+            const fallback = <pre {...props}>{children}</pre>
+            const fence = mermaidFence(node as MarkdownElement | undefined, streaming)
+            return fence?.renderable
+              ? <MermaidDiagram fallback={fallback} source={fence.source} />
+              : fallback
+          },
         }}
       >
         {text}

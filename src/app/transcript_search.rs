@@ -546,6 +546,16 @@ mod tests {
     }
 
     #[test]
+    fn mermaid_source_keeps_a_searchable_code_block_ordinal() {
+        let regex = literal_find_regex("Decision");
+        let source = "```mermaid\nflowchart LR\nStart --> Decision\n```";
+        let (matches, limited) = md::render::markdown_search_matches(source, &regex, 20);
+        assert!(!limited);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].ordinal, 0);
+    }
+
+    #[test]
     fn transcript_search_cap_reports_more_results() {
         let regex = literal_find_regex("x");
         let (matches, limited) = md::render::markdown_search_matches("xxxx", &regex, 3);

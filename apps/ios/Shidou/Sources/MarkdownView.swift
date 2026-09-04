@@ -6,6 +6,7 @@ import SwiftUI
 struct MarkdownBlocksView: View {
     let blocks: [TopBlock]
     let highlights: HighlightStore
+    let mermaid: MermaidStore
     /// Resolves a link's destination and decides whether it is tappable at
     /// all; file links are inert until the Surfaces Sheet lands in slice ③.
     let onOpenLink: (String) -> Void
@@ -14,7 +15,10 @@ struct MarkdownBlocksView: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(blocks) { top in
                 MarkdownBlockView(
-                    block: top.block, highlights: highlights, onOpenLink: onOpenLink
+                    block: top.block,
+                    highlights: highlights,
+                    mermaid: mermaid,
+                    onOpenLink: onOpenLink
                 )
             }
         }
@@ -25,6 +29,7 @@ struct MarkdownBlocksView: View {
 struct MarkdownBlockView: View {
     let block: MarkdownBlock
     let highlights: HighlightStore
+    let mermaid: MermaidStore
     let onOpenLink: (String) -> Void
 
     var body: some View {
@@ -37,9 +42,16 @@ struct MarkdownBlockView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.top, level <= 2 ? 4 : 0)
         case .codeBlock(let language, let code, let fenceClosed):
-            CodeBlockView(
-                code: code, language: language, fenceClosed: fenceClosed, highlights: highlights
-            )
+            if let source = block.settledMermaidSource {
+                MermaidDiagramView(source: source, store: mermaid)
+            } else {
+                CodeBlockView(
+                    code: code,
+                    language: language,
+                    fenceClosed: fenceClosed,
+                    highlights: highlights
+                )
+            }
         case .blockQuote(let children):
             HStack(alignment: .top, spacing: 10) {
                 RoundedRectangle(cornerRadius: 2)
@@ -49,7 +61,10 @@ struct MarkdownBlockView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(children.enumerated()), id: \.offset) { _, child in
                         MarkdownBlockView(
-                            block: child, highlights: highlights, onOpenLink: onOpenLink
+                            block: child,
+                            highlights: highlights,
+                            mermaid: mermaid,
+                            onOpenLink: onOpenLink
                         )
                     }
                 }
@@ -57,7 +72,11 @@ struct MarkdownBlockView: View {
             }
         case .list(let start, let items):
             MarkdownListView(
-                start: start, items: items, highlights: highlights, onOpenLink: onOpenLink
+                start: start,
+                items: items,
+                highlights: highlights,
+                mermaid: mermaid,
+                onOpenLink: onOpenLink
             )
         case .table(let alignments, let header, let rows):
             MarkdownTableView(
@@ -139,6 +158,7 @@ private struct MarkdownListView: View {
     let start: Int?
     let items: [MarkdownListItem]
     let highlights: HighlightStore
+    let mermaid: MermaidStore
     let onOpenLink: (String) -> Void
 
     var body: some View {
@@ -149,7 +169,10 @@ private struct MarkdownListView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(item.blocks.enumerated()), id: \.offset) { _, block in
                             MarkdownBlockView(
-                                block: block, highlights: highlights, onOpenLink: onOpenLink
+                                block: block,
+                                highlights: highlights,
+                                mermaid: mermaid,
+                                onOpenLink: onOpenLink
                             )
                         }
                     }

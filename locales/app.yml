@@ -734,6 +734,12 @@ activity.output:
   en: Output
 activity.image_output:
   en: Image output
+markdown.mermaid_diagram:
+  en: Mermaid diagram
+markdown.show_source:
+  en: Show source
+markdown.hide_source:
+  en: Hide source
 activity.open_file:
   en: Open file
 activity.search_for:

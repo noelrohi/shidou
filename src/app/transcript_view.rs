@@ -1203,6 +1203,7 @@ impl Shidou {
         MarkdownCtx::new(row, palette, metrics, self.transcript_selection.clone())
             .with_link_handler(self.markdown_link_handler.clone())
             .with_streaming_animation(animate_streaming)
+            .with_mermaid_diagrams(true)
     }
 
     /// The menu handle for `id`, created on first use.
@@ -1357,6 +1358,14 @@ impl Shidou {
                         .then(|| {
                             let view = markdown.entry(message.id).or_default();
                             view.set_text(message.visible_content(), message.streaming);
+                            if !message.streaming {
+                                let appearance = if theme.is_dark {
+                                    md::mermaid::Appearance::Dark
+                                } else {
+                                    md::mermaid::Appearance::Light
+                                };
+                                view.prepare_mermaid(appearance, window.current_view(), cx);
+                            }
                             &*view
                         });
                     let rendered = render_message(
@@ -2180,6 +2189,12 @@ impl Shidou {
                 } else {
                     self.reasoning_window_starts.borrow_mut().remove(&id);
                     view.set_text(&reasoning.content, false);
+                    let appearance = if theme.is_dark {
+                        md::mermaid::Appearance::Dark
+                    } else {
+                        md::mermaid::Appearance::Light
+                    };
+                    view.prepare_mermaid(appearance, window.current_view(), cx);
                 }
                 let wheel_scroll = reasoning_viewport.scroll_handle.clone();
                 let wheel_follow_tail = reasoning_viewport.follow_tail.clone();
