@@ -475,7 +475,7 @@ computer_use.availability:
 computer_use.macos_access:
   en: macOS access
 computer_use.helper_access:
-  en: Grant access to %{helper}, Shidou's isolated control helper
+  en: macOS lists Shidou's isolated control helper separately as %{helper}. Grant access to that exact name
 computer_use.screen_recording:
   en: Screen Recording
 computer_use.screen_recording_description:

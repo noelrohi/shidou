@@ -83,6 +83,7 @@ helper_fingerprint="$({
   shasum -a 256 \
     "$helper_source" \
     resources/computer-use/Info.plist \
+    "resources/$icon_file" \
     "$menu_bar_cursor_resource" \
     "$overlay_cursor_resource"
   printf '%s\n' "standalone-service-v2" "$helper_name" "$bundle_identifier.computer-use" "$codesign_identity" "$(uname -m)-apple-macos13.0"
@@ -106,6 +107,7 @@ if [ ! -d "$cached_helper_bundle" ]; then
   cached_helper_contents="$cached_helper_staging/Contents"
   mkdir -p "$cached_helper_contents/MacOS" "$cached_helper_contents/Resources" "$swift_module_cache"
   cp resources/computer-use/Info.plist "$cached_helper_contents/Info.plist"
+  cp "resources/$icon_file" "$cached_helper_contents/Resources/AppIcon.icns"
   cp "$menu_bar_cursor_resource" "$overlay_cursor_resource" "$cached_helper_contents/Resources/"
   printf '%s\n' "$helper_fingerprint" > "$cached_helper_contents/Resources/.shidou-helper-fingerprint"
   plutil -replace CFBundleDisplayName -string "$helper_name" "$cached_helper_contents/Info.plist"

@@ -218,11 +218,11 @@ enum SettingsPage {
 }
 
 impl SettingsPage {
-    /// Computer Use is still experimental, so only development builds expose
-    /// its navigation entry points. Keeping this decision on the page itself
-    /// makes the Settings sidebar and command palette use the same gate.
+    /// Computer Use depends on macOS privacy services. Keeping this decision on
+    /// the page itself makes the Settings sidebar and command palette use the
+    /// same platform gate.
     fn is_visible_in_navigation(self) -> bool {
-        self != Self::ComputerUse || cfg!(all(debug_assertions, target_os = "macos"))
+        self != Self::ComputerUse || cfg!(target_os = "macos")
     }
 }
 
