@@ -9,6 +9,10 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2033]
+
+- Remove queued follow-ups immediately when you tap Remove, even if the daemon response is delayed
+
 ## [0.2.13-build.2032]
 
 - Show spinners for active work, a question icon when Tasks need attention, and an x for failures while retaining idle recency
