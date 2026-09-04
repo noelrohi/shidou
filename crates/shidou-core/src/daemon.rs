@@ -1083,6 +1083,12 @@ fn accept_prompt_turn(
     prompt: &str,
     submission_id: Uuid,
 ) -> DriverEvent {
+    let title_prompt = session
+        .messages
+        .first()
+        .map(|message| message.visible_content().to_owned())
+        .unwrap_or_else(|| prompt.to_owned());
+    session.set_title_from_prompt(&title_prompt);
     let turn_id = session
         .active_turn_id()
         .unwrap_or_else(|| session.begin_turn(prompt));
@@ -3132,6 +3138,7 @@ mod tests {
         assert_eq!(turn.id, turn_id);
         assert_eq!(messages[0].id, message_id);
         assert_eq!(messages[0].content, "shown to the user");
+        assert_eq!(session.display_title(), "shown to the user");
     }
 
     #[test]
@@ -3156,6 +3163,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].id, session.messages[0].id);
         assert_eq!(messages[0].content, "author this turn");
+        assert_eq!(session.display_title(), "author this turn");
     }
 
     #[test]

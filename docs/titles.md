@@ -4,11 +4,11 @@ How each session in the sidebar gets its name: who writes the title, how Shidou
 learns about it, and when.
 
 The governing rule is that **the provider names its own session wherever it
-can**. Every coding agent except Codex already generates a title for its own
-UI, on its own cheap model, as part of work it is doing anyway. Shidou's job is
-to find that title and show it promptly — not to pay for a second opinion.
-Generating one ourselves is the exception, and it exists for exactly one
-provider that does not.
+can**. Providers that generate a title for their own UI usually do it on a
+cheap model as part of work they are doing anyway. Shidou's job is to find that
+title and show it promptly, not to pay for a second opinion. Generating one
+ourselves is the exception, and it exists only for Codex. Providers such as Pi
+and Cursor that do not generate one keep the local prompt fallback.
 
 ## The two title fields
 
@@ -28,9 +28,11 @@ A provider title therefore never overwrites a name the user typed.
 
 [`set_title_from_prompt`](../crates/shidou-protocol/src/model.rs#L964) takes the
 **first seven words** of the first prompt, capped at 54 characters, and writes
-them into `auto_title`. It is called once per session from
-[runtime.rs:2949](../src/app/runtime.rs#L2949) and no-ops if the session
-already has a second message, a user title, or any `auto_title`.
+them into `auto_title`. The Desktop Client applies it to its optimistic turn in
+[runtime.rs](../src/app/runtime.rs), and the daemon applies it again when it
+accepts the canonical turn in [daemon.rs](../crates/shidou-core/src/daemon.rs).
+It no-ops if the session already has a second message, a user title, or any
+`auto_title`.
 
 This is a placeholder, not a title. It shares the `auto_title` field precisely
 so the real one replaces it silently when it arrives — which makes **latency
@@ -80,8 +82,8 @@ title near when the provider writes it, and long enough to survive a slow start.
 | Amp | Amp | `amp threads list --json` subprocess | poll at turn end | [title_refresh.rs:53](../crates/shidou-core/src/driver/title_refresh.rs#L53) |
 | Grok Build | Grok | `summary.json` on disk | poll at turn end | [title_refresh.rs:53](../crates/shidou-core/src/driver/title_refresh.rs#L53) |
 | OpenCode | OpenCode | SSE stream | `session.updated` | [opencode.rs:894](../crates/shidou-core/src/driver/opencode.rs#L894) |
-| Pi | Pi | NDJSON stream | connect, `session_info_changed` | [pi.rs:472](../crates/shidou-core/src/driver/pi.rs#L472), [pi.rs:1214](../crates/shidou-core/src/driver/pi.rs#L1214) |
-| Oh My Pi | Oh My Pi | NDJSON stream | connect, `session_info_update` | [pi.rs:472](../crates/shidou-core/src/driver/pi.rs#L472), [pi.rs:1214](../crates/shidou-core/src/driver/pi.rs#L1214) |
+| Pi | User or extension | NDJSON stream | connect, `session_info_changed` | [pi.rs](../crates/shidou-core/src/driver/pi.rs) |
+| Oh My Pi | User or extension | NDJSON stream | connect, `session_info_update` | [pi.rs](../crates/shidou-core/src/driver/pi.rs) |
 | DeepSeek | Harness | stream + projections | `session/title`, projection replay | [deepseek.rs:782](../crates/shidou-core/src/driver/deepseek.rs#L782), [deepseek.rs:1139](../crates/shidou-core/src/driver/deepseek.rs#L1139) |
 | Kimi Code | Kimi (placeholder) | ACP stream | `session_info_update` | [acp.rs:1305](../crates/shidou-core/src/driver/acp.rs#L1305) |
 | Cursor CLI | — | — | — | none; fallback only |
@@ -199,13 +201,14 @@ All three push titles on their own streams, so there is nothing to schedule.
   with `"New session - "` are dropped ([opencode.rs:892](../crates/shidou-core/src/driver/opencode.rs#L892)):
   that is OpenCode's own placeholder, and letting it through would replace
   Shidou's prompt fallback with something strictly less useful.
-- **Pi and Oh My Pi** — `/data/sessionName` at connect, then the stream event.
+- **Pi and Oh My Pi** — neither generates a title. They expose an explicit
+  session display name set by the user, a CLI flag, RPC, or an extension.
+  Shidou reads `/data/sessionName` at connect and forwards later stream events.
   The connect read is shared, but the event is not: Pi sends
-  `session_info_changed` with the title under `name`, Oh My Pi sends
-  `session_info_update` with it under `title`, and `PiFlavor` resolves both
-  ([pi.rs:69](../crates/shidou-core/src/driver/pi.rs#L69)). Either may send an
-  empty value, which becomes `AutoTitleUpdated(None)` and clears the title back
-  to the fallback.
+  `session_info_changed` with the name under `name`, while Oh My Pi sends
+  `session_info_update` with it under `title`; `PiFlavor` resolves both
+  ([pi.rs](../crates/shidou-core/src/driver/pi.rs)). An empty update clears the
+  explicit provider name and reveals Shidou's prompt fallback again.
 - **DeepSeek** — the Harness `session/title` event, plus a `title` projection
   replayed from history at connect, so a reattached session gets its title
   without waiting for a new one.
