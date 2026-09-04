@@ -1037,6 +1037,20 @@ impl StateStore {
             .map_err(to_io_error)
     }
 
+    /// Record a queue deletion explicitly. Task snapshots merge queues by
+    /// identity, so omission from a later save cannot distinguish deletion
+    /// from a stale client that never saw the message.
+    pub fn remove_queued_message(&self, session_id: Uuid, message_id: Uuid) -> io::Result<()> {
+        self.daemon
+            .client()
+            .notify(
+                session_id,
+                Uuid::nil(),
+                Command::RemoveQueuedMessage { message_id },
+            )
+            .map_err(to_io_error)
+    }
+
     /// Set or clear the archive mark on one daemon-owned task, answering with
     /// the fresh task state the mark now lives in.
     ///

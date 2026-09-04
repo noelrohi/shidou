@@ -205,6 +205,29 @@ fn accepted_remote_turn_repairs_stale_desktop_working_indicators() {
 }
 
 #[test]
+fn desktop_queue_consumption_records_a_daemon_tombstone() {
+    let source = include_str!("runtime.rs");
+    let helper_start = source
+        .find("\n    fn take_queued_message(")
+        .expect("queue-consumption helper");
+    let helper = &source[helper_start..];
+    let helper_end = helper
+        .find("\n    pub(super) fn remove_queued_message(")
+        .expect("queue-consumption helper end");
+    let helper = &helper[..helper_end];
+    assert!(helper.contains("self.store.remove_queued_message(session_id, message_id)"));
+
+    let drain_start = source
+        .find("\n    fn drain_queued_message(")
+        .expect("queue drain");
+    let drain = &source[drain_start..];
+    let drain_end = drain
+        .find("\n    fn submit_submission_for_session(")
+        .expect("queue drain end");
+    assert!(drain[..drain_end].contains("self.take_queued_message(session_id, message_id)"));
+}
+
+#[test]
 fn composer_only_offers_stop_after_submission_preparation() {
     assert_eq!(
         composer_submit_action(Some(SessionStatus::Idle), false),
