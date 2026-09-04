@@ -103,6 +103,26 @@ final class SessionComposerTests: XCTestCase {
         XCTAssertTrue(model.currentProjection.queuedMessages.isEmpty)
     }
 
+    func testRemovingAQueuedMessageUpdatesImmediatelyWhenTheRequestFails() async throws {
+        let store = try await connect()
+        let model = try newDraft(in: store)
+        try await store.send(prompt: "Start the showcase", to: model)
+        try await waitUntil("the turn is running") { model.session.status.isBusy }
+        try await store.send(prompt: "remove me", to: model)
+        let queued = try XCTUnwrap(model.currentProjection.queuedMessages.first)
+
+        await supervisor?.stop()
+        do {
+            try await store.removeQueuedMessage(model, messageId: queued.id)
+            XCTFail("a disconnected removal should fail to reach the daemon")
+        } catch {}
+
+        XCTAssertTrue(
+            model.currentProjection.queuedMessages.isEmpty,
+            "the tapped row should disappear before the daemon acknowledges the removal"
+        )
+    }
+
     func testSteeringAddsTheMessageToTheRunningTurn() async throws {
         let store = try await connect()
         let model = try newDraft(in: store)
