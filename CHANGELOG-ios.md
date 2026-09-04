@@ -9,6 +9,10 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2034]
+
+- Render Mermaid diagrams in completed transcript code fences while keeping their source available
+
 ## [0.2.13-build.2033]
 
 - Remove queued follow-ups immediately when you tap Remove, even if the daemon response is delayed
