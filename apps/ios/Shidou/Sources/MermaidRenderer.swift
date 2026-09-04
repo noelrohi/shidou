@@ -61,7 +61,9 @@ final class MermaidStore {
             return image
         } catch {
             inFlight.removeValue(forKey: key)
-            insert(.failure, for: key)
+            if let renderError = error as? MermaidRenderError, renderError.isPermanent {
+                insert(.failure, for: key)
+            }
             throw error
         }
     }
@@ -104,43 +106,46 @@ final class MermaidStore {
     }
 }
 
-private enum MermaidRenderError: Error {
+private enum MermaidRenderError: Error, Sendable {
     case missingResources
     case invalidResponse
     case invalidDiagram
     case diagramTooTall
+    case timedOut
+
+    var isPermanent: Bool {
+        switch self {
+        case .invalidDiagram, .diagramTooTall: true
+        case .missingResources, .invalidResponse, .timedOut: false
+        }
+    }
 }
 
 /// Serialized because Mermaid owns document-global configuration and renders
 /// into one shared DOM node.
 @MainActor
 private final class MermaidRenderer: NSObject, WKNavigationDelegate {
+    private struct RenderedImage: @unchecked Sendable {
+        let value: UIImage
+    }
+
+    private enum RenderAttempt: Sendable {
+        case image(RenderedImage)
+        case failure(MermaidRenderError)
+    }
+
     private static let maximumSourceBytes = 50_000
     private static let maximumHeight: CGFloat = 2_400
+    private static let loadTimeout: Duration = .seconds(20)
+    private static let renderTimeout: Duration = .seconds(8)
 
-    private let webView: WKWebView
+    private var webView: WKWebView?
+    private var hostWindow: UIWindow?
     private var rendererURL: URL?
     private var loaded = false
     private var loadContinuation: CheckedContinuation<Void, Error>?
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    override init() {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-        webView = WKWebView(frame: .zero, configuration: configuration)
-        super.init()
-        webView.navigationDelegate = self
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-        webView.isUserInteractionEnabled = false
-        webView.isAccessibilityElement = false
-        webView.accessibilityElementsHidden = true
-    }
 
     func render(
         source: String,
@@ -152,55 +157,131 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         }
         await acquire()
         defer { release() }
-        try await loadPage()
 
+        let webView = try hostedWebView()
+        try await loadPage(in: webView)
         let renderWidth = CGFloat(max(1, width))
-        try attachToActiveWindowIfNeeded()
-        webView.frame = CGRect(x: -10_000, y: 0, width: renderWidth, height: 1)
-        let response = try await webView.callAsyncJavaScript(
-            "return await window.renderMermaid(source, appearance);",
-            arguments: ["source": source, "appearance": appearance.rawValue],
-            in: nil,
-            contentWorld: .page
-        )
+        resize(webView, to: CGSize(width: renderWidth, height: 1))
+
+        let attempt: RenderAttempt? = await withTimeout(Self.renderTimeout) {
+            await self.renderPage(
+                webView,
+                source: source,
+                width: renderWidth,
+                appearance: appearance
+            )
+        }
+        guard let attempt else {
+            retireWebView()
+            throw MermaidRenderError.timedOut
+        }
+        switch attempt {
+        case .image(let image):
+            return image.value
+        case .failure(let error):
+            if !error.isPermanent { retireWebView() }
+            throw error
+        }
+    }
+
+    private func renderPage(
+        _ webView: WKWebView,
+        source: String,
+        width: CGFloat,
+        appearance: MermaidStore.Appearance
+    ) async -> RenderAttempt {
+        let response: Any?
+        do {
+            response = try await webView.callAsyncJavaScript(
+                "return await window.renderMermaid(source, appearance);",
+                arguments: ["source": source, "appearance": appearance.rawValue],
+                in: nil,
+                contentWorld: .page
+            )
+        } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
+            return .failure(.invalidDiagram)
+        } catch {
+            return .failure(.invalidResponse)
+        }
         guard let values = response as? [String: Any],
             let height = values["height"] as? NSNumber
         else {
-            throw MermaidRenderError.invalidResponse
+            return .failure(.invalidResponse)
         }
 
         let renderHeight = ceil(CGFloat(truncating: height))
         guard renderHeight > 0, renderHeight <= Self.maximumHeight else {
-            throw MermaidRenderError.diagramTooTall
+            return .failure(.diagramTooTall)
         }
-        webView.frame.size.height = renderHeight
-        _ = try await webView.callAsyncJavaScript(
-            "return await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));",
-            arguments: [:],
-            in: nil,
-            contentWorld: .page
-        )
-
-        let snapshot = WKSnapshotConfiguration()
-        snapshot.rect = CGRect(x: 0, y: 0, width: renderWidth, height: renderHeight)
-        snapshot.snapshotWidth = NSNumber(value: Double(renderWidth))
-        return try await webView.takeSnapshot(configuration: snapshot)
+        resize(webView, to: CGSize(width: width, height: renderHeight))
+        do {
+            _ = try await webView.callAsyncJavaScript(
+                "return await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));",
+                arguments: [:],
+                in: nil,
+                contentWorld: .page
+            )
+            let snapshot = WKSnapshotConfiguration()
+            snapshot.rect = CGRect(x: 0, y: 0, width: width, height: renderHeight)
+            snapshot.snapshotWidth = NSNumber(value: Double(width))
+            snapshot.afterScreenUpdates = true
+            return .image(RenderedImage(value: try await webView.takeSnapshot(configuration: snapshot)))
+        } catch {
+            return .failure(.invalidResponse)
+        }
     }
 
-    private func attachToActiveWindowIfNeeded() throws {
-        guard webView.superview == nil else { return }
-        let windows = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else {
+    private func hostedWebView() throws -> WKWebView {
+        if let webView, webView.window != nil { return webView }
+        retireWebView()
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive })
+            ?? scenes.first
+        else {
             throw MermaidRenderError.invalidResponse
         }
-        // Mermaid measures SVG text while rendering. WKWebView does not finish
-        // that work when detached from a view hierarchy on iOS 26.
+
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        let webView = WKWebView(
+            frame: CGRect(x: 0, y: 0, width: 320, height: 1),
+            configuration: configuration
+        )
+        webView.navigationDelegate = self
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.isUserInteractionEnabled = false
+        webView.isAccessibilityElement = false
+        webView.accessibilityElementsHidden = true
+
+        // WebKit only finishes Mermaid's SVG measurement and rasterization in
+        // a window. This covered window keeps the renderer hosted without
+        // putting a web view in every transcript row.
+        let window = UIWindow(windowScene: scene)
+        window.frame = webView.frame
+        window.windowLevel = .normal - 1
+        window.isUserInteractionEnabled = false
+        window.accessibilityElementsHidden = true
         window.addSubview(webView)
+        window.isHidden = false
+        hostWindow = window
+        self.webView = webView
+        return webView
     }
 
-    private func loadPage() async throws {
+    private func resize(_ webView: WKWebView, to size: CGSize) {
+        hostWindow?.frame = CGRect(origin: .zero, size: size)
+        webView.frame = CGRect(origin: .zero, size: size)
+        webView.layoutIfNeeded()
+        webView.scrollView.contentOffset = .zero
+    }
+
+    private func loadPage(in webView: WKWebView) async throws {
         if loaded { return }
         guard let url = Bundle.main.url(
             forResource: "mermaid-renderer", withExtension: "html"
@@ -208,9 +289,53 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
             throw MermaidRenderError.missingResources
         }
         rendererURL = url
-        try await withCheckedThrowingContinuation { continuation in
-            loadContinuation = continuation
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        let didLoad: Bool? = await withTimeout(Self.loadTimeout) {
+            do {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.loadContinuation = continuation
+                    webView.loadFileURL(
+                        url,
+                        allowingReadAccessTo: url.deletingLastPathComponent()
+                    )
+                }
+                return true
+            } catch {
+                return false
+            }
+        }
+        guard didLoad == true else {
+            retireWebView()
+            throw didLoad == nil ? MermaidRenderError.timedOut : MermaidRenderError.invalidResponse
+        }
+    }
+
+    private func retireWebView() {
+        let continuation = loadContinuation
+        loadContinuation = nil
+        loaded = false
+        rendererURL = nil
+        webView?.navigationDelegate = nil
+        webView?.stopLoading()
+        webView?.removeFromSuperview()
+        hostWindow?.isHidden = true
+        webView = nil
+        hostWindow = nil
+        continuation?.resume(throwing: MermaidRenderError.invalidResponse)
+    }
+
+    private func withTimeout<T: Sendable>(
+        _ duration: Duration,
+        operation: @escaping @MainActor () async -> T
+    ) async -> T? {
+        await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            let deadline = Task { @MainActor in
+                try? await Task.sleep(for: duration)
+                once.resume(nil)
+            }
+            Task { @MainActor in
+                if once.resume(await operation()) { deadline.cancel() }
+            }
         }
     }
 
@@ -231,9 +356,11 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard self.webView === webView, webView.url == rendererURL else { return }
         loaded = true
-        loadContinuation?.resume()
+        let continuation = loadContinuation
         loadContinuation = nil
+        continuation?.resume()
     }
 
     func webView(
@@ -241,8 +368,7 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         didFail navigation: WKNavigation!,
         withError error: Error
     ) {
-        loadContinuation?.resume(throwing: error)
-        loadContinuation = nil
+        failLoad(webView, error: error)
     }
 
     func webView(
@@ -250,8 +376,19 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        loadContinuation?.resume(throwing: error)
+        failLoad(webView, error: error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard self.webView === webView else { return }
+        retireWebView()
+    }
+
+    private func failLoad(_ webView: WKWebView, error: Error) {
+        guard self.webView === webView else { return }
+        let continuation = loadContinuation
         loadContinuation = nil
+        continuation?.resume(throwing: error)
     }
 
     func webView(
@@ -259,7 +396,26 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
-        let allowed = navigationAction.request.url == rendererURL
+        let allowed = self.webView === webView
+            && navigationAction.targetFrame?.isMainFrame == true
+            && navigationAction.request.url == rendererURL
+            && !loaded
         decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    private final class ResumeOnce<T: Sendable> {
+        private var continuation: CheckedContinuation<T?, Never>?
+
+        init(_ continuation: CheckedContinuation<T?, Never>) {
+            self.continuation = continuation
+        }
+
+        @discardableResult
+        func resume(_ value: T?) -> Bool {
+            guard let continuation else { return false }
+            self.continuation = nil
+            continuation.resume(returning: value)
+            return true
+        }
     }
 }

@@ -43,4 +43,26 @@ final class MermaidRendererTests: XCTestCase {
             XCTFail("Mermaid render remained loading")
         }
     }
+
+    func testInvalidDiagramDoesNotPoisonFollowingRender() async throws {
+        let store = MermaidStore()
+        do {
+            _ = try await store.image(
+                source: "not a diagram",
+                width: 320,
+                appearance: .dark
+            )
+            XCTFail("Invalid Mermaid source rendered")
+        } catch {
+            // Invalid source is an expected, cacheable failure.
+        }
+
+        let image = try await store.image(
+            source: "graph TD\nA --> B",
+            width: 320,
+            appearance: .dark
+        )
+        XCTAssertGreaterThan(image.size.width, 0)
+        XCTAssertGreaterThan(image.size.height, 0)
+    }
 }
