@@ -137,6 +137,9 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
+        webView.isUserInteractionEnabled = false
+        webView.isAccessibilityElement = false
+        webView.accessibilityElementsHidden = true
     }
 
     func render(
@@ -152,7 +155,8 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         try await loadPage()
 
         let renderWidth = CGFloat(max(1, width))
-        webView.frame = CGRect(x: 0, y: 0, width: renderWidth, height: 1)
+        try attachToActiveWindowIfNeeded()
+        webView.frame = CGRect(x: -10_000, y: 0, width: renderWidth, height: 1)
         let response = try await webView.callAsyncJavaScript(
             "return await window.renderMermaid(source, appearance);",
             arguments: ["source": source, "appearance": appearance.rawValue],
@@ -181,6 +185,19 @@ private final class MermaidRenderer: NSObject, WKNavigationDelegate {
         snapshot.rect = CGRect(x: 0, y: 0, width: renderWidth, height: renderHeight)
         snapshot.snapshotWidth = NSNumber(value: Double(renderWidth))
         return try await webView.takeSnapshot(configuration: snapshot)
+    }
+
+    private func attachToActiveWindowIfNeeded() throws {
+        guard webView.superview == nil else { return }
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else {
+            throw MermaidRenderError.invalidResponse
+        }
+        // Mermaid measures SVG text while rendering. WKWebView does not finish
+        // that work when detached from a view hierarchy on iOS 26.
+        window.addSubview(webView)
     }
 
     private func loadPage() async throws {

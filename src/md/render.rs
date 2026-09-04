@@ -2323,8 +2323,8 @@ mod tests {
     fn code_block_rendering_wraps_and_exposes_a_keyboard_copy_control() {
         let source = include_str!("render.rs");
         let start = source
-            .find("\nfn render_code_block(")
-            .expect("code block renderer");
+            .find("\nfn code_copy_button(")
+            .expect("code block controls");
         let body = &source[start + 1..];
         let end = body
             .find("\nfn code_runs(")
