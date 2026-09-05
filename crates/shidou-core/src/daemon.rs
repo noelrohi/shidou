@@ -988,8 +988,8 @@ impl Backend for ShidouBackend {
 
     fn runtime_ended(&self, session_id: Uuid, runtime_id: Uuid) {
         self.reducers.lock().remove(&(session_id, runtime_id));
-        // A restart has already minted the replacement credential; only a
-        // Task with no live runtime loses its token.
+        // A restart has already retired the old grant and may have minted a
+        // replacement; an old runtime ending must not revoke the new grant.
         let live_elsewhere = self
             .sessions
             .lock()
@@ -1885,6 +1885,9 @@ impl ShidouBackend {
     }
 
     fn runtime_task_credential(&self, session_id: Uuid) -> Option<shidou_protocol::TaskCredential> {
+        // Every runtime start retires the previous grant, including starts that
+        // receive no replacement credential while Subtasks is disabled.
+        self.credentials.revoke(session_id);
         let enabled = self.settings.get().subtasks_enabled;
         let state = self.task_state.lock();
         let parent = state
@@ -2890,6 +2893,42 @@ mod tests {
         assert_eq!(saved.sessions[0].status, SessionStatus::Idle);
         assert_eq!(saved.sessions[0].runtime_event_cursor.unwrap().sequence, 2);
         drop(store);
+        drop(backend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn uncredentialed_restart_revokes_the_previous_task_token() {
+        let (root, backend) = test_backend("uncredentialed-restart");
+        *backend.listen_address.lock() = Some("127.0.0.1:1".into());
+        let parent = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let parent_id = parent.id;
+        backend.task_state.lock().push_session(parent);
+        let previous = backend.runtime_task_credential(parent_id).unwrap();
+
+        let mut settings = backend.settings.get();
+        settings.subtasks_enabled = false;
+        backend.settings.replace(settings.clone()).unwrap();
+        // Disabling alone preserves a running agent's scoped management access.
+        assert_eq!(
+            backend.credentials.task_for_token(&previous.token),
+            Some(parent_id)
+        );
+
+        // A replacement runtime with no children receives no credential.
+        assert!(backend.runtime_task_credential(parent_id).is_none());
+        assert_eq!(backend.credentials.task_for_token(&previous.token), None);
+        settings.subtasks_enabled = true;
+        backend.settings.replace(settings).unwrap();
+        assert_eq!(backend.credentials.task_for_token(&previous.token), None);
+
+        let replacement = backend.runtime_task_credential(parent_id).unwrap();
+        assert_ne!(replacement.token, previous.token);
+        assert_eq!(
+            backend.credentials.task_for_token(&replacement.token),
+            Some(parent_id)
+        );
+        assert_eq!(backend.credentials.task_for_token(&previous.token), None);
         drop(backend);
         std::fs::remove_dir_all(root).unwrap();
     }
