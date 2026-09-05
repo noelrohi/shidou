@@ -101,19 +101,15 @@ jobs:
             pkg-config \
             xdg-desktop-portal
 
-      - uses: actions/cache@v6
+      # Dependency-only cache: omit bundles, workspace binaries and incremental
+      # state. Only master dispatches save; tag builds can restore master's cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ubuntu-22.04-rust-1.96.0-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ubuntu-22.04-rust-1.96.0-release-
+          key: ubuntu-22.04-release
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      # `target/` is restored from the release cache, so the previous
-      # release's bundles are still sitting in `target/release` when this one
-      # starts. Cargo does not own them, so nothing else clears them.
+      # Defensive cleanup; bundles are not part of the dependency cache.
       - name: Clear stale bundles
         run: rm -f target/release/shidou-*.tar.gz
 
@@ -157,19 +153,13 @@ jobs:
             pkg-config \
             xdg-desktop-portal
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ubuntu-22.04-arm-rust-1.96.0-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ubuntu-22.04-arm-rust-1.96.0-release-
+          key: ubuntu-22.04-arm-release
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      # `target/` is restored from the release cache, so the previous
-      # release's bundles are still sitting in `target/release` when this one
-      # starts. Cargo does not own them, so nothing else clears them.
+      # Defensive cleanup; bundles are not part of the dependency cache.
       - name: Clear stale bundles
         run: rm -f target/release/shidou-*.tar.gz
 
@@ -202,19 +192,13 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: windows-latest-rust-1.96.0-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            windows-latest-rust-1.96.0-release-
+          key: windows-latest-release
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      # `target/` is restored from the release cache, so the previous
-      # release's bundles are still sitting in `target/release` when this one
-      # starts. Cargo does not own them, so nothing else clears them.
+      # Defensive cleanup; bundles are not part of the dependency cache.
       - name: Clear stale bundles
         run: Remove-Item -Force -ErrorAction SilentlyContinue target/release/shidou-*.zip, target/release/Shidou-*-Setup.exe
 
@@ -252,19 +236,13 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: windows-11-arm-rust-1.96.0-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            windows-11-arm-rust-1.96.0-release-
+          key: windows-11-arm-release
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      # `target/` is restored from the release cache, so the previous
-      # release's bundles are still sitting in `target/release` when this one
-      # starts. Cargo does not own them, so nothing else clears them.
+      # Defensive cleanup; bundles are not part of the dependency cache.
       - name: Clear stale bundles
         run: Remove-Item -Force -ErrorAction SilentlyContinue target/release/shidou-*.zip, target/release/Shidou-*-Setup.exe
 
@@ -301,15 +279,11 @@ jobs:
       - name: Install create-dmg
         run: brew install create-dmg
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: macos-latest-rust-1.96.0-release-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            macos-latest-rust-1.96.0-release-
+          key: macos-latest-release
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Import Apple Developer Certificate
         env:
