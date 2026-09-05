@@ -11,6 +11,8 @@ use crate::model::ProviderKind;
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, TS)]
 #[serde(default)]
 pub struct DaemonSettings {
+    /// Allow agents to create Child Tasks. Existing children remain available.
+    pub subtasks_enabled: bool,
     pub computer_use_enabled: bool,
     pub computer_use_allowed_apps: Vec<ComputerAppGrant>,
     /// Ask one-shot commit-message generation for Conventional Commit subjects.
@@ -25,6 +27,7 @@ pub struct DaemonSettings {
 impl Default for DaemonSettings {
     fn default() -> Self {
         Self {
+            subtasks_enabled: true,
             computer_use_enabled: false,
             computer_use_allowed_apps: Vec::new(),
             conventional_commit_messages: false,

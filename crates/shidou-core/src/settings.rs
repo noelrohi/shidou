@@ -111,6 +111,21 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
+    fn subtasks_default_on_and_remain_disabled_after_reopening() {
+        let path = std::env::temp_dir().join(format!("shidou-settings-{}.json", Uuid::new_v4()));
+        fs::write(&path, r#"{"computer_use_enabled":true}"#).unwrap();
+        let store = DaemonSettingsStore::open(path.clone()).unwrap();
+        let mut settings = store.get();
+        assert!(settings.subtasks_enabled);
+        settings.subtasks_enabled = false;
+        store.replace(settings).unwrap();
+        let reopened = DaemonSettingsStore::open(path.clone()).unwrap().get();
+        assert!(!reopened.subtasks_enabled);
+        assert!(reopened.computer_use_enabled);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn legacy_combined_settings_keep_only_daemon_fields() {
         let path = std::env::temp_dir().join(format!("shidou-settings-{}.json", Uuid::new_v4()));
         fs::write(

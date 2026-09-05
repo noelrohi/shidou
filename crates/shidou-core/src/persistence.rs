@@ -62,6 +62,10 @@ fn default_computer_use_enabled() -> bool {
     false
 }
 
+fn default_subtasks_enabled() -> bool {
+    true
+}
+
 fn default_analytics_enabled() -> bool {
     true
 }
@@ -278,6 +282,8 @@ pub struct PersistedState {
     pub right_panel_width: f32,
     #[serde(default = "default_computer_use_enabled")]
     pub computer_use_enabled: bool,
+    #[serde(default = "default_subtasks_enabled")]
+    pub subtasks_enabled: bool,
     #[serde(default)]
     pub computer_use_allowed_apps: Vec<ComputerAppGrant>,
     #[serde(default)]
@@ -345,6 +351,7 @@ impl PersistedState {
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             right_panel_width: DEFAULT_RIGHT_PANEL_WIDTH,
             computer_use_enabled: false,
+            subtasks_enabled: true,
             computer_use_allowed_apps: Vec::new(),
             conventional_commit_messages: false,
             disabled_providers: Vec::new(),
@@ -443,6 +450,7 @@ impl PersistedState {
     pub fn daemon_settings(&self) -> crate::DaemonSettings {
         crate::DaemonSettings {
             computer_use_enabled: self.computer_use_enabled,
+            subtasks_enabled: self.subtasks_enabled,
             computer_use_allowed_apps: self.computer_use_allowed_apps.clone(),
             conventional_commit_messages: self.conventional_commit_messages,
             disabled_providers: self.disabled_providers.clone(),
@@ -479,6 +487,7 @@ impl PersistedState {
 
     pub fn apply_daemon_settings(&mut self, settings: crate::DaemonSettings) {
         self.computer_use_enabled = settings.computer_use_enabled;
+        self.subtasks_enabled = settings.subtasks_enabled;
         self.computer_use_allowed_apps = settings.computer_use_allowed_apps;
         self.conventional_commit_messages = settings.conventional_commit_messages;
         self.disabled_providers = settings.disabled_providers;

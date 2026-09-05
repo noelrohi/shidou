@@ -815,13 +815,6 @@ impl Backend for ShidouBackend {
                 }
                 drop(previous);
                 let provider = decode_enum(&options.provider)?;
-                let may_orchestrate = self
-                    .task_state
-                    .lock()
-                    .sessions
-                    .iter()
-                    .find(|session| session.id == session_id)
-                    .is_some_and(|session| session.parent_task_id.is_none());
                 let options = DriverStartOptions {
                     binary: options.binary,
                     cwd: options.cwd,
@@ -838,14 +831,7 @@ impl Backend for ShidouBackend {
                         .map(serde_json::from_value)
                         .transpose()
                         .context("daemon received an invalid provider cursor")?,
-                    task_credential: if may_orchestrate {
-                        self.listen_address
-                            .lock()
-                            .as_deref()
-                            .map(|address| self.credentials.mint(session_id, address))
-                    } else {
-                        None
-                    },
+                    task_credential: self.runtime_task_credential(session_id),
                 };
                 let (wake, _wake_events) = smol::channel::bounded(1);
                 let (event_sender, event_receiver) = driver::event_channel(wake);
@@ -1002,8 +988,8 @@ impl Backend for ShidouBackend {
 
     fn runtime_ended(&self, session_id: Uuid, runtime_id: Uuid) {
         self.reducers.lock().remove(&(session_id, runtime_id));
-        // A restart has already minted the replacement credential; only a
-        // Task with no live runtime loses its token.
+        // A restart has already retired the old grant and may have minted a
+        // replacement; an old runtime ending must not revoke the new grant.
         let live_elsewhere = self
             .sessions
             .lock()
@@ -1898,11 +1884,45 @@ impl ShidouBackend {
         driver.rollback(rollback_turns)
     }
 
+    fn runtime_task_credential(&self, session_id: Uuid) -> Option<shidou_protocol::TaskCredential> {
+        // Every runtime start retires the previous grant, including starts that
+        // receive no replacement credential while Subtasks is disabled.
+        self.credentials.revoke(session_id);
+        let enabled = self.settings.get().subtasks_enabled;
+        let state = self.task_state.lock();
+        let parent = state
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)?;
+        if parent.parent_task_id.is_some()
+            || (!enabled
+                && !state
+                    .sessions
+                    .iter()
+                    .any(|session| session.parent_task_id == Some(session_id)))
+        {
+            return None;
+        }
+        drop(state);
+        // A disabled parent still needs scoped access to its existing children
+        // after restart, but must not be taught to create or delegate new work.
+        let mut credential = self
+            .credentials
+            .mint(session_id, self.listen_address.lock().as_deref()?);
+        credential.subtasks_enabled = enabled;
+        Some(credential)
+    }
+
     /// Open a Task under `parent_task_id` for the parent's agent, in the same
     /// project and workspace, and resolve everything its runtime needs to
     /// start. The caller starts and prompts it through the ordinary commands.
     fn create_child_task(&self, request: ChildTaskRequest) -> anyhow::Result<ResponsePayload> {
         use crate::orchestration::MAX_ACTIVE_CHILDREN;
+        // Check at creation, not just runtime start: already-running agents
+        // retain credentials so they can keep working with existing children.
+        if !self.settings.get().subtasks_enabled {
+            return Err(RpcError::refused("Subtasks are disabled in Settings → Features").into());
+        }
         let ChildTaskRequest {
             parent_task_id,
             provider,
@@ -2878,8 +2898,45 @@ mod tests {
     }
 
     #[test]
+    fn uncredentialed_restart_revokes_the_previous_task_token() {
+        let (root, backend) = test_backend("uncredentialed-restart");
+        *backend.listen_address.lock() = Some("127.0.0.1:1".into());
+        let parent = AgentSession::new(Uuid::new_v4(), ProviderKind::Claude);
+        let parent_id = parent.id;
+        backend.task_state.lock().push_session(parent);
+        let previous = backend.runtime_task_credential(parent_id).unwrap();
+
+        let mut settings = backend.settings.get();
+        settings.subtasks_enabled = false;
+        backend.settings.replace(settings.clone()).unwrap();
+        // Disabling alone preserves a running agent's scoped management access.
+        assert_eq!(
+            backend.credentials.task_for_token(&previous.token),
+            Some(parent_id)
+        );
+
+        // A replacement runtime with no children receives no credential.
+        assert!(backend.runtime_task_credential(parent_id).is_none());
+        assert_eq!(backend.credentials.task_for_token(&previous.token), None);
+        settings.subtasks_enabled = true;
+        backend.settings.replace(settings).unwrap();
+        assert_eq!(backend.credentials.task_for_token(&previous.token), None);
+
+        let replacement = backend.runtime_task_credential(parent_id).unwrap();
+        assert_ne!(replacement.token, previous.token);
+        assert_eq!(
+            backend.credentials.task_for_token(&replacement.token),
+            Some(parent_id)
+        );
+        assert_eq!(backend.credentials.task_for_token(&previous.token), None);
+        drop(backend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn child_tasks_inherit_the_parents_place_and_never_exceed_its_access() {
         let (root, backend) = test_backend("child-task");
+        *backend.listen_address.lock() = Some("127.0.0.1:1".into());
         let project = Project::from_path(root.join("repo"));
         let mut parent = AgentSession::new(project.id, ProviderKind::Claude);
         parent.runtime_mode = RuntimeMode::Ask;
@@ -2898,6 +2955,19 @@ mod tests {
             state.push_session(parent);
             backend.task_store.save(&mut state).unwrap();
         }
+
+        let mut settings = backend.settings.get();
+        settings.subtasks_enabled = false;
+        backend.settings.replace(settings.clone()).unwrap();
+        assert!(backend.runtime_task_credential(parent_id).is_none());
+        settings.subtasks_enabled = true;
+        backend.settings.replace(settings).unwrap();
+        assert!(
+            backend
+                .runtime_task_credential(parent_id)
+                .unwrap()
+                .subtasks_enabled
+        );
 
         let ResponsePayload::ChildTaskCreated {
             session: child,
@@ -2925,6 +2995,61 @@ mod tests {
         assert_eq!(start_options.binary, provider_binary);
         assert_eq!(start_options.mode, "ask");
         assert_eq!(backend.task_parent(child.id), Some(parent_id));
+        assert!(
+            backend
+                .runtime_task_credential(parent_id)
+                .unwrap()
+                .subtasks_enabled
+        );
+        assert!(backend.runtime_task_credential(child.id).is_none());
+        assert!(backend.runtime_task_credential(Uuid::new_v4()).is_none());
+
+        // Disabling takes effect even for credentials minted before the change.
+        let credential = backend.credentials.mint(parent_id, "ws://127.0.0.1:1");
+        let mut settings = backend.settings.get();
+        settings.subtasks_enabled = false;
+        backend.settings.replace(settings.clone()).unwrap();
+        assert!(backend.runtime_task_credential(child.id).is_none());
+        let count = backend.task_state.lock().sessions.len();
+        let refused = backend
+            .create_child_task(ChildTaskRequest::plain(parent_id))
+            .unwrap_err();
+        assert!(
+            refused
+                .downcast_ref::<RpcError>()
+                .is_some_and(RpcError::is_refusal)
+        );
+        assert!(refused.to_string().contains("Subtasks are disabled"));
+        assert_eq!(backend.task_state.lock().sessions.len(), count);
+        assert_eq!(backend.task_parent(child.id), Some(parent_id));
+        assert_eq!(
+            backend.credentials.task_for_token(&credential.token),
+            Some(parent_id)
+        );
+        let restarted = backend.runtime_task_credential(parent_id).unwrap();
+        assert!(!restarted.subtasks_enabled);
+        assert!(
+            backend
+                .create_child_task(ChildTaskRequest::plain(parent_id))
+                .is_err()
+        );
+        assert_eq!(backend.task_parent(child.id), Some(parent_id));
+        assert_eq!(backend.credentials.task_for_token(&credential.token), None);
+        assert_eq!(
+            backend.credentials.task_for_token(&restarted.token),
+            Some(parent_id)
+        );
+        settings.subtasks_enabled = true;
+        backend.settings.replace(settings).unwrap();
+        assert!(
+            backend
+                .runtime_task_credential(parent_id)
+                .unwrap()
+                .subtasks_enabled
+        );
+        backend
+            .create_child_task(ChildTaskRequest::plain(parent_id))
+            .unwrap();
 
         // Child Tasks execute their assigned work directly; only a root Task
         // may orchestrate further Tasks.

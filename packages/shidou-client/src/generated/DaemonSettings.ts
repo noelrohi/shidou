@@ -3,7 +3,11 @@ import type { ComputerAppGrant } from "./ComputerAppGrant";
 import type { ProviderKind } from "./ProviderKind";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type DaemonSettings = { computer_use_enabled: boolean, computer_use_allowed_apps: Array<ComputerAppGrant>,
+export type DaemonSettings = {
+/**
+ * Allow agents to create Child Tasks. Existing children remain available.
+ */
+subtasks_enabled: boolean, computer_use_enabled: boolean, computer_use_allowed_apps: Array<ComputerAppGrant>,
 /**
  * Ask one-shot commit-message generation for Conventional Commit subjects.
  */

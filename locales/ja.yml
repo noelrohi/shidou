@@ -90,15 +90,19 @@ settings.appearance: 外観
 settings.providers: プロバイダー
 settings.usage: 使用状況
 settings.daemon: デーモン
-settings.computer_use: コンピュータ操作
+settings.features: 機能
+settings.sidebar_provider_icons: サイドバーのプロバイダーアイコン
+settings.sidebar_provider_icons_description: サイドバーに各タスクのプロバイダーアイコンを表示
+features.subtasks: サブタスク
+features.subtasks_description: エージェントによる子タスクの作成を許可します。オフにすると新しい子タスクの作成は直ちに停止しますが、既存の子タスクは引き続き利用できます。オーケストレーションの指示はエージェントの次回起動時に変わります。
 settings.general_keywords: 一般 ローカル プロジェクト 会話 プライバシー 分析 テレメトリ 匿名 共有 アップデート 自動 バージョン Git コミット Conventional メッセージ
-settings.appearance_keywords: 外観 テーマ システム ライト ダーク 言語 英語 中国語 簡体字 日本語 フォント サイズ 文字 エディタ
+settings.appearance_keywords: 外観 テーマ システム ライト ダーク 言語 英語 中国語 簡体字 日本語 フォント サイズ 文字 エディタ サイドバー プロバイダー アイコン
 settings.providers_keywords: プロバイダー エージェント モデル CLI バージョン インストール 検出 claude codex cursor opencode amp grok pi
 settings.skills: スキル
 settings.skills_keywords: スキル ライブラリ エージェント 無効 有効 削除 claude codex cursor opencode pi amp 共有
 settings.usage_keywords: 使用状況 トークン コスト 支出 キャッシュ 日別 グラフ モデル 内訳 履歴 claude codex
 settings.daemon_keywords: デーモン サーバー リモート ウェブ ネットワーク 公開 オリジン トークン ポート websocket
-settings.computer_use_keywords: コンピュータ 操作 画面収録 アクセシビリティ アプリ 制御 codex
+settings.features_keywords: 機能 サブタスク 子タスク コンピュータ 操作 画面収録 アクセシビリティ アプリ 制御 codex subtasks computer use
 settings.back: 戻る
 settings.search: 設定を検索
 daemon.expose_title: 管理対象デーモンを公開

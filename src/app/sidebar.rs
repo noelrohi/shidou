@@ -2062,14 +2062,16 @@ impl Shidou {
                 .child(SharedString::from(localized_session_title(session)))
                 .into_any_element()
         };
-        let provider_mark = div()
-            .id(SharedString::from(format!("session-provider-{session_id}")))
-            .flex_none()
-            .child(icon(
-                provider_icon(session.provider),
-                14.0,
-                theme.text_tertiary,
-            ));
+        let provider_mark = self.state.sidebar_provider_icons_enabled.then(|| {
+            div()
+                .id(SharedString::from(format!("session-provider-{session_id}")))
+                .flex_none()
+                .child(icon(
+                    provider_icon(session.provider),
+                    14.0,
+                    theme.text_tertiary,
+                ))
+        });
         let trailing = match session.status {
             SessionStatus::Connecting | SessionStatus::Working => Some((
                 motion::spin_slow(icon("icons/loader-circle.svg", 12.0, theme.text_secondary)),
@@ -2115,7 +2117,7 @@ impl Shidou {
             .gap(px(9.0))
             .overflow_hidden()
             .line_height(sp(18.0))
-            .child(provider_mark)
+            .when_some(provider_mark, |element, mark| element.child(mark))
             .child(title)
             .when_some(trailing, |element, trailing| element.child(trailing))
             .into_any_element();

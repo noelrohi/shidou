@@ -57,10 +57,10 @@ const SETTINGS_PAGES: [(SettingsPage, &str, &str, &str); 7] = [
         "settings.daemon_keywords",
     ),
     (
-        SettingsPage::ComputerUse,
-        "settings.computer_use",
+        SettingsPage::Features,
+        "settings.features",
         "icons/cursor-spark.svg",
-        "settings.computer_use_keywords",
+        "settings.features_keywords",
     ),
 ];
 
@@ -360,7 +360,7 @@ impl Shidou {
                         SettingsPage::Skills => tr!("settings.skills"),
                         SettingsPage::Usage => tr!("settings.usage"),
                         SettingsPage::Daemon => tr!("settings.daemon"),
-                        SettingsPage::ComputerUse => tr!("settings.computer_use"),
+                        SettingsPage::Features => tr!("settings.features"),
                         SettingsPage::Appearance => tr!("settings.appearance"),
                     }),
             )
@@ -370,7 +370,7 @@ impl Shidou {
                 SettingsPage::Skills => self.render_skills_settings(cx),
                 SettingsPage::Usage => self.render_usage_settings(cx),
                 SettingsPage::Daemon => self.render_daemon_settings(cx),
-                SettingsPage::ComputerUse => self.render_computer_use_settings(cx),
+                SettingsPage::Features => self.render_features_settings(cx),
                 SettingsPage::Appearance => self.render_appearance_settings(cx),
             });
 
@@ -1555,6 +1555,19 @@ impl Shidou {
         let theme = Theme::current(cx);
         let selected_theme = self.state.theme;
         let selected_language = self.state.language;
+        let provider_icons_toggle = toggle_switch(
+            "sidebar-provider-icons-toggle",
+            self.state.sidebar_provider_icons_enabled,
+            false,
+            theme,
+            cx,
+            |this, _, cx| {
+                this.state.sidebar_provider_icons_enabled =
+                    !this.state.sidebar_provider_icons_enabled;
+                this.save();
+                cx.notify();
+            },
+        );
         let weak = cx.entity().downgrade();
         let theme_handle = self.menu_handle("theme-selector", cx);
         let theme_selector = dropdown_menu(
@@ -1803,6 +1816,38 @@ impl Shidou {
                             ),
                     )
                     .child(code_font_size_selector),
+            )
+            .child(div().mx(px(20.0)).h(px(1.0)).bg(theme.border))
+            .child(
+                div()
+                    .w_full()
+                    .min_h(px(60.0))
+                    .px(px(20.0))
+                    .py(px(12.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(24.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_size(sp(13.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.text)
+                                    .child(tr!("settings.sidebar_provider_icons")),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(5.0))
+                                    .text_size(sp(12.5))
+                                    .line_height(sp(18.0))
+                                    .text_color(theme.text_secondary)
+                                    .child(tr!("settings.sidebar_provider_icons_description")),
+                            ),
+                    )
+                    .child(provider_icons_toggle),
             )
             .into_any_element()
     }
@@ -2313,6 +2358,62 @@ impl Shidou {
         cx.notify();
     }
 
+    fn render_features_settings(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = Theme::current(cx);
+        let enabled = self.state.subtasks_enabled;
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(12.0))
+            .child(
+                div()
+                    .px(px(20.0))
+                    .py(px(14.0))
+                    .rounded(px(13.0))
+                    .bg(theme.raised)
+                    .flex()
+                    .items_center()
+                    .gap(px(20.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_size(sp(13.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.text)
+                                    .child(tr!("features.subtasks")),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(5.0))
+                                    .text_size(sp(12.5))
+                                    .line_height(sp(18.0))
+                                    .text_color(theme.text_secondary)
+                                    .child(tr!("features.subtasks_description")),
+                            ),
+                    )
+                    .child(toggle_switch(
+                        "subtasks-enabled",
+                        enabled,
+                        false,
+                        theme,
+                        cx,
+                        move |this, _, cx| {
+                            this.state.subtasks_enabled = !enabled;
+                            this.save();
+                            cx.notify();
+                        },
+                    )),
+            )
+            .when(cfg!(target_os = "macos"), |element| {
+                element.child(self.render_computer_use_settings(cx))
+            })
+            .into_any_element()
+    }
+
     fn render_computer_use_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = Theme::current(cx);
         let enabled = self.state.computer_use_enabled;
@@ -2539,7 +2640,7 @@ impl Shidou {
     }
 
     pub(super) fn request_computer_permissions(&mut self, prompt: bool, cx: &mut Context<Self>) {
-        if self.computer_permission_request_pending {
+        if !cfg!(target_os = "macos") || self.computer_permission_request_pending {
             return;
         }
         self.computer_permission_request_pending = true;

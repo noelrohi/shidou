@@ -62,6 +62,10 @@ fn default_computer_use_enabled() -> bool {
     false
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 fn default_ui_font_size() -> f32 {
     DEFAULT_UI_FONT_SIZE
 }
@@ -250,6 +254,7 @@ pub enum ReviewDiffMode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AppSettings {
+    pub sidebar_provider_icons_enabled: bool,
     pub analytics_enabled: bool,
     pub favorite_models: Vec<FavoriteModel>,
     pub theme: ThemePreference,
@@ -272,6 +277,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            sidebar_provider_icons_enabled: true,
             analytics_enabled: default_analytics_enabled(),
             favorite_models: Vec::new(),
             theme: ThemePreference::System,
@@ -416,6 +422,10 @@ pub struct PersistedState {
     pub window_state: Option<PersistedWindowState>,
     #[serde(default = "default_computer_use_enabled")]
     pub computer_use_enabled: bool,
+    #[serde(default = "default_enabled")]
+    pub subtasks_enabled: bool,
+    #[serde(default = "default_enabled")]
+    pub sidebar_provider_icons_enabled: bool,
     #[serde(default)]
     pub computer_use_allowed_apps: Vec<ComputerAppGrant>,
     #[serde(default)]
@@ -480,6 +490,8 @@ impl PersistedState {
             review_diff_mode: ReviewDiffMode::default(),
             window_state: None,
             computer_use_enabled: false,
+            subtasks_enabled: true,
+            sidebar_provider_icons_enabled: true,
             computer_use_allowed_apps: Vec::new(),
             conventional_commit_messages: false,
             disabled_providers: Vec::new(),
@@ -570,6 +582,7 @@ impl PersistedState {
     pub fn daemon_settings(&self) -> DaemonSettings {
         DaemonSettings {
             computer_use_enabled: self.computer_use_enabled,
+            subtasks_enabled: self.subtasks_enabled,
             computer_use_allowed_apps: self.computer_use_allowed_apps.clone(),
             conventional_commit_messages: self.conventional_commit_messages,
             disabled_providers: self.disabled_providers.clone(),
@@ -580,6 +593,7 @@ impl PersistedState {
 
     pub fn apply_daemon_settings(&mut self, settings: DaemonSettings) {
         self.computer_use_enabled = settings.computer_use_enabled;
+        self.subtasks_enabled = settings.subtasks_enabled;
         self.computer_use_allowed_apps = settings.computer_use_allowed_apps;
         self.conventional_commit_messages = settings.conventional_commit_messages;
         self.disabled_providers = settings.disabled_providers;
@@ -589,6 +603,7 @@ impl PersistedState {
 
     fn app_settings(&self) -> AppSettings {
         AppSettings {
+            sidebar_provider_icons_enabled: self.sidebar_provider_icons_enabled,
             analytics_enabled: self.analytics_enabled,
             favorite_models: self.favorite_models.clone(),
             theme: self.theme,
@@ -627,6 +642,7 @@ impl PersistedState {
     }
 
     fn apply_app_settings(&mut self, settings: AppSettings) {
+        self.sidebar_provider_icons_enabled = settings.sidebar_provider_icons_enabled;
         self.analytics_enabled = settings.analytics_enabled;
         self.favorite_models = settings.favorite_models;
         self.theme = settings.theme;
@@ -1174,6 +1190,32 @@ fn restore_task_state_skeletons(sessions: &mut [AgentSession]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feature_settings_default_and_round_trip_without_mixing_ownership() {
+        let app: AppSettings = serde_json::from_str("{}").unwrap();
+        let daemon: DaemonSettings = serde_json::from_str("{}").unwrap();
+        let mut state = PersistedState::empty();
+        state.apply_app_settings(app);
+        state.apply_daemon_settings(daemon);
+        assert!(state.sidebar_provider_icons_enabled);
+        assert!(state.subtasks_enabled);
+        assert!(!state.computer_use_enabled);
+
+        state.sidebar_provider_icons_enabled = false;
+        state.subtasks_enabled = false;
+        let app = serde_json::to_value(state.app_settings()).unwrap();
+        let daemon = serde_json::to_value(state.daemon_settings()).unwrap();
+        assert_eq!(app["sidebar_provider_icons_enabled"], false);
+        assert!(app.get("subtasks_enabled").is_none());
+        assert_eq!(daemon["subtasks_enabled"], false);
+        assert!(daemon.get("sidebar_provider_icons_enabled").is_none());
+        let mut restored = PersistedState::empty();
+        restored.apply_app_settings(serde_json::from_value(app).unwrap());
+        restored.apply_daemon_settings(serde_json::from_value(daemon).unwrap());
+        assert!(!restored.sidebar_provider_icons_enabled);
+        assert!(!restored.subtasks_enabled);
+    }
 
     #[test]
     fn desktop_settings_paths_are_build_specific() {
