@@ -9,6 +9,11 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2035]
+
+- Keep streamed replies in view, pause following when scrolling up, and resume with the jump-to-bottom button. Preserve the reading position when the keyboard opens.
+- Response edit cards now show only provider-recorded edits from that turn, rather than other tasks' workspace changes. Review opens the recorded edits; workspace diffs remain separate. Shell-script changes may be missing.
+
 ## [0.2.13-build.2034]
 
 - Render Mermaid diagrams in completed transcript code fences while keeping their source available
