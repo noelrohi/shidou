@@ -13,6 +13,23 @@ every visible row per frame, cached heights only spare the overdraw — so every
 rule below either bounds how often frames happen or how much is visible inside
 one.
 
+## Render-path work
+
+Everything reached from rendering or row measurement must already be in memory.
+No subprocesses, filesystem walks, network, blocking locks, or synchronous IPC,
+including on a cache's first miss. A single `git` invocation costs several frames.
+
+- Use `cx.background_executor().spawn` for the work, store its result on the
+  entity, and call `cx.notify()` when it lands. A render-time miss means "not
+  known yet" and must degrade gracefully.
+- Resolve a session or collection in one background pass rather than per item.
+  Guard results with a generation counter so an older pass cannot overwrite
+  newer state.
+- Virtualize long collections with `list()`. Row builders must not rebuild
+  whole-session state; hoist that into a cache refreshed once per frame.
+- A one-shot user action may work synchronously when freshness matters more
+  than latency. Rendering may not.
+
 ## Who is allowed to cause a frame
 
 A frame happens when an entity is notified, when `window.refresh()` is called,
