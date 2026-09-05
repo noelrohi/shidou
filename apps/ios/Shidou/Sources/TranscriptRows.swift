@@ -236,8 +236,8 @@ struct AssistantMessageRow: View {
                 mermaid: mermaid,
                 onOpenLink: open
             )
-            if let checkpoint = row.checkpoint {
-                CheckpointSummary(checkpoint: checkpoint, onReview: onReviewChanges)
+            if let edits = row.recordedEdits {
+                RecordedEditsSummary(edits: edits, onReview: onReviewChanges)
             }
             if let footer = row.footer {
                 AssistantFooter(
@@ -406,7 +406,7 @@ struct ActivityGroupRow: View {
     var store: SessionStore?
     var onOpenBackgroundWork: ((BackgroundWorkKey) -> Void)?
 
-    @State private var expandedActivities: Set<UUID> = []
+    @Binding var expandedActivities: Set<UUID>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -627,12 +627,17 @@ private struct ActivityDisclosure: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(section.kind == .diff ? [.horizontal, .vertical] : .horizontal) {
                     Text(section.content)
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)
                 }
                 .frame(maxHeight: 260)
+            }
+            if section.isDiffMissing {
+                Text("No diff recorded for this edit.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(8)
@@ -645,16 +650,14 @@ private struct ActivityDisclosure: View {
         case .command: return String(localized: "Command")
         case .arguments: return String(localized: "Arguments")
         case .output: return String(localized: "Output")
-        case .detail: return nil
+        case .detail, .diff: return nil
         }
     }
 }
 
-/// A turn's checkpoint: what changed, and the way into the diff. Restoring one
-/// is still deferred, so the row offers review rather than pretending it can
-/// put the workspace back.
-struct CheckpointSummary: View {
-    let checkpoint: Checkpoint
+/// Only edits reported by the provider for this turn.
+struct RecordedEditsSummary: View {
+    let edits: RecordedEdits
     var onReview: (() -> Void)?
 
     var body: some View {
@@ -664,9 +667,9 @@ struct CheckpointSummary: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text("Changed \(checkpoint.files.count) file")
+                Text("Recorded edits")
                     .font(.caption.bold())
-                DiffStatText(additions: checkpoint.additions, deletions: checkpoint.deletions)
+                RecordedEditStatText(additions: edits.additions, deletions: edits.deletions)
                     .font(.caption2.monospacedDigit())
                 if let onReview {
                     Spacer(minLength: 8)
@@ -681,18 +684,21 @@ struct CheckpointSummary: View {
                     .foregroundStyle(Color.accentColor)
                     .glassSurface(in: Capsule(), interactive: true)
                     .fallbackBorder(Capsule())
-                    .accessibilityLabel("Review these changes")
-                    .accessibilityHint("Opens this turn's diff")
+                    .accessibilityLabel("Review recorded edits")
+                    .accessibilityHint("Expands this turn's recorded file edit activities")
                 }
             }
-            ForEach(checkpoint.files, id: \.path) { file in
+            Text("Provider-recorded totals, not a net Git diff. Shell changes may be missing.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            ForEach(edits.files, id: \.path) { file in
                 HStack(spacing: 6) {
                     Text(file.path)
                         .font(.caption2.monospaced())
                         .lineLimit(1)
                         .truncationMode(.head)
                     Spacer(minLength: 4)
-                    DiffStatText(additions: file.additions, deletions: file.deletions)
+                    RecordedEditStatText(additions: file.additions, deletions: file.deletions)
                         .font(.caption2.monospacedDigit())
                 }
             }
@@ -701,6 +707,24 @@ struct CheckpointSummary: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct RecordedEditStatText: View {
+    let additions: UInt64?
+    let deletions: UInt64?
+
+    var body: some View {
+        if let additions, let deletions {
+            DiffStatText(additions: additions, deletions: deletions)
+        } else {
+            HStack(spacing: 4) {
+                Text(verbatim: additions.map { "+\($0)" } ?? "+?")
+                Text(verbatim: deletions.map { "−\($0)" } ?? "−?")
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Additions: \(additions.map(String.init) ?? "unknown"), deletions: \(deletions.map(String.init) ?? "unknown")")
+        }
     }
 }
 

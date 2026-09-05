@@ -1,4 +1,48 @@
 use super::*;
+use shidou_protocol::turn_edits::{RecordedTurnEdits, recorded_edits_by_turn};
+
+// Contains settled turns only. Row folding and card rendering share this snapshot.
+type RecordedEditsMap = HashMap<Uuid, Rc<RecordedTurnEdits>>;
+
+/// Independent of message text, row anchors, and disclosure state. Activity
+/// events and hydration bump the revision; turn status changes are keyed here.
+#[derive(Default)]
+pub(super) struct RecordedEditsCache {
+    fingerprint: Option<u64>,
+    edits: RecordedEditsMap,
+}
+
+impl RecordedEditsCache {
+    fn refresh(&mut self, session: Option<&AgentSession>, revision: u64) {
+        let mut fingerprint = mix(EMPTY_TRANSCRIPT_FINGERPRINT, revision);
+        if let Some(session) = session {
+            fingerprint = mix_uuid(fingerprint, session.id);
+            for turn in &session.turns {
+                fingerprint = mix_uuid(fingerprint, turn.id);
+                fingerprint = mix(fingerprint, turn.status as u64);
+            }
+        }
+        if self.fingerprint == Some(fingerprint) {
+            return;
+        }
+        self.edits = session.map(recorded_edits_snapshot).unwrap_or_default();
+        self.fingerprint = Some(fingerprint);
+    }
+}
+
+fn recorded_edits_snapshot(session: &AgentSession) -> RecordedEditsMap {
+    let settled: HashSet<_> = session
+        .turns
+        .iter()
+        .filter(|turn| turn.status != TurnStatus::Running)
+        .map(|turn| turn.id)
+        .collect();
+    recorded_edits_by_turn(session)
+        .into_iter()
+        .filter(|(turn_id, _)| settled.contains(turn_id))
+        .map(|(turn_id, edits)| (turn_id, Rc::new(edits)))
+        .collect()
+}
 
 impl Shidou {
     /// One list row per message plus each ordered non-message turn block.
@@ -15,11 +59,16 @@ impl Shidou {
     /// already cached. The fingerprint is one allocation-free linear pass, so a
     /// settled transcript now costs a scan instead of a fold.
     pub(super) fn refresh_transcript_row_kinds(&self) -> usize {
+        self.recorded_turn_edits_cache.borrow_mut().refresh(
+            self.selected_session(),
+            self.transcript_content_revision.get(),
+        );
         let fingerprint = self
             .selected_session()
             .map_or(EMPTY_TRANSCRIPT_FINGERPRINT, |session| {
                 transcript_rows_fingerprint(session, &self.expanded_turns)
             });
+        let fingerprint = mix(fingerprint, self.transcript_content_revision.get());
         if self.transcript_row_kinds_fingerprint.get() != Some(fingerprint) {
             let next_kinds = self.selected_transcript_row_kinds();
             *self.transcript_row_kinds.borrow_mut() = next_kinds;
@@ -28,9 +77,30 @@ impl Shidou {
         self.transcript_row_kinds.borrow().len()
     }
 
+    pub(super) fn invalidate_transcript_content(&self) {
+        self.transcript_content_revision
+            .set(self.transcript_content_revision.get().wrapping_add(1));
+    }
+
+    /// Rendering reads the edit snapshot, never the activity log.
+    pub(super) fn recorded_turn_edits_cached(
+        &self,
+        turn_id: Uuid,
+    ) -> Option<Rc<RecordedTurnEdits>> {
+        self.recorded_turn_edits_cache
+            .borrow()
+            .edits
+            .get(&turn_id)
+            .cloned()
+    }
+
     pub(super) fn selected_transcript_row_kinds(&self) -> Vec<TranscriptRowKind> {
         self.selected_session().map_or_else(Vec::new, |session| {
-            folded_transcript_row_kinds(session, &self.expanded_turns)
+            folded_transcript_row_kinds_with_edits(
+                session,
+                &self.expanded_turns,
+                &self.recorded_turn_edits_cache.borrow().edits,
+            )
         })
     }
 
@@ -385,9 +455,16 @@ impl Shidou {
     }
 
     pub(super) fn remeasure_changed_files(&self, turn_id: Uuid) {
+        self.refresh_transcript_row_kinds();
         let target = self
             .selected_session()
-            .and_then(|session| changed_files_inline_message_index(session, turn_id))
+            .and_then(|session| {
+                changed_files_inline_message_index_with_edits(
+                    session,
+                    turn_id,
+                    &self.recorded_turn_edits_cache.borrow().edits,
+                )
+            })
             .map(TranscriptRowKind::Message)
             .unwrap_or(TranscriptRowKind::ChangedFiles(turn_id));
         self.remeasure_transcript_row(target);
@@ -413,9 +490,8 @@ pub(super) enum TranscriptRowKind {
     Message(usize),
     TurnBlock(usize),
     TurnFold(Uuid),
-    /// Immutable file stats captured between this turn's pre- and post-turn
-    /// checkpoints. Responses with a visible answer render this inside their
-    /// terminal message; the row remains for interrupted/tool-only turns whose
+    /// Provider-recorded edits for this turn. Responses with a visible answer
+    /// render this inside their terminal message; the row remains for interrupted/tool-only turns whose
     /// entire assistant output folds away.
     ChangedFiles(Uuid),
     /// The live turn's footer — pulsing dots plus "Working for Ns". Present
@@ -659,15 +735,26 @@ pub(super) fn assistant_response_footer_time(
 /// The visible terminal answer row that owns both the changed-files card and
 /// the response footer. A turn with no visible answer returns `None`, leaving
 /// its card as a standalone row after the collapsed work disclosure.
+#[cfg(test)]
 pub(super) fn changed_files_inline_message_index(
     session: &AgentSession,
     turn_id: Uuid,
 ) -> Option<usize> {
-    let turn = session.turns.iter().find(|turn| turn.id == turn_id)?;
-    if turn.status == TurnStatus::Running
-        || !turn.checkpoint.as_ref().is_some_and(|checkpoint| {
-            checkpoint.status == CheckpointStatus::Ready && !checkpoint.files.is_empty()
-        })
+    changed_files_inline_message_index_with_edits(
+        session,
+        turn_id,
+        &recorded_edits_snapshot(session),
+    )
+}
+
+fn changed_files_inline_message_index_with_edits(
+    session: &AgentSession,
+    turn_id: Uuid,
+    edits: &RecordedEditsMap,
+) -> Option<usize> {
+    if !edits
+        .get(&turn_id)
+        .is_some_and(|edits| !edits.files.is_empty())
     {
         return None;
     }
@@ -679,6 +766,32 @@ pub(super) fn changed_files_inline_message_index(
     (!message.content.trim().is_empty()
         && assistant_response_footer_index(session, message_index) == Some(message_index))
     .then_some(message_index)
+}
+
+/// Review targets only blocks containing this turn's recorded edit activities.
+pub(super) fn recorded_edit_review_blocks(
+    session: &AgentSession,
+    turn_id: Uuid,
+    activity_ids: &[Uuid],
+) -> Vec<usize> {
+    let ids: HashSet<_> = activity_ids.iter().copied().collect();
+    session
+        .transcript_blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| {
+            (block.turn_id == Some(turn_id)
+                && block
+                    .activities
+                    .iter()
+                    .any(|activity| ids.contains(&activity.id)))
+            .then_some(index)
+        })
+        .collect()
+}
+
+pub(super) fn recorded_edit_stat(value: Option<u64>, sign: char) -> String {
+    value.map_or_else(|| format!("{sign}?"), |value| format!("{sign}{value}"))
 }
 
 pub(super) fn transcript_row_splice(
@@ -827,6 +940,8 @@ pub(super) fn transcript_row_kinds(
 
 /// Fingerprint of every field [`folded_transcript_row_kinds`] reads, so a frame
 /// can tell a settled transcript from a changed one without refolding it.
+/// Activity payloads use explicit event invalidation via `transcript_content_revision`
+/// rather than scanning file changes on every frame.
 ///
 /// Keep this in step with that function and with [`row_turn_id`]. A field they
 /// consult but this one misses leaves the cached rows stale, and stale rows
@@ -866,12 +981,6 @@ pub(super) fn transcript_rows_fingerprint(
     for turn in &session.turns {
         hash = mix_uuid(hash, turn.id);
         hash = mix(hash, turn.status as u64);
-        hash = mix(
-            hash,
-            turn.checkpoint.as_ref().is_some_and(|checkpoint| {
-                checkpoint.status == CheckpointStatus::Ready && !checkpoint.files.is_empty()
-            }) as u64,
-        );
     }
 
     // A set has no stable iteration order, so combine its members with an
@@ -916,9 +1025,22 @@ fn mix_turn_id(hash: u64, turn_id: Option<Uuid>) -> u64 {
 ///
 /// Every field this reads is fingerprinted by [`transcript_rows_fingerprint`]
 /// so frames can skip the fold; consult a new one and that must learn it too.
+#[cfg(test)]
 pub(super) fn folded_transcript_row_kinds(
     session: &AgentSession,
     expanded_turns: &HashSet<Uuid>,
+) -> Vec<TranscriptRowKind> {
+    folded_transcript_row_kinds_with_edits(
+        session,
+        expanded_turns,
+        &recorded_edits_snapshot(session),
+    )
+}
+
+fn folded_transcript_row_kinds_with_edits(
+    session: &AgentSession,
+    expanded_turns: &HashSet<Uuid>,
+    edits: &RecordedEditsMap,
 ) -> Vec<TranscriptRowKind> {
     let anchors = session
         .transcript_blocks
@@ -970,10 +1092,10 @@ pub(super) fn folded_transcript_row_kinds(
         .iter()
         .filter(|turn| {
             turn.status != TurnStatus::Running
-                && turn.checkpoint.as_ref().is_some_and(|checkpoint| {
-                    checkpoint.status == CheckpointStatus::Ready && !checkpoint.files.is_empty()
-                })
-                && changed_files_inline_message_index(session, turn.id).is_none()
+                && edits
+                    .get(&turn.id)
+                    .is_some_and(|edits| !edits.files.is_empty())
+                && changed_files_inline_message_index_with_edits(session, turn.id, edits).is_none()
         })
         .map(|turn| turn.id)
         .collect::<HashSet<_>>();
@@ -1184,6 +1306,94 @@ pub(super) fn message_opens_turn(messages: &[Message], message_index: usize) -> 
         .rev()
         .take_while(|earlier| earlier.turn_id == Some(turn_id))
         .any(|earlier| earlier.role == MessageRole::User)
+}
+
+#[cfg(test)]
+mod recorded_edits_cache_tests {
+    use super::*;
+    use crate::model::ActivityFileChange;
+
+    fn session_with_recorded_edit() -> (AgentSession, Uuid) {
+        let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+        let turn_id = session.begin_turn("Edit a file");
+        let mut activity = ActivityItem::new(None, ActivityKind::FileChange, "Edit", None, true);
+        activity.file_changes.push(ActivityFileChange {
+            path: "src/main.rs".into(),
+            additions: Some(2),
+            deletions: Some(1),
+            status: None,
+            diff: Some("@@\n-old\n+new".into()),
+        });
+        session.transcript_blocks.push(TranscriptBlock {
+            after_message: 1,
+            turn_id: Some(turn_id),
+            activities: vec![activity],
+        });
+        session.push_message(MessageRole::Assistant, "Done.");
+        session.finish_active_turn(TurnStatus::Completed);
+        (session, turn_id)
+    }
+
+    #[test]
+    fn streaming_text_and_refolding_reuse_the_edit_snapshot() {
+        let (mut session, first) = session_with_recorded_edit();
+        session.begin_turn("Explain it");
+        session.push_message(MessageRole::Assistant, "");
+        let mut cache = RecordedEditsCache::default();
+        cache.refresh(Some(&session), 0);
+        let snapshot = cache.edits[&first].clone();
+        for text in ["One", "One more", "One more chunk"] {
+            session.messages.last_mut().unwrap().content = text.into();
+            cache.refresh(Some(&session), 0);
+            assert!(Rc::ptr_eq(&snapshot, &cache.edits[&first]));
+            folded_transcript_row_kinds_with_edits(&session, &HashSet::from([first]), &cache.edits);
+            assert!(Rc::ptr_eq(&snapshot, &cache.edits[&first]));
+        }
+    }
+
+    #[test]
+    fn activity_revision_hydration_and_turn_completion_refresh_edits() {
+        let (mut session, turn_id) = session_with_recorded_edit();
+        session.turns[0].status = TurnStatus::Running;
+        let mut cache = RecordedEditsCache::default();
+        cache.refresh(Some(&session), 0);
+        assert!(!cache.edits.contains_key(&turn_id));
+        session.turns[0].status = TurnStatus::Completed;
+        cache.refresh(Some(&session), 0);
+        let before = cache.edits[&turn_id].clone();
+        session.transcript_blocks[0].activities[0].file_changes[0].additions = Some(7);
+        cache.refresh(Some(&session), 1);
+        assert!(!Rc::ptr_eq(&before, &cache.edits[&turn_id]));
+        assert_eq!(cache.edits[&turn_id].additions, Some(7));
+        // Hydrating the same session can replace payloads without changing its shape.
+        session.transcript_blocks[0].activities[0].failed = true;
+        cache.refresh(Some(&session), 2);
+        assert!(
+            !cache
+                .edits
+                .get(&turn_id)
+                .is_some_and(|edits| !edits.files.is_empty())
+        );
+        cache.refresh(None, 2);
+        assert!(cache.edits.is_empty());
+    }
+
+    #[test]
+    fn folding_and_inline_eligibility_read_the_supplied_snapshot() {
+        let (mut session, turn_id) = session_with_recorded_edit();
+        let edits = recorded_edits_snapshot(&session);
+        // If either presentation path rescans activities, these assertions fail.
+        session.transcript_blocks[0].activities.clear();
+        assert_eq!(
+            changed_files_inline_message_index_with_edits(&session, turn_id, &edits),
+            Some(1)
+        );
+        session.messages[1].content.clear();
+        assert!(
+            folded_transcript_row_kinds_with_edits(&session, &HashSet::new(), &edits)
+                .contains(&TranscriptRowKind::ChangedFiles(turn_id))
+        );
+    }
 }
 
 pub(super) fn message_starts_followup_turn(messages: &[Message], message_index: usize) -> bool {

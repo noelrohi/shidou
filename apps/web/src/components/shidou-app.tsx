@@ -1261,7 +1261,6 @@ export function ShidouApp() {
               onForkResponse={(turnCount) => void forkResponse(current, turnCount)}
               onRewindMessage={(turnCount, prompt, attachments) =>
                 rewindMessage(current, turnCount, prompt, attachments)}
-              onReviewChanges={(source) => openPanel('changes', source)}
             />
             {currentProject && (
               <div aria-busy={!selectedReady} className="shrink-0" inert={!selectedReady}>

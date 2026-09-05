@@ -16,9 +16,8 @@ public enum TranscriptRow: Identifiable, Sendable {
     case fold(key: String, turn: AgentTurn)
     case activities(key: String, block: TranscriptBlock, isLive: Bool)
     case message(key: String, MessageRow)
-    /// A settled turn's checkpoint with nothing to attach it to. Display-only:
-    /// restore is deferred past v1, so this row states what changed and stops.
-    case changed(key: String, turnId: UUID, checkpoint: Checkpoint)
+    /// Recorded edits for a settled turn without an answer to attach them to.
+    case changed(key: String, turnId: UUID, recordedEdits: RecordedEdits)
     case working(startedAt: UInt64)
 
     public var id: String {
@@ -58,8 +57,8 @@ public struct MessageRow: Sendable {
     /// The desktop attaches one footer to the terminal assistant part of each
     /// settled turn; its time is the turn's completion time.
     public var footer: AssistantResponseFooter?
-    /// A ready checkpoint that belongs under this message's answer.
-    public var checkpoint: Checkpoint?
+    /// Provider-recorded edits belonging to this answer's turn.
+    public var recordedEdits: RecordedEdits?
     /// The turn a fork would keep, when this answer can be forked from.
     public var forkTurnCount: Int?
     /// The turn a rewind would rewrite, when this prompt can be sent again.
@@ -82,13 +81,16 @@ public enum TranscriptPresentation {
     public static func rows(
         _ session: AgentSession,
         expandedTurns: Set<UUID> = [],
-        retainedTurnCounts: Set<Int> = []
+        retainedTurnCounts: Set<Int> = [],
+        recordedEdits: [UUID: RecordedEdits]? = nil
     ) -> [TranscriptRow] {
         let turnsById = Dictionary(session.turns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let raw = rawRows(session)
         let folds = turnFolds(session, raw)
         let footers = assistantResponseFooters(session)
-        let (inlineCheckpoints, standaloneCheckpoints) = checkpoints(session)
+        let (inlineEdits, standaloneEdits) = editCards(
+            session, summaries: recordedEdits ?? RecordedEdits.summaries(in: session)
+        )
 
         var rows: [TranscriptRow] = []
         var seenUserMessage = false
@@ -122,7 +124,7 @@ public enum TranscriptPresentation {
                     isFirst: index == 0,
                     startsFollowUp: startsFollowUp,
                     footer: footer,
-                    checkpoint: inlineCheckpoints[index],
+                    recordedEdits: inlineEdits[index],
                     forkTurnCount: footer == nil
                         ? nil
                         : responseForkTurnCount(session, message: message, turn: turn),
@@ -133,7 +135,7 @@ public enum TranscriptPresentation {
             }
         }
 
-        rows = insertStandaloneCheckpoints(rows, standaloneCheckpoints)
+        rows = insertStandaloneEdits(rows, standaloneEdits)
 
         if session.status.isBusy,
             let running = session.turns.last(where: { $0.status == .running })
@@ -292,41 +294,39 @@ public enum TranscriptPresentation {
         return footers
     }
 
-    // MARK: - Checkpoints
+    // MARK: - Recorded edits
 
-    /// Ready checkpoints, split into the ones that hang under an answer and
-    /// the ones that need a row of their own.
-    private static func checkpoints(
-        _ session: AgentSession
-    ) -> (inline: [Int: Checkpoint], standalone: [UUID: Checkpoint]) {
+    private static func editCards(
+        _ session: AgentSession,
+        summaries: [UUID: RecordedEdits]
+    ) -> (inline: [Int: RecordedEdits], standalone: [UUID: RecordedEdits]) {
         var lastAssistantByTurn: [UUID: Int] = [:]
         for (index, message) in session.messages.enumerated() {
             if message.role == .assistant, let turnId = message.turnId {
                 lastAssistantByTurn[turnId] = index
             }
         }
-        var inline: [Int: Checkpoint] = [:]
-        var standalone: [UUID: Checkpoint] = [:]
+        var inline: [Int: RecordedEdits] = [:]
+        var standalone: [UUID: RecordedEdits] = [:]
         for turn in session.turns {
             guard turn.status != .running,
-                let checkpoint = turn.checkpoint,
-                checkpoint.status == .ready,
-                !checkpoint.files.isEmpty
+                let edits = summaries[turn.id],
+                !edits.files.isEmpty
             else { continue }
             if let index = lastAssistantByTurn[turn.id],
                 !session.messages[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             {
-                inline[index] = checkpoint
+                inline[index] = edits
             } else {
-                standalone[turn.id] = checkpoint
+                standalone[turn.id] = edits
             }
         }
         return (inline, standalone)
     }
 
-    private static func insertStandaloneCheckpoints(
+    private static func insertStandaloneEdits(
         _ rows: [TranscriptRow],
-        _ standalone: [UUID: Checkpoint]
+        _ standalone: [UUID: RecordedEdits]
     ) -> [TranscriptRow] {
         guard !standalone.isEmpty else { return rows }
         var lastIndexByTurn: [UUID: Int] = [:]
@@ -334,21 +334,21 @@ public enum TranscriptPresentation {
             guard let turnId = row.turnId, standalone[turnId] != nil else { continue }
             lastIndexByTurn[turnId] = index
         }
-        var afterIndex: [Int: [(UUID, Checkpoint)]] = [:]
-        for (turnId, checkpoint) in standalone {
+        var afterIndex: [Int: [(UUID, RecordedEdits)]] = [:]
+        for (turnId, edits) in standalone {
             guard let index = lastIndexByTurn[turnId] else { continue }
-            afterIndex[index, default: []].append((turnId, checkpoint))
+            afterIndex[index, default: []].append((turnId, edits))
         }
         guard !afterIndex.isEmpty else { return rows }
         var out: [TranscriptRow] = []
         out.reserveCapacity(rows.count + standalone.count)
         for (index, row) in rows.enumerated() {
             out.append(row)
-            for (turnId, checkpoint) in (afterIndex[index] ?? []).sorted(by: {
+            for (turnId, edits) in (afterIndex[index] ?? []).sorted(by: {
                 $0.0.wireString < $1.0.wireString
             }) {
                 out.append(.changed(
-                    key: "changed-\(turnId.wireString)", turnId: turnId, checkpoint: checkpoint
+                    key: "changed-\(turnId.wireString)", turnId: turnId, recordedEdits: edits
                 ))
             }
         }

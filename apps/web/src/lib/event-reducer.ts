@@ -10,6 +10,7 @@ import type {
   TranscriptBlock,
   TurnStatus,
 } from '@shidou/client'
+import { inheritRecordedEditsRevision, invalidateRecordedEdits } from './recorded-edits'
 
 export interface PendingPermission {
   requestId: string
@@ -58,6 +59,7 @@ export function reduceRuntimeEvent(
   processExitError: string | null = null,
 ): RuntimeEventResult {
   const session = clone(current)
+  inheritRecordedEditsRevision(current, session)
   const { kind, payload } = wire.event
   const result: RuntimeEventResult = {
     session,
@@ -133,7 +135,10 @@ export function reduceRuntimeEvent(
           session.messages[index]!.turn_id = accepted.id
         }
         for (const block of session.transcript_blocks) {
-          if (block.turn_id === provisionalTurnId) block.turn_id = accepted.id
+          if (block.turn_id === provisionalTurnId) {
+            block.turn_id = accepted.id
+            invalidateRecordedEdits(session)
+          }
         }
       } else {
         for (const candidate of messages) {
@@ -379,6 +384,8 @@ function upsertActivity(
 ) {
   finishStreamingMessages(session)
   completeReasoning(session)
+  // Upserts can change kind, completion, failure, metadata, or the recorded diff.
+  invalidateRecordedEdits(session)
   for (const block of [...session.transcript_blocks].reverse()) {
     const activities = ensureActivities(block)
     const matching = [...activities].reverse().find((activity) =>
@@ -468,7 +475,10 @@ function completeReasoning(session: AgentSession) {
 
 function completeActivities(session: AgentSession) {
   for (const block of session.transcript_blocks) {
-    for (const activity of ensureActivities(block)) activity.complete = true
+    for (const activity of ensureActivities(block)) {
+      if (activity.kind === 'fileChange' && !activity.complete) invalidateRecordedEdits(session)
+      activity.complete = true
+    }
   }
 }
 

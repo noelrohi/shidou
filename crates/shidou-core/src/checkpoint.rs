@@ -1105,6 +1105,55 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_tasks_keep_workspace_snapshots_separate_from_recorded_edits() {
+        use crate::model::{
+            ActivityItem, ActivityKind, AgentSession, ProviderKind, TranscriptBlock,
+        };
+        use shidou_protocol::turn_edits::recorded_turn_edits;
+
+        let directory = diverged_repository();
+        let mut first_task = AgentSession::new(Uuid::new_v4(), ProviderKind::Pi);
+        let first_turn = first_task.begin_turn("write first-task.txt");
+        let second_task = Uuid::new_v4();
+        capture_turn_start(&directory, first_task.id, 1).unwrap();
+        capture_turn_start(&directory, second_task, 1).unwrap();
+        fs::write(directory.join("first-task.txt"), "first task\n").unwrap();
+        fs::write(directory.join("second-task.txt"), "second task\n").unwrap();
+        first_task.transcript_blocks.push(TranscriptBlock {
+            after_message: 0,
+            turn_id: Some(first_turn),
+            activities: vec![
+                ActivityItem::new(None, ActivityKind::FileChange, "write", None, true)
+                    .with_arguments(Some(
+                        serde_json::json!({
+                            "path": "first-task.txt", "content": "first task\n"
+                        })
+                        .to_string(),
+                    )),
+            ],
+        });
+        let checkpoint = capture_turn(&directory, first_task.id, 1).unwrap();
+        assert_eq!(
+            checkpoint.files.len(),
+            2,
+            "workspace review retains both edits"
+        );
+        first_task.turns[0].checkpoint = Some(checkpoint);
+        let edits = recorded_turn_edits(&first_task, &first_task.turns[0]);
+        let paths = edits
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, vec!["first-task.txt"]);
+        assert_eq!(
+            edits.activity_ids,
+            vec![first_task.transcript_blocks[0].activities[0].id]
+        );
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
     fn each_turn_uses_its_own_start_snapshot() {
         let directory = diverged_repository();
         let session_id = Uuid::new_v4();

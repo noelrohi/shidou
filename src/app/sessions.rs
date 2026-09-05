@@ -987,6 +987,10 @@ impl Shidou {
     }
 
     pub(super) fn reset_visible_state(&mut self) {
+        self.invalidate_transcript_content();
+        self.activity_diff_jobs.borrow_mut().clear();
+        self.activity_diffs.borrow_mut().clear();
+        self.activity_diff_viewports.borrow_mut().clear();
         self.activities_expanded.clear();
         self.expanded_activity_items.clear();
         self.expanded_turns.clear();
