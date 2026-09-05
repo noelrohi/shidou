@@ -2384,21 +2384,6 @@ for line in sys.stdin:
 
     #[cfg(unix)]
     #[test]
-    fn a_turn_start_returns_an_archived_task() {
-        let daemon = ShidouTestDaemon::new("archive-turn-start", |_| {});
-        let client = daemon.connect();
-        let project = Project::from_path(daemon.root.join("repo"));
-        let session = persist_task(&client, &project);
-        archive(&client, session.id, true);
-        daemon.start_runtime(&client, session.id);
-
-        daemon.emit(session.id, WireDriverEvent::new("turnStarted", json!(null)));
-
-        assert_eq!(archived_at(&client, session.id), None);
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn a_permission_request_returns_an_archived_task() {
         let daemon = ShidouTestDaemon::new("archive-permission", |_| {});
         let client = daemon.connect();

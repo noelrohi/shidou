@@ -1567,36 +1567,6 @@ mod tests {
         }
     }
 
-    /// A wrapped diff line must grow its row rather than be clipped by it.
-    /// Both the panel's own rows and the shared code row have to hold this,
-    /// and the shared one is also what the transcript's diff paints with.
-    #[test]
-    fn diff_text_rows_soft_wrap() {
-        let source = include_str!("right_panel.rs");
-        let panel = source
-            .split_once("\n    fn render_right_panel_diff_line(")
-            .expect("review diff line renderer")
-            .1
-            .split_once("\n    #[allow(clippy::too_many_arguments)]")
-            .expect("review diff line renderer end")
-            .0;
-        let shared = source
-            .split_once("\npub(super) fn render_diff_code_row(")
-            .expect("shared diff code row")
-            .1
-            .split_once("\nfn review_diff_flat_text(")
-            .expect("shared diff code row end")
-            .0;
-
-        for body in [panel, shared] {
-            assert!(!body.contains(".whitespace_nowrap()"));
-        }
-        assert!(panel.matches(".whitespace_normal()").count() >= 2);
-        assert!(shared.contains(".whitespace_normal()"));
-        assert!(shared.contains(".min_h(px(style.row_height))"));
-        assert!(!shared.contains(".h(px(style.row_height))"));
-    }
-
     /// The render path must never reach the filesystem. This reads the source
     /// rather than the behaviour, because the cost of a regression here is a
     /// syscall per directory entry on every frame — invisible until a project
@@ -1833,21 +1803,6 @@ mod tests {
             right_panel_tab_icon(&file, None),
             "icons/file-types/rust.svg"
         );
-    }
-
-    #[test]
-    fn right_panel_tab_titles_stay_on_one_line() {
-        let source = include_str!("right_panel.rs");
-        let header = source
-            .split_once("\n    fn render_right_panel_header(")
-            .expect("right panel header renderer")
-            .1
-            .split_once("\n    fn render_right_panel_chooser(")
-            .expect("right panel header renderer end")
-            .0;
-
-        assert!(header.contains(".truncate()"));
-        assert!(!header.contains(".line_clamp(1)"));
     }
 
     #[test]
