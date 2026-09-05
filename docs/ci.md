@@ -33,9 +33,27 @@ build directories. Workspace binaries, incremental state and bundled apps are
 not retained. Pull requests restore caches but only `master` saves them, which
 avoids creating a large cache for every PR merge ref.
 
-This changes the cache keys. The first run is cold; cache size and compile time
-must be compared on subsequent runs. Existing legacy caches are not deleted by
-this change. Cache storage limits and Desktop Release triggers are unchanged.
+Caches share the repository's storage allowance with Desktop Release builds.
+An evicted cache makes the next build cold, and a PR cannot repopulate it. Run
+the Tests workflow on `master` to warm shared caches without shipping anything.
+Cache storage limits and Desktop Release triggers are unchanged.
+
+### Measuring Rust checks
+
+`Compile tests` runs `cargo test --locked --no-run --timings`; `Run tests` then
+runs the same suite, including doctests. The execution step may still compile
+doctests or anything Cargo decides is stale. Each platform uploads a
+`rust-build-timings-<os>` HTML report retained for seven days. Step durations
+separate compilation from test execution; cache restore/upload and runner queue
+time must also count toward the user-facing wait.
+
+Before changing cache policy, compare a cold run and a warm run of the same
+commit, runner and toolchain. Confirm the cache restore in the logs, not just a
+green cache step. Then measure a representative small Rust change. Compare
+whole-job duration and compressed cache size for dependency-only versus fuller
+build caching; a same-commit rerun alone is not representative of PR work.
+Retaining more build output is only useful if it survives the shared storage
+budget and saves more compilation time than it adds in transfer time.
 
 ## Focused allocation regression
 

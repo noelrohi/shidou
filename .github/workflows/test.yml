@@ -168,8 +168,22 @@ jobs:
           cache-bin: 'false'
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
+      # Separate compilation from execution so a slow or hung test cannot be
+      # mistaken for a cold build. Keep the same targets and features in both.
+      - name: Compile tests
+        run: cargo test --locked --no-run --timings
+
       - name: Run tests
         run: cargo test --locked
+
+      - name: Upload Rust build timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-build-timings-${{ matrix.os }}
+          path: target/cargo-timings/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # A standalone binary avoids linking GPUI again. The .exe suffix also
       # works on Unix; Bash and RUNNER_TEMP are available on all three runners.
