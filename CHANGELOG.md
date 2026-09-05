@@ -15,6 +15,11 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.23]
+
+- Prevent the daemon from hanging during shutdown when its connection closes early.
+- Show before-and-after workspace changes for each turn, including files and symlinks deleted through shell commands, and open the same diff in Review.
+
 ## [0.2.22]
 
 - Prevent a queued message from being submitted again after it has already been steered into the running turn
