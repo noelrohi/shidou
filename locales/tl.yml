@@ -950,6 +950,8 @@ transcript.recorded_edit_file_limit: "Hindi ipinakita ang naitalang diff dahil s
 transcript.recorded_edit_no_diff: "Walang naitalang diff para sa edit na ito."
 transcript.recorded_edits: "Mga naitalang edit"
 transcript.recorded_edits_note: "Mga edit na naitala ng provider, hindi net diff. Maaaring hindi kasama ang mga pagbabago sa shell. Ang ? ay hindi alam."
+transcript.workspace_changes_note: Mga pagbabagong ginawa sa turn na ito.
+transcript.workspace_changes_tooltip: Maaaring kasama ang mga edit mo o ng ibang task.
 transcript.review_changes: "Review"
 transcript.show_more_files: "Ipakita ang %{count} pang files"
 transcript.show_fewer_files: "Ipakita ang mas kaunting files"

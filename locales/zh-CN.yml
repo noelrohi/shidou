@@ -950,6 +950,8 @@ transcript.recorded_edit_file_limit: 因显示上限，已省略记录的差异�
 transcript.recorded_edit_no_diff: 未记录此次编辑的差异。
 transcript.recorded_edits: 已记录的编辑
 transcript.recorded_edits_note: 仅含提供商记录的编辑，并非净差异。可能遗漏 Shell 更改。? 表示未知。
+transcript.workspace_changes_note: 本轮期间的更改。
+transcript.workspace_changes_tooltip: 可能包含你或其他任务所做的编辑。
 transcript.review_changes: 审阅
 transcript.show_more_files: 再显示 %{count} 个文件
 transcript.show_fewer_files: 收起文件列表
