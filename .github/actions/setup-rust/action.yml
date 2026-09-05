@@ -1,0 +1,21 @@
+name: Set up Rust
+description: Install pinned Rust and normalize hosted-runner toolchains for rust-cache.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        rustup toolchain install 1.96.0 --profile minimal
+        rustup default 1.96.0
+
+        # rust-cache hashes every installed toolchain, including unused ones.
+        # Never prune a developer's or self-hosted runner's Rust installation.
+        if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+          toolchains=$(rustup toolchain list)
+          while IFS=$' \t\r' read -r toolchain _; do
+            case "$toolchain" in
+              1.96.0|1.96.0-*|"") ;;
+              *) rustup toolchain uninstall "$toolchain" ;;
+            esac
+          done <<< "$toolchains"
+        fi
