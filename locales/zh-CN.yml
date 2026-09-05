@@ -945,6 +945,11 @@ transcript.thinking: 正在思考
 transcript.thought_for: 思考用时 %{duration}
 transcript.changed_file: 更改了 %{count} 个文件
 transcript.changed_files: 更改了 %{count} 个文件
+transcript.recorded_edit_limit: 最多显示提供商记录的 50,000 行差异。部分已记录的行未显示。
+transcript.recorded_edit_file_limit: 因显示上限，已省略记录的差异。
+transcript.recorded_edit_no_diff: 未记录此次编辑的差异。
+transcript.recorded_edits: 已记录的编辑
+transcript.recorded_edits_note: 仅含提供商记录的编辑，并非净差异。可能遗漏 Shell 更改。? 表示未知。
 transcript.review_changes: 审阅
 transcript.show_more_files: 再显示 %{count} 个文件
 transcript.show_fewer_files: 收起文件列表

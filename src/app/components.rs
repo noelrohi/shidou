@@ -1238,7 +1238,7 @@ pub(super) fn activity_shows_diff(activity: &ActivityItem) -> bool {
         && activity
             .file_changes
             .iter()
-            .any(|change| change.diff.is_some())
+            .any(|change| !change.path.trim().is_empty())
 }
 
 pub(super) fn activity_file_change_stats(activity: &ActivityItem) -> Option<(u64, u64)> {

@@ -71,6 +71,23 @@ final class TranscriptListTests: XCTestCase {
         XCTAssertLessThan(table.visibleCells.count, 20)
     }
 
+    func testReviewNavigatesToNewlyExpandedRowAndPausesFollowing() async throws {
+        try await open(historyCount: 200)
+        fixture.rows.insert(FixtureRow(id: "recorded-edit", text: "Recorded patch"), at: 80)
+        fixture.request = TranscriptScrollRequest(target: .review("recorded-edit"))
+        let target = IndexPath(row: 80, section: 0)
+        try await settle {
+            self.table.numberOfRows(inSection: 0) == 202
+                && abs(self.table.rectForRow(at: target).minY - self.table.contentOffset.y
+                    - self.table.adjustedContentInset.top) < 2
+        }
+        let distance = table.rectForRow(at: target).minY - table.contentOffset.y
+        fixture.grow()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(table.rectForRow(at: target).minY - table.contentOffset.y, distance, accuracy: 2)
+        XCTAssertTrue(fixture.scrollState.isAwayFromLatest)
+    }
+
     private var atBottom: Bool {
         let maximum = max(-table.adjustedContentInset.top,
                           table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)

@@ -23,9 +23,10 @@ use super::{
 };
 use crate::git_branch::BranchEntry;
 use crate::model::{
-    ActivityItem, ActivityKind, AgentSession, Checkpoint, CheckpointFile, CheckpointStatus,
-    DriverEvent, Message, MessageRole, ProviderKind, ReasoningBlock, RuntimeEventCursor,
-    SessionStatus, TranscriptBlock, TurnStatus, UserInputOption, UserInputQuestion,
+    ActivityFileChange, ActivityItem, ActivityKind, AgentSession, Checkpoint, CheckpointFile,
+    CheckpointStatus, DriverEvent, Message, MessageRole, ProviderKind, ReasoningBlock,
+    RuntimeEventCursor, SessionStatus, TranscriptBlock, TurnStatus, UserInputOption,
+    UserInputQuestion,
 };
 use crate::reducer::{accept_remote_turn, append_text_delta_to_session, push_transcript_activity};
 
@@ -75,6 +76,35 @@ use std::{
 use uuid::Uuid;
 
 fn attach_changed_files(session: &mut AgentSession, files: Vec<CheckpointFile>) {
+    let turn_id = session.turns.last().unwrap().id;
+    let mut activity = ActivityItem::new(None, ActivityKind::FileChange, "Edit files", None, true);
+    activity.file_changes = files
+        .into_iter()
+        .map(|file| ActivityFileChange {
+            path: file.path,
+            additions: Some(file.additions),
+            deletions: Some(file.deletions),
+            status: None,
+            diff: Some("@@\n-old\n+new".into()),
+        })
+        .collect();
+    // Keep work before the terminal answer, as real provider events arrive.
+    if let Some(block) = session
+        .transcript_blocks
+        .last_mut()
+        .filter(|block| block.turn_id == Some(turn_id))
+    {
+        block.activities.push(activity);
+    } else {
+        session.transcript_blocks.push(TranscriptBlock {
+            after_message: 1,
+            turn_id: Some(turn_id),
+            activities: vec![activity],
+        });
+    }
+}
+
+fn attach_workspace_changes(session: &mut AgentSession, files: Vec<CheckpointFile>) {
     let turn = session.turns.last_mut().expect("the test has a turn");
     turn.checkpoint = Some(Checkpoint {
         turn_count: turn.turn_count,
@@ -1178,7 +1208,13 @@ fn changed_files_attach_to_the_terminal_response_before_its_footer() {
 
     assert_eq!(
         folded_transcript_row_kinds(&session, &HashSet::new()),
-        vec![Message(0), Message(1), Message(2), WorkingIndicator],
+        vec![
+            Message(0),
+            TurnFold(first_turn),
+            Message(1),
+            Message(2),
+            WorkingIndicator
+        ],
         "an inline card must not add a second transcript row before the next prompt"
     );
     assert_eq!(
@@ -1231,7 +1267,7 @@ fn changed_files_remain_visible_when_an_interrupted_turn_has_no_answer() {
 }
 
 #[test]
-fn changed_files_surface_appears_only_for_a_ready_nonempty_checkpoint() {
+fn changed_files_surface_appears_only_for_successful_recorded_edits() {
     let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
     let turn_id = session.begin_turn("Build it");
     session.push_message(MessageRole::Assistant, "Done.");
@@ -1258,11 +1294,11 @@ fn changed_files_surface_appears_only_for_a_ready_nonempty_checkpoint() {
         !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id)),
         "a response with visible text hosts the card inside its terminal message"
     );
-    session.turns[0]
-        .checkpoint
-        .as_mut()
-        .expect("checkpoint")
-        .status = CheckpointStatus::Unavailable;
+    session.transcript_blocks[0]
+        .activities
+        .last_mut()
+        .unwrap()
+        .failed = true;
     assert!(
         !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id))
     );
@@ -1270,11 +1306,10 @@ fn changed_files_surface_appears_only_for_a_ready_nonempty_checkpoint() {
 }
 
 #[test]
-fn checkpoint_completion_invalidates_the_cached_transcript_rows() {
+fn turn_completion_invalidates_the_cached_recorded_edits() {
     let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
     let turn_id = session.begin_turn("Build it");
     session.push_message(MessageRole::Assistant, "Done.");
-    session.finish_active_turn(TurnStatus::Completed);
     let before = transcript_rows_fingerprint(&session, &HashSet::new());
 
     attach_changed_files(
@@ -1286,6 +1321,8 @@ fn checkpoint_completion_invalidates_the_cached_transcript_rows() {
         }],
     );
 
+    assert_eq!(changed_files_inline_message_index(&session, turn_id), None);
+    session.finish_active_turn(TurnStatus::Completed);
     assert_ne!(
         transcript_rows_fingerprint(&session, &HashSet::new()),
         before
@@ -1296,12 +1333,89 @@ fn checkpoint_completion_invalidates_the_cached_transcript_rows() {
     );
     assert!(
         !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id)),
-        "checkpoint completion changes the existing terminal message's height"
+        "turn completion changes the existing terminal message's height"
     );
 }
 
 #[test]
-fn an_inline_checkpoint_keeps_followup_row_identity() {
+fn workspace_snapshot_and_shell_activity_do_not_create_a_recorded_edits_card() {
+    let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+    let turn_id = session.begin_turn("Run a shell edit");
+    session.transcript_blocks.push(TranscriptBlock {
+        after_message: 1,
+        turn_id: Some(turn_id),
+        activities: vec![ActivityItem::new(
+            None,
+            ActivityKind::Command,
+            "sed -i",
+            None,
+            true,
+        )],
+    });
+    session.finish_active_turn(TurnStatus::Completed);
+    attach_workspace_changes(
+        &mut session,
+        vec![CheckpointFile {
+            path: "unrelated.txt".into(),
+            additions: 20,
+            deletions: 4,
+        }],
+    );
+    assert_eq!(changed_files_inline_message_index(&session, turn_id), None);
+    assert!(
+        !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id))
+    );
+}
+
+#[test]
+fn recorded_edit_review_targets_the_historical_turn_and_preserves_unknown_stats() {
+    use super::transcript::{recorded_edit_review_blocks, recorded_edit_stat};
+    use shidou_protocol::turn_edits::recorded_turn_edits;
+    let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
+    let first = session.begin_turn("Edit");
+    attach_changed_files(
+        &mut session,
+        vec![CheckpointFile {
+            path: "src/main.rs".into(),
+            additions: 2,
+            deletions: 1,
+        }],
+    );
+    let activity = &mut session.transcript_blocks[0].activities[0];
+    activity.file_changes[0].additions = None;
+    let edit_id = activity.id;
+    activity.complete = false;
+    session.finish_active_turn(TurnStatus::Interrupted);
+    assert!(!folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(first)));
+    session.transcript_blocks[0].activities[0].complete = true;
+    assert!(folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(first)));
+    session.begin_turn("Another edit");
+    attach_changed_files(
+        &mut session,
+        vec![CheckpointFile {
+            path: "src/other.rs".into(),
+            additions: 50,
+            deletions: 0,
+        }],
+    );
+    session.finish_active_turn(TurnStatus::Completed);
+    let edits = recorded_turn_edits(&session, &session.turns[0]);
+    assert_eq!(edits.activity_ids, vec![edit_id]);
+    assert_eq!(
+        recorded_edit_review_blocks(&session, first, &edits.activity_ids),
+        vec![0]
+    );
+    assert_eq!(
+        recorded_edit_review_blocks(&session, session.turns[1].id, &edits.activity_ids),
+        Vec::<usize>::new()
+    );
+    assert_eq!(recorded_edit_stat(edits.additions, '+'), "+?");
+    assert_eq!(recorded_edit_stat(edits.deletions, '-'), "-1");
+    assert_eq!(recorded_edit_stat(Some(0), '+'), "+0");
+}
+
+#[test]
+fn an_inline_card_keeps_followup_row_identity() {
     let previous = vec![Message(0), Message(1), Message(2), WorkingIndicator];
     let with_checkpoint = vec![Message(0), Message(1), Message(2), WorkingIndicator];
 

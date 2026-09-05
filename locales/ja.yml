@@ -997,6 +997,11 @@ transcript.thinking: 思考中
 transcript.thought_for: 思考時間 %{duration}
 transcript.changed_file: "%{count} 個のファイルを変更"
 transcript.changed_files: "%{count} 個のファイルを変更"
+transcript.recorded_edit_limit: プロバイダーが記録した差分を最大50,000行まで表示しています。一部の記録された行は表示されていません。
+transcript.recorded_edit_file_limit: 表示上限のため、記録された差分を省略しました。
+transcript.recorded_edit_no_diff: この編集の差分は記録されていません。
+transcript.recorded_edits: 記録された編集
+transcript.recorded_edits_note: プロバイダーが記録した編集で、最終的な差分ではありません。シェルでの変更は含まれない場合があります。? は不明を示します。
 transcript.review_changes: レビュー
 transcript.show_more_files: "さらに %{count} 個のファイルを表示"
 transcript.show_fewer_files: 表示するファイルを減らす

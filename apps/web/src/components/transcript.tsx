@@ -2,7 +2,6 @@ import type {
   ActivityItem,
   AgentSession,
   MessageAttachment,
-  ReviewDiffSource,
 } from '@shidou/client'
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
@@ -62,6 +61,7 @@ import {
   type TranscriptSearchMatch,
 } from '@/lib/transcript-search'
 import { cn } from '@/lib/utils'
+import { isRecordedEdit, recordedEditsByTurn, type RecordedEdits } from '@/lib/recorded-edits'
 
 const FIND_HIGHLIGHT_NAME = 'transcript-find'
 const FIND_CURRENT_HIGHLIGHT_NAME = 'transcript-find-current'
@@ -101,7 +101,6 @@ type MessageEdit = {
 export function Transcript({
   session,
   backgroundWork = [],
-  onReviewChanges,
   onOpenLink,
   onOpenBackgroundWork,
   onCopyToComposer,
@@ -113,7 +112,6 @@ export function Transcript({
 }: {
   session: AgentSession
   backgroundWork?: BackgroundWorkItem[]
-  onReviewChanges?: (source: ReviewDiffSource) => void
   onOpenLink?: (target: string) => boolean
   onOpenBackgroundWork?: (key: BackgroundWorkKey) => void
   onCopyToComposer?: (content: string) => void
@@ -138,6 +136,8 @@ export function Transcript({
   const wasNearBottom = useRef(true)
   const expandedSession = useRef(session.id)
   const [expandedTurns, setExpandedTurns] = useState<Set<string>>(new Set())
+  const [editReview, setEditReview] = useState<{ turnId: string; request: number } | null>(null)
+  const scrolledEditReview = useRef<typeof editReview>(null)
   const [atTop, setAtTop] = useState(true)
   const [atBottom, setAtBottom] = useState(true)
   const [railFits, setRailFits] = useState(false)
@@ -155,6 +155,15 @@ export function Transcript({
   })
   const findSyncRef = useRef({ query: '', count: 0 })
   const items = buildTranscriptItems(session, expandedTurns, new Set(rewindTurnCounts))
+  useEffect(() => {
+    if (!editReview || scrolledEditReview.current === editReview) return
+    const index = items.findIndex((item) => item.kind === 'block'
+      && item.block.turn_id === editReview.turnId
+      && activitiesForBlock(item.block).some(isRecordedEdit))
+    if (index < 0) return
+    scrolledEditReview.current = editReview
+    transcript.current?.scrollToIndex({ index, align: 'start' })
+  }, [editReview, items])
   const findMatches = findOpen && findQuery
     ? findTranscriptMatches(
         items.map((item) => item.kind === 'message'
@@ -309,6 +318,8 @@ export function Transcript({
     if (expandedSession.current === session.id) return
     expandedSession.current = session.id
     setExpandedTurns(new Set())
+    setEditReview(null)
+    scrolledEditReview.current = null
     setMessageEdit(null)
     setFindOpen(false)
     setFindQuery('')
@@ -370,8 +381,12 @@ export function Transcript({
             <TranscriptItemView
               backgroundWork={backgroundWork}
               item={item}
+              editReview={editReview}
+              onReviewEdits={(turnId) => {
+                setExpandedTurns((current) => new Set(current).add(turnId))
+                setEditReview((current) => ({ turnId, request: (current?.request ?? 0) + 1 }))
+              }}
               locale={locale}
-              sessionId={session.id}
               t={t}
               onCopyToComposer={onCopyToComposer}
               onOpenBackgroundWork={onOpenBackgroundWork}
@@ -403,7 +418,6 @@ export function Transcript({
                 }
               }}
               rewindingTurnCount={rewindingTurnCount}
-              onReviewChanges={onReviewChanges}
               onToggleTurn={(turnId) => setExpandedTurns((current) => {
                 const next = new Set(current)
                 if (next.has(turnId)) next.delete(turnId)
@@ -692,13 +706,13 @@ type TranscriptRenderItem =
       footer: AssistantResponseFooter | null
       forkTurnCount: number | null
       rewindTurnCount: number | null
-      checkpoint: AgentSession['turns'][number]['checkpoint'] | null
+      recordedEdits: RecordedEdits | null
     }
   | {
       kind: 'changed'
       key: string
       turnId: string
-      checkpoint: NonNullable<AgentSession['turns'][number]['checkpoint']>
+      recordedEdits: RecordedEdits
     }
   | {
       kind: 'working'
@@ -719,8 +733,9 @@ function buildTranscriptItems(
   const rawRows = transcriptRows(session)
   const folds = turnFolds(session, rawRows)
   const responseFooters = assistantResponseFooters(session)
-  const inlineCheckpoints = new Map<number, NonNullable<AgentSession['turns'][number]['checkpoint']>>()
-  const standaloneCheckpoints = new Map<string, NonNullable<AgentSession['turns'][number]['checkpoint']>>()
+  const recordedEdits = recordedEditsByTurn(session)
+  const inlineEdits = new Map<number, RecordedEdits>()
+  const standaloneEdits = new Map<string, RecordedEdits>()
   const lastAssistantIndexByTurn = new Map<string, number>()
   session.messages.forEach((message, index) => {
     if (message.role === 'assistant' && message.turn_id) {
@@ -728,14 +743,13 @@ function buildTranscriptItems(
     }
   })
   for (const turn of session.turns) {
-    if (turn.status === 'running' || turn.checkpoint?.status !== 'ready' || !turn.checkpoint.files.length) {
-      continue
-    }
+    const edits = recordedEdits.get(turn.id)
+    if (turn.status === 'running' || !edits) continue
     const messageIndex = lastAssistantIndexByTurn.get(turn.id)
     if (messageIndex !== undefined && session.messages[messageIndex]!.content.trim()) {
-      inlineCheckpoints.set(messageIndex, turn.checkpoint)
+      inlineEdits.set(messageIndex, edits)
     } else {
-      standaloneCheckpoints.set(turn.id, turn.checkpoint)
+      standaloneEdits.set(turn.id, edits)
     }
   }
   const items: TranscriptRenderItem[] = []
@@ -788,11 +802,11 @@ function buildTranscriptItems(
         message,
         availableRewindTurnCounts,
       ),
-      checkpoint: inlineCheckpoints.get(index) ?? null,
+      recordedEdits: inlineEdits.get(index) ?? null,
     })
   }
 
-  if (standaloneCheckpoints.size) {
+  if (standaloneEdits.size) {
     const lastItemByTurn = new Map<string, number>()
     items.forEach((item, index) => {
       const turnId = item.kind === 'fold' || item.kind === 'changed'
@@ -802,14 +816,14 @@ function buildTranscriptItems(
           : item.kind === 'message'
             ? item.message.turn_id
             : null
-      if (turnId && standaloneCheckpoints.has(turnId)) lastItemByTurn.set(turnId, index)
+      if (turnId && standaloneEdits.has(turnId)) lastItemByTurn.set(turnId, index)
     })
-    const changedAfter = new Map<number, Array<{ turnId: string; checkpoint: NonNullable<AgentSession['turns'][number]['checkpoint']> }>>()
-    for (const [turnId, checkpoint] of standaloneCheckpoints) {
+    const changedAfter = new Map<number, Array<{ turnId: string; recordedEdits: RecordedEdits }>>()
+    for (const [turnId, recordedEdits] of standaloneEdits) {
       const index = lastItemByTurn.get(turnId)
       if (index === undefined) continue
       const entries = changedAfter.get(index) ?? []
-      entries.push({ turnId, checkpoint })
+      entries.push({ turnId, recordedEdits })
       changedAfter.set(index, entries)
     }
     if (changedAfter.size) {
@@ -821,7 +835,7 @@ function buildTranscriptItems(
             kind: 'changed',
             key: `changed-${entry.turnId}`,
             turnId: entry.turnId,
-            checkpoint: entry.checkpoint,
+            recordedEdits: entry.recordedEdits,
           })
         }
       })
@@ -863,12 +877,12 @@ function responseForkTurnCount(
 
 function TranscriptItemView({
   item,
+  editReview,
+  onReviewEdits,
   backgroundWork,
   locale,
-  sessionId,
   t,
   onToggleTurn,
-  onReviewChanges,
   onCopyToComposer,
   onOpenBackgroundWork,
   onForkResponse,
@@ -880,12 +894,12 @@ function TranscriptItemView({
   rewindingTurnCount,
 }: {
   item: TranscriptRenderItem
+  editReview: { turnId: string; request: number } | null
+  onReviewEdits: (turnId: string) => void
   backgroundWork: BackgroundWorkItem[]
   locale: AppLocale
-  sessionId: string
   t: Translator
   onToggleTurn: (turnId: string) => void
-  onReviewChanges?: (source: ReviewDiffSource) => void
   onCopyToComposer?: (content: string) => void
   onOpenBackgroundWork?: (key: BackgroundWorkKey) => void
   onForkResponse?: (turnCount: number) => void
@@ -915,27 +929,14 @@ function TranscriptItemView({
         activities={activitiesForBlock(item.block)}
         backgroundWork={backgroundWork}
         liveGroup={item.liveGroup}
+        reviewRequest={editReview?.turnId === item.block.turn_id ? editReview.request : 0}
         t={t}
         onOpenBackgroundWork={onOpenBackgroundWork}
       />
     )
   } else if (item.kind === 'changed') {
     content = (
-      <ChangedFilesCard
-        additions={item.checkpoint.additions}
-        deletions={item.checkpoint.deletions}
-        files={item.checkpoint.files}
-        t={t}
-        onReview={onReviewChanges
-          ? () => onReviewChanges({
-              lastTurn: {
-                session_id: sessionId,
-                turn_id: item.turnId,
-                turn_count: item.checkpoint.turn_count,
-              },
-            })
-          : undefined}
-      />
+      <RecordedEditsCard edits={item.recordedEdits} t={t} onReview={() => onReviewEdits(item.turnId)} />
     )
   } else if (item.kind === 'working') {
     content = <WorkingIndicator startedAt={item.startedAt} t={t} />
@@ -965,24 +966,8 @@ function TranscriptItemView({
               onBegin: () => onBeginMessageEdit(item.message, item.rewindTurnCount!),
             }
           : undefined}
-        beforeFooter={item.checkpoint?.status === 'ready' && item.checkpoint.files.length > 0
-          ? (
-            <ChangedFilesCard
-              additions={item.checkpoint.additions}
-              deletions={item.checkpoint.deletions}
-              files={item.checkpoint.files}
-              t={t}
-              onReview={onReviewChanges && item.message.turn_id
-                ? () => onReviewChanges({
-                    lastTurn: {
-                      session_id: sessionId,
-                      turn_id: item.message.turn_id!,
-                      turn_count: item.checkpoint!.turn_count,
-                    },
-                  })
-                : undefined}
-            />
-          )
+        beforeFooter={item.recordedEdits
+          ? <RecordedEditsCard edits={item.recordedEdits} t={t} onReview={() => onReviewEdits(item.message.turn_id!)} />
           : null}
       />
     )
@@ -1574,19 +1559,25 @@ function ActivityGroup({
   activities,
   backgroundWork,
   liveGroup,
+  reviewRequest,
   t,
   onOpenBackgroundWork,
 }: {
   activities: ActivityItem[]
   backgroundWork: BackgroundWorkItem[]
   liveGroup: boolean
+  reviewRequest: number
   t: Translator
   onOpenBackgroundWork?: (key: BackgroundWorkKey) => void
 }) {
-  const [expanded, setExpanded] = useState(liveGroup)
+  const reviewEdits = reviewRequest > 0 && activities.some(isRecordedEdit)
+  const [expanded, setExpanded] = useState(liveGroup || reviewEdits)
   useEffect(() => {
     setExpanded(liveGroup)
   }, [liveGroup])
+  useEffect(() => {
+    if (reviewEdits) setExpanded(true)
+  }, [reviewEdits, reviewRequest])
   if (!activities.length) return null
   return (
     <div className="min-w-0 text-[12px] text-[var(--text-tertiary)]">
@@ -1604,6 +1595,7 @@ function ActivityGroup({
           {activities.map((activity) => (
             <ActivityRow
               activity={activity}
+              reviewRequest={isRecordedEdit(activity) ? reviewRequest : 0}
               backgroundWork={backgroundWork.find((item) => (
                 item.originActivityId === activity.source_id
               ))}
@@ -1622,17 +1614,22 @@ function ActivityRow({
   activity,
   backgroundWork,
   t,
+  reviewRequest = 0,
   onOpenBackgroundWork,
 }: {
   activity: ActivityItem
   backgroundWork?: BackgroundWorkItem
   t: Translator
+  reviewRequest?: number
   onOpenBackgroundWork?: (key: BackgroundWorkKey) => void
 }) {
   const sections = activity.reasoning ? [] : activityDisclosureSections(activity, t)
   const reasoningContent = activity.reasoning?.content.trim() ?? ''
   const hasDetail = Boolean(reasoningContent || sections.length)
-  const [expanded, setExpanded] = useState(Boolean(activity.reasoning && !activity.complete))
+  const [expanded, setExpanded] = useState(reviewRequest > 0 || Boolean(activity.reasoning && !activity.complete))
+  useEffect(() => {
+    if (reviewRequest > 0) setExpanded(true)
+  }, [reviewRequest])
   const iconName = activityIcon(activity)
   const preview = expanded || activity.reasoning ? '' : activityPreview(activity, t)
   const actionLabel = activityActionLabel(activity, t)
@@ -1722,10 +1719,10 @@ function ActivityRow({
           </div>
         ) : (
           <div className="flex min-w-0 flex-col gap-2 overflow-hidden border-t px-3 py-2 font-mono text-[10.5px] leading-4 text-[var(--text-secondary)]">
-            {sections.map((section) => (
+            {sections.map((section, index) => (
               <ActivitySection
                 edges={detailEdges}
-                key={section.kind}
+                key={`${section.kind}-${index}`}
                 scrollable={activity.kind === 'command' && section.kind === 'output'}
                 section={section}
                 t={t}
@@ -1924,19 +1921,8 @@ function ActivityState({
   return <span className="flex shrink-0 items-center gap-1">{status}{disclosure}</span>
 }
 
-function ChangedFilesCard({
-  files,
-  additions,
-  deletions,
-  t,
-  onReview,
-}: {
-  files: Array<{ path: string; additions: number; deletions: number }>
-  additions: number
-  deletions: number
-  t: Translator
-  onReview?: () => void
-}) {
+function RecordedEditsCard({ edits, t, onReview }: { edits: RecordedEdits; t: Translator; onReview: () => void }) {
+  const { files, additions, deletions } = edits
   const [expanded, setExpanded] = useState(false)
   const shown = expanded ? files.slice(0, 12) : files.slice(0, 3)
   const clipped = expanded && files.length > 12
@@ -1953,27 +1939,29 @@ function ChangedFilesCard({
             })}
           </div>
           <div className="mt-0.5 flex gap-1.5 text-[11px] leading-[14px]">
-            <span className="text-[var(--success)]">+{additions}</span>{' '}
-            <span className="text-destructive">-{deletions}</span>
+            <span className="text-[var(--success)]">+{additions ?? '?'}</span>{' '}
+            <span className="text-destructive">-{deletions ?? '?'}</span>
           </div>
         </div>
-        {onReview && (
-          <button
-            className="flex h-7 items-center gap-1 rounded-[7px] border bg-card px-2.5 text-[11.5px] font-medium text-[var(--text-secondary)] outline-none hover:bg-[var(--raised)] focus-visible:border-ring"
-            type="button"
-            onClick={onReview}
-          >
-            <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name="fileDiff" />
-            {t('transcript.review_changes')}
-          </button>
-        )}
+        <button
+          aria-label={`${t('transcript.review_changes')} ${t('transcript.recorded_edits')}`}
+          className="flex h-7 items-center gap-1 rounded-[7px] border bg-card px-2.5 text-[11.5px] font-medium text-[var(--text-secondary)] outline-none hover:bg-[var(--raised)] focus-visible:border-ring"
+          type="button"
+          onClick={onReview}
+        >
+          <ShidouIcon className="size-3 text-[var(--text-tertiary)]" name="fileDiff" />
+          {t('transcript.review_changes')}
+        </button>
       </div>
+      <p className="px-3 pb-2 text-[11px] text-[var(--text-tertiary)]">
+        {t('transcript.recorded_edits_note')}
+      </p>
       <div className="border-t">
         {shown.map((file) => (
           <div className="flex h-[31px] items-center gap-2 px-3 text-[11.5px]" key={file.path}>
             <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]" title={file.path}>{file.path}</span>
-            <span className="text-[10.5px] text-[var(--success)]">+{file.additions}</span>
-            <span className="text-[10.5px] text-destructive">-{file.deletions}</span>
+            <span className="text-[10.5px] text-[var(--success)]">+{file.additions ?? '?'}</span>
+            <span className="text-[10.5px] text-destructive">-{file.deletions ?? '?'}</span>
           </div>
         ))}
         {files.length > 3 && (

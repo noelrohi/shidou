@@ -148,13 +148,26 @@ public enum ActivityPresentation {
 
     /// The expandable body of an activity: command, arguments, output.
     public struct DisclosureSection: Hashable, Sendable {
-        public enum Kind: Hashable, Sendable { case command, arguments, output, detail }
+        public enum Kind: Hashable, Sendable { case command, arguments, output, detail, diff }
         public var kind: Kind
         public var content: String
+        public var isDiffMissing: Bool = false
     }
 
     public static func disclosureSections(_ activity: ActivityItem) -> [DisclosureSection] {
         var sections: [DisclosureSection] = []
+        if activity.kind == .fileChange, activity.complete, !activity.failed {
+            for change in activity.fileChanges {
+                guard !change.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                if let diff = change.diff,
+                    !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
+                    sections.append(DisclosureSection(kind: .diff, content: "\(change.path)\n\(diff)"))
+                } else {
+                    sections.append(DisclosureSection(kind: .diff, content: change.path, isDiffMissing: true))
+                }
+            }
+        }
         let output = activity.output?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         if activity.kind == .command {
             if let command = activity.arguments?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty

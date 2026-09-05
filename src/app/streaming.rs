@@ -458,11 +458,19 @@ impl Shidou {
         if !reduction.applied {
             return;
         }
+        if self.state.selected_session == Some(session_id) {
+            // Activity payloads can change without moving a transcript block.
+            self.invalidate_transcript_content();
+        }
         self.observe_foreground_command_activity(session_id, &observed);
         if let Some(activity_id) = reduction.replaced_activity_diff {
             // The rows this activity's diff was built from are gone;
             // an expanded card rebuilds from the new ones.
             self.activity_diffs.borrow_mut().remove(&activity_id);
+            self.activity_diff_jobs.borrow_mut().invalidate(activity_id);
+            self.activity_diff_viewports
+                .borrow_mut()
+                .remove(&activity_id);
         }
         if refresh_branch {
             self.refresh_selected_branch_snapshot(cx);

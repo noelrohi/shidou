@@ -53,6 +53,7 @@ struct TranscriptView: View {
     @State private var highlights = HighlightStore()
     @State private var mermaid = MermaidStore()
     @State private var expandedTurns: Set<UUID> = []
+    @State private var expandedActivities: Set<UUID> = []
     @State private var isFinding = false
     @State private var query = ""
     @State private var currentMatch: Int?
@@ -193,7 +194,8 @@ struct TranscriptView: View {
         let rows = TranscriptPresentation.rows(
             model.session,
             expandedTurns: expandedTurns,
-            retainedTurnCounts: store?.retainedTurnCounts(for: model.session.id) ?? []
+            retainedTurnCounts: store?.retainedTurnCounts(for: model.session.id) ?? [],
+            recordedEdits: model.recordedEdits
         )
         let matches = isFinding
             ? TranscriptFind.matches(in: rows, query: query)
@@ -356,7 +358,8 @@ struct TranscriptView: View {
                 onOpenBackgroundWork: { key in
                     surfacePath = [.work(key: key)]
                     showingSurfaces = true
-                }
+                },
+                expandedActivities: $expandedActivities
             )
         case .message(_, let messageRow):
             if messageRow.message.role == .user {
@@ -400,8 +403,8 @@ struct TranscriptView: View {
                     }
                 )
             }
-        case .changed(_, let turnId, let checkpoint):
-            CheckpointSummary(checkpoint: checkpoint) {
+        case .changed(_, let turnId, let edits):
+            RecordedEditsSummary(edits: edits) {
                 reviewChanges(model, turnId: turnId)
             }
         case .working(let startedAt):
@@ -455,14 +458,13 @@ struct TranscriptView: View {
         }
     }
 
-    /// Opens this turn's diff in the changes surface.
     private func reviewChanges(_ model: SessionRuntimeModel, turnId: UUID) {
-        guard let turn = model.session.turns.first(where: { $0.id == turnId }) else { return }
-        surfacePath = [.changes]
-        store?.surfaces(for: model.session)?.selectDiffSource(.lastTurn(
-            sessionId: model.session.id, turnId: turn.id, turnCount: turn.turnCount
-        ))
-        showingSurfaces = true
+        guard let edits = model.recordedEdits[turnId] else { return }
+        expandedTurns.insert(turnId)
+        expandedActivities.formUnion(edits.activityIds)
+        if let rowKey = edits.firstRowKey {
+            scrollRequest = TranscriptScrollRequest(target: .review(rowKey))
+        }
     }
 
     // MARK: - Chrome

@@ -45,6 +45,7 @@ pub mod reducer;
 pub mod settings;
 pub mod skills;
 pub mod theme;
+pub mod turn_edits;
 pub mod usage;
 pub mod usage_history;
 pub mod workspace;

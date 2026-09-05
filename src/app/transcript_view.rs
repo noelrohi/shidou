@@ -4,8 +4,7 @@ use base64::Engine as _;
 
 const CHANGED_FILES_PREVIEW_LIMIT: usize = 3;
 /// Keep one virtualized transcript row bounded even when a generator touches
-/// hundreds of files. The full immutable list remains one click away in the
-/// right panel.
+/// hundreds of files. Review opens the original recorded edit activities.
 const CHANGED_FILES_EXPANDED_LIMIT: usize = 12;
 /// An expanded edit stays one transcript row tall; past this the diff scrolls
 /// in place, the same as long command output.
@@ -928,6 +927,7 @@ impl Shidou {
                 // edit the session ever made.
                 this.activity_diffs.borrow_mut().remove(&id);
                 this.activity_diff_viewports.borrow_mut().remove(&id);
+                this.activity_diff_jobs.borrow_mut().invalidate(id);
             }
         });
     }
@@ -978,17 +978,40 @@ impl Shidou {
             .into_any_element()
     }
 
-    /// Diff rows for an expanded file-change activity, built on first sight and
-    /// held until the activity collapses or its changes are replaced.
-    fn activity_diff_rows(&self, activity: &ActivityItem) -> Rc<activity_diff::Diff> {
-        if let Some(diff) = self.activity_diffs.borrow().get(&activity.id) {
-            return diff.clone();
+    /// Recorded patches are parsed off-thread, once per expansion or replacement.
+    fn activity_diff_rows(
+        &self,
+        activity: &ActivityItem,
+        cx: &mut Context<Self>,
+    ) -> Option<Rc<activity_diff::Diff>> {
+        let id = activity.id;
+        if let Some(diff) = self.activity_diffs.borrow().get(&id) {
+            return Some(diff.clone());
         }
-        let diff = Rc::new(activity_diff::build(activity));
-        self.activity_diffs
-            .borrow_mut()
-            .insert(activity.id, diff.clone());
-        diff
+        let job = self.activity_diff_jobs.borrow_mut().begin(id)?;
+        let activity = activity.clone();
+        cx.spawn(async move |this, cx| {
+            let diff = cx
+                .background_executor()
+                .spawn(async move { activity_diff::build(&activity) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.activity_diff_jobs.borrow_mut().finish(id, job) {
+                    return;
+                }
+                this.activity_diffs.borrow_mut().insert(id, Rc::new(diff));
+                if let Some(index) = this
+                    .selected_transcript_blocks()
+                    .iter()
+                    .position(|block| block.activities.iter().any(|activity| activity.id == id))
+                {
+                    this.remeasure_transcript_block(index);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        None
     }
 
     pub(super) fn toggle_turn_fold(
@@ -1457,28 +1480,58 @@ impl Shidou {
         cx.notify();
     }
 
-    /// The immutable file delta captured when a response settles. Small
-    /// summaries stay useful at a glance; larger ones disclose in place and
-    /// always offer the complete per-turn list in the right panel.
+    fn review_recorded_turn_edits(&mut self, turn_id: Uuid, cx: &mut Context<Self>) {
+        self.refresh_transcript_row_kinds();
+        let Some(edits) = self.recorded_turn_edits_cached(turn_id) else {
+            return;
+        };
+        let blocks = self
+            .selected_session()
+            .map(|session| recorded_edit_review_blocks(session, turn_id, &edits.activity_ids))
+            .unwrap_or_default();
+        if blocks.is_empty() {
+            return;
+        }
+        self.toggle_turn_fold(turn_id, false, cx);
+        for id in &edits.activity_ids {
+            self.expanded_activity_items.insert(*id, true);
+        }
+        for &index in &blocks {
+            self.activities_expanded.insert(index, true);
+            self.remeasure_transcript_block(index);
+        }
+        let first = TranscriptRowKind::TurnBlock(blocks[0]);
+        if let Some(item_ix) = self
+            .transcript_row_kinds
+            .borrow()
+            .iter()
+            .position(|row| *row == first)
+        {
+            self.active_transcript_rows().scroll_to(ListOffset {
+                item_ix,
+                offset_in_item: px(0.0),
+            });
+        }
+        cx.notify();
+    }
+
+    /// Provider-recorded edits, not a workspace snapshot or a net diff.
     fn render_changed_files_row(
         &self,
         turn_id: Uuid,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let Some(checkpoint) = self
-            .selected_session()
-            .and_then(|session| session.turns.iter().find(|turn| turn.id == turn_id))
-            .and_then(|turn| turn.checkpoint.as_ref())
-            .filter(|checkpoint| checkpoint.status == CheckpointStatus::Ready)
-            .filter(|checkpoint| !checkpoint.files.is_empty())
+        let Some(edits) = self
+            .recorded_turn_edits_cached(turn_id)
+            .filter(|edits| !edits.files.is_empty())
         else {
             return None;
         };
 
-        let files = checkpoint.files.as_slice();
-        let additions = checkpoint.additions;
-        let deletions = checkpoint.deletions;
+        let files = edits.files.as_slice();
+        let additions = recorded_edit_stat(edits.additions, '+');
+        let deletions = recorded_edit_stat(edits.deletions, '-');
         let expanded = self.expanded_changed_files.contains(&turn_id);
         let visible_limit = if expanded {
             CHANGED_FILES_EXPANDED_LIMIT
@@ -1515,11 +1568,11 @@ impl Shidou {
             .child(icon("icons/file-diff.svg", 12.0, theme.text_tertiary))
             .child(tr_cow!("transcript.review_changes"))
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_turn_diff(turn_id, cx);
+                this.review_recorded_turn_edits(turn_id, cx);
             }))
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
                 if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                    this.open_turn_diff(turn_id, cx);
+                    this.review_recorded_turn_edits(turn_id, cx);
                     cx.stop_propagation();
                 }
             }));
@@ -1582,21 +1635,21 @@ impl Shidou {
                                     .gap(px(6.0))
                                     .text_size(sp(12.5))
                                     .line_height(sp(14.0))
-                                    .child(
-                                        div()
-                                            .text_color(theme.success)
-                                            .child(format!("+{additions}")),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_color(theme.danger)
-                                            .child(format!("-{deletions}")),
-                                    ),
+                                    .child(div().text_color(theme.success).child(additions))
+                                    .child(div().text_color(theme.danger).child(deletions)),
                             ),
                     )
                     .child(review),
             );
 
+        card = card.child(
+            div()
+                .px(px(12.0))
+                .pb(px(9.0))
+                .text_size(sp(12.0))
+                .text_color(theme.text_secondary)
+                .child(tr_cow!("transcript.recorded_edits_note")),
+        );
         let mut file_rows = div()
             .w_full()
             .min_w_0()
@@ -1655,14 +1708,14 @@ impl Shidou {
                             .flex_none()
                             .text_size(sp(12.5))
                             .text_color(theme.success)
-                            .child(format!("+{}", file.additions)),
+                            .child(recorded_edit_stat(file.additions, '+')),
                     )
                     .child(
                         div()
                             .flex_none()
                             .text_size(sp(12.5))
                             .text_color(theme.danger)
-                            .child(format!("-{}", file.deletions)),
+                            .child(recorded_edit_stat(file.deletions, '-')),
                     ),
             );
         }
@@ -2261,15 +2314,20 @@ impl Shidou {
                 );
             }
             if item_expanded && shows_diff {
-                let diff = self.activity_diff_rows(activity);
-                if !diff.is_empty() {
-                    item = item.child(self.render_activity_diff(
-                        id,
-                        &diff,
-                        activity_surface,
-                        theme,
-                        cx,
-                    ));
+                match self.activity_diff_rows(activity, cx) {
+                    Some(diff) if !diff.is_empty() => {
+                        item = item.child(self.render_activity_diff(id, &diff, theme, cx));
+                    }
+                    None => {
+                        item = item.child(
+                            div()
+                                .px(px(12.0))
+                                .py(px(8.0))
+                                .text_color(theme.text_secondary)
+                                .child(tr_cow!("diff.loading")),
+                        );
+                    }
+                    _ => {}
                 }
             }
             if item_expanded
@@ -2468,87 +2526,107 @@ impl Shidou {
 
     /// The diff for an expanded file-change activity.
     ///
-    /// Rows bleed to the card's edges so a changed line reads as a band, and
-    /// the whole diff sits in the same capped, faded viewport as command
-    /// output — a large edit stays one transcript row tall.
+    /// Keep every provider row available in a bounded, virtualized viewport.
     fn render_activity_diff(
         &self,
         id: Uuid,
-        diff: &activity_diff::Diff,
-        surface: Hsla,
+        diff: &Rc<activity_diff::Diff>,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let viewport = self
+        let (rows, scrollbar_state) = self
             .activity_diff_viewports
             .borrow_mut()
             .entry(id)
-            .or_default()
+            .or_insert_with(|| {
+                (
+                    ListState::new(diff.snapshot.lines.len(), ListAlignment::Top, px(200.0)),
+                    ScrollbarState::new(),
+                )
+            })
             .clone();
-        let wheel_scroll = viewport.scroll_handle.clone();
         let (diff_mono_size, diff_mono_line) = self.activity_mono_text();
-        let mut rows = div()
+        let height = activity_diff::viewport_height(
+            diff.snapshot.lines.iter(),
+            diff_mono_line,
+            ACTIVITY_DIFF_MAX_HEIGHT,
+        );
+        let entity = cx.entity().downgrade();
+        let truncated = diff.snapshot.truncated;
+        let diff = diff.clone();
+        let focus = self.transcript_control_focus(format!("activity-diff-scroll-{id}"), cx);
+        let key_rows = rows.clone();
+        let viewport = div()
             .id(SharedString::from(format!("activity-diff-scroll-{id}")))
-            .w_full()
-            .min_w_0()
-            .max_h(px(ACTIVITY_DIFF_MAX_HEIGHT))
-            .overflow_y_scroll()
-            .track_scroll(&viewport.scroll_handle)
-            .flex()
-            .flex_col()
-            .font_family(md::render::MONO_FAMILY)
-            .text_size(px(diff_mono_size))
-            .line_height(px(diff_mono_line))
-            .on_scroll_wheel(move |_, _, cx| contain_scroll(&wheel_scroll, cx));
-        for (index, line) in diff.snapshot.lines.iter().enumerate() {
-            rows = rows.child(self.render_activity_diff_row(
-                id,
-                index,
-                line,
-                &diff.snapshot,
-                theme,
-                cx,
-            ));
-        }
-        if diff.hidden_rows > 0 {
-            let note = if diff.hidden_rows == 1 {
-                tr!("diff.rows_hidden_one")
-            } else {
-                tr!("diff.rows_hidden", count = diff.hidden_rows)
-            };
-            rows = rows.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .px(px(12.0))
-                    .py(px(4.0))
-                    .text_color(theme.text_tertiary)
-                    .child(SharedString::from(note)),
-            );
-        }
-        div()
+            .track_focus(&focus)
+            .tab_index(0)
+            .focus_visible(|style| style.border_color(theme.accent))
+            .on_key_down(cx.listener(move |_, event: &KeyDownEvent, _, cx| {
+                let current = key_rows.logical_scroll_top().item_ix;
+                let last = key_rows.item_count().saturating_sub(1);
+                let target = match event.keystroke.key.as_str() {
+                    "up" => current.saturating_sub(1),
+                    "down" => current.saturating_add(1).min(last),
+                    "pageup" => current.saturating_sub(15),
+                    "pagedown" => current.saturating_add(15).min(last),
+                    "home" => 0,
+                    "end" => last,
+                    _ => return,
+                };
+                key_rows.scroll_to(ListOffset {
+                    item_ix: target,
+                    offset_in_item: px(0.0),
+                });
+                cx.stop_propagation();
+                cx.notify();
+            }))
             .w_full()
             .min_w_0()
             .relative()
-            .max_h(px(ACTIVITY_DIFF_MAX_HEIGHT))
+            .h(px(height))
             .overflow_hidden()
             .border_t_1()
             .border_color(theme.border_strong)
-            .child(rows)
-            .child(activity_scroll_fade(
-                viewport.scroll_handle.clone(),
-                ActivityScrollFadeSide::Top,
-                surface,
-            ))
-            .child(activity_scroll_fade(
-                viewport.scroll_handle.clone(),
-                ActivityScrollFadeSide::Bottom,
-                surface,
-            ))
-            .child(scrollbar::vertical(
-                &viewport.scroll_handle,
-                &viewport.scrollbar,
-            ))
+            .font_family(md::render::MONO_FAMILY)
+            .text_size(px(diff_mono_size))
+            .line_height(px(diff_mono_line))
+            .child(
+                list(rows.clone(), move |index, _, cx| {
+                    entity
+                        .upgrade()
+                        .map(|entity| {
+                            entity.update(cx, |this, cx| {
+                                let theme = Theme::current(cx);
+                                this.render_activity_diff_row(
+                                    id,
+                                    index,
+                                    &diff.snapshot.lines[index],
+                                    &diff,
+                                    &theme,
+                                    cx,
+                                )
+                            })
+                        })
+                        .unwrap_or_else(|| div().into_any_element())
+                })
+                .size_full(),
+            )
+            .child(scrollbar::vertical(&rows, &scrollbar_state));
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .when(truncated, |container| {
+                container.child(
+                    div()
+                        .px(px(12.0))
+                        .py(px(8.0))
+                        .text_color(theme.text_secondary)
+                        .child(tr_cow!("transcript.recorded_edit_limit")),
+                )
+            })
+            .child(viewport)
             .into_any_element()
     }
 
@@ -2557,17 +2635,29 @@ impl Shidou {
         id: Uuid,
         index: usize,
         line: &crate::review_diff::Line,
-        snapshot: &crate::review_diff::Snapshot,
+        diff: &activity_diff::Diff,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         use crate::review_diff::LineKind;
-
+        if let Some(note) = diff.row_notes.get(&index) {
+            let label = match note {
+                activity_diff::Note::MissingDiff => tr!("transcript.recorded_edit_no_diff"),
+                activity_diff::Note::DisplayLimit => tr!("transcript.recorded_edit_file_limit"),
+            };
+            return activity_diff_break_row(Some(label), theme);
+        }
+        let snapshot = &diff.snapshot;
         match &line.kind {
             LineKind::FileHeader => {
                 let Some(file) = snapshot.files.get(line.file_index) else {
                     return div().into_any_element();
                 };
+                let (additions, deletions) = diff
+                    .recorded_stats
+                    .get(&file.path)
+                    .copied()
+                    .unwrap_or_default();
                 div()
                     .w_full()
                     .min_w_0()
@@ -2595,14 +2685,14 @@ impl Shidou {
                             .flex_none()
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme.success)
-                            .child(SharedString::from(format!("+{}", file.additions))),
+                            .child(recorded_edit_stat(additions, '+')),
                     )
                     .child(
                         div()
                             .flex_none()
                             .font_weight(FontWeight::NORMAL)
                             .text_color(theme.danger)
-                            .child(SharedString::from(format!("-{}", file.deletions))),
+                            .child(recorded_edit_stat(deletions, '-')),
                     )
                     .child(self.render_activity_open_file_button(
                         format!("activity-diff-open-{id}-{}", line.file_index),

@@ -94,9 +94,7 @@ final class TranscriptPresentationTests: XCTestCase {
         XCTAssertFalse(kinds(TranscriptPresentation.rows(idle)).contains("working"))
     }
 
-    /// Restore is deferred past v1, so a checkpoint is a statement of what
-    /// changed. It still has to appear, and appear in the right place.
-    func testAReadyCheckpointWithNoAnswerBecomesItsOwnRow() {
+    func testWorkspaceCheckpointWithoutAnswerDoesNotCreateRecordedEdits() {
         var turn = AgentTurn(id: turnId, turnCount: 1, status: .completed, startedAt: 1, completedAt: 2)
         turn.checkpoint = try? JSONDecoder().decode(
             Checkpoint.self,
@@ -113,10 +111,10 @@ final class TranscriptPresentationTests: XCTestCase {
             ],
             turns: [turn]
         ))
-        XCTAssertTrue(kinds(rows).contains("changed"))
+        XCTAssertFalse(kinds(rows).contains("changed"))
     }
 
-    func testACheckpointUnderAnAnswerRidesThatMessageInstead() throws {
+    func testWorkspaceCheckpointDoesNotAttachToAnswer() throws {
         var turn = AgentTurn(id: turnId, turnCount: 1, status: .completed, startedAt: 1, completedAt: 2)
         turn.checkpoint = try JSONDecoder().decode(
             Checkpoint.self,
@@ -135,10 +133,10 @@ final class TranscriptPresentationTests: XCTestCase {
         ))
         XCTAssertFalse(kinds(rows).contains("changed"))
         let attached = rows.contains { row in
-            if case .message(_, let message) = row { return message.checkpoint != nil }
+            if case .message(_, let message) = row { return message.recordedEdits != nil }
             return false
         }
-        XCTAssertTrue(attached)
+        XCTAssertFalse(attached)
     }
 
     /// The footer's value is the whole visible answer, not the final chunk, so

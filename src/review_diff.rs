@@ -277,9 +277,13 @@ pub fn from_file_changes(changes: &[crate::model::ActivityFileChange]) -> Snapsh
     let mut numstat = String::new();
     let mut patch = String::new();
     for change in changes {
-        let Some(body) = change.diff.as_deref() else {
-            continue;
-        };
+        // Keep the file header even when the provider supplied no patch.
+        // Activity presentation adds an explicit per-file missing-diff message.
+        let body = change
+            .diff
+            .as_deref()
+            .filter(|body| !body.trim().is_empty())
+            .unwrap_or_default();
         numstat.push_str(&format!(
             "{}\t{}\t{}\n",
             change.additions.unwrap_or(0),

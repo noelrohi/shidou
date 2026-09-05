@@ -245,13 +245,22 @@ export function activityRowDetail(activity: ActivityItem, t?: Translator) {
 }
 
 export type ActivityDisclosureSection = {
-  kind: 'command' | 'arguments' | 'output' | 'detail'
+  kind: 'command' | 'arguments' | 'output' | 'detail' | 'fileDiff'
   label: string | null
   content: string
 }
 
 export function activityDisclosureSections(activity: ActivityItem, t?: Translator): ActivityDisclosureSection[] {
   const sections: ActivityDisclosureSection[] = []
+  if (activity.kind === 'fileChange' && activity.complete && !activity.failed && activity.file_changes?.length) {
+    return activity.file_changes.filter((file) => file.path.trim()).map((file) => ({
+      kind: 'fileDiff',
+      label: file.path,
+      content: file.diff?.trim()
+        ? file.diff
+        : t ? t('transcript.recorded_edit_no_diff') : 'No diff recorded for this edit.',
+    }))
+  }
   if (activity.kind === 'command') {
     const command = activity.arguments?.trim() || activity.display_target?.trim()
     const output = activity.output?.trim()

@@ -14,6 +14,7 @@ struct TranscriptScrollRequest: Equatable {
         case bottom
         case submittedMessage(String)
         case find(String)
+        case review(String)
     }
 
     let id = UUID()
@@ -266,6 +267,10 @@ struct TranscriptList<Row: Identifiable, RowContent: View>: UIViewRepresentable 
                 scrollToTail(resolveLastRow: true)
             case .submittedMessage(let id):
                 followsTail = true
+                guard let index = indexByID[id] else { return }
+                table.scrollToRow(at: IndexPath(row: index, section: 0), at: .top, animated: false)
+            case .review(let id):
+                followsTail = false
                 guard let index = indexByID[id] else { return }
                 table.scrollToRow(at: IndexPath(row: index, section: 0), at: .top, animated: false)
             case .find(let id):

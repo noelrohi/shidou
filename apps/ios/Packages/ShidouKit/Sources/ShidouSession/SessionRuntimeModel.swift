@@ -10,6 +10,7 @@ import ShidouProtocol
 @MainActor
 public final class SessionRuntimeModel {
     public private(set) var session: AgentSession
+    public private(set) var recordedEdits: [UUID: RecordedEdits]
     public private(set) var runtimeId: UUID?
     public private(set) var supportsSteer = false
     public private(set) var pendingPermission: PendingPermission?
@@ -28,6 +29,7 @@ public final class SessionRuntimeModel {
     @ObservationIgnored var lastDriverError: String?
     @ObservationIgnored private var projection: AgentSession
     @ObservationIgnored private var dirty = false
+    @ObservationIgnored private var recordedEditsDirty = false
     @ObservationIgnored private var publishTask: Task<Void, Never>?
     @ObservationIgnored private var publishHeld = false
 
@@ -35,6 +37,7 @@ public final class SessionRuntimeModel {
 
     public init(session: AgentSession) {
         self.session = session
+        self.recordedEdits = RecordedEdits.summaries(in: session)
         self.projection = session
     }
 
@@ -78,6 +81,7 @@ public final class SessionRuntimeModel {
     /// local mutations like `beginTurn`). Publishes immediately.
     public func replaceSession(_ session: AgentSession) {
         projection = session
+        recordedEditsDirty = true
         publishNow()
     }
 
@@ -123,6 +127,16 @@ public final class SessionRuntimeModel {
             }
         }
         projection = result.session
+        // Activity upserts can replace an existing file edit, even when the
+        // incoming kind is different. Acceptance can remap block turn IDs;
+        // settlement marks pending activities complete. Deltas and usage do
+        // not change recorded edits and must not rescan historical blocks.
+        switch event.event.kind {
+        case "activity", "richActivity", "turnAccepted", "turnFinished", "processExited":
+            recordedEditsDirty = true
+        default:
+            break
+        }
         if let error = result.error {
             lastDriverError = error
         }
@@ -177,6 +191,10 @@ public final class SessionRuntimeModel {
 
     private func publishNow() {
         dirty = false
+        if recordedEditsDirty {
+            recordedEdits = RecordedEdits.summaries(in: projection)
+            recordedEditsDirty = false
+        }
         session = projection
     }
 }

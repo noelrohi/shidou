@@ -2205,26 +2205,6 @@ impl Shidou {
         cx.notify();
     }
 
-    pub(super) fn open_turn_diff(&mut self, turn_id: Uuid, cx: &mut Context<Self>) {
-        let Some((session_id, turn_count)) = self.selected_session().and_then(|session| {
-            session
-                .turns
-                .iter()
-                .find(|turn| turn.id == turn_id)
-                .map(|turn| (session.id, turn.turn_count))
-        }) else {
-            return;
-        };
-        self.set_right_panel_diff_source(
-            ReviewDiffSource::LastTurn {
-                session_id,
-                turn_id,
-                turn_count,
-            },
-            cx,
-        );
-    }
-
     fn open_workspace_file_in_browser(
         &mut self,
         relative_path: String,
