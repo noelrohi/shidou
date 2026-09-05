@@ -793,6 +793,42 @@ mod tests {
     }
 
     #[test]
+    fn last_turn_review_matches_deleted_files_even_after_they_are_recreated() {
+        let root = repository();
+        let session_id = Uuid::new_v4();
+        fs::write(root.join("src/lib.rs"), "dirty before turn\n").unwrap();
+        fs::write(root.join("local-skill.txt"), "local skill\n").unwrap();
+        crate::checkpoint::capture_turn_start(&root, session_id, 1).unwrap();
+        fs::remove_file(root.join("src/lib.rs")).unwrap();
+        fs::remove_file(root.join("local-skill.txt")).unwrap();
+        let checkpoint = crate::checkpoint::capture_turn(&root, session_id, 1).unwrap();
+        fs::write(root.join("src/lib.rs"), "recreated after turn\n").unwrap();
+        fs::write(root.join("local-skill.txt"), "recreated skill\n").unwrap();
+
+        let data = collect(
+            &root,
+            ReviewDiffSource::LastTurn {
+                session_id,
+                turn_id: Uuid::new_v4(),
+                turn_count: 1,
+            },
+        );
+        assert_eq!(
+            numstat_summary(&data.numstat),
+            (
+                checkpoint.files.len(),
+                checkpoint.additions,
+                checkpoint.deletions,
+            )
+        );
+        assert_eq!(numstat_summary(&data.numstat), (2, 0, 2));
+        assert!(data.patch.contains("-dirty before turn"));
+        assert!(data.patch.contains("-local skill"));
+        assert!(!data.patch.contains("recreated"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn last_turn_review_uses_the_branch_aware_diff_base() {
         let root = repository();
         git_ok(&root, &["switch", "-c", "feature"]);

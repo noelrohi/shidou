@@ -6,20 +6,20 @@ use super::runtime::{merge_remote_session_catalog, session_has_active_provider_t
 use super::settings::visible_settings_pages;
 use super::{
     ESCAPE_STOP_CONFIRMATION_TIMEOUT, EscapeStopConfirmation, EscapeStopPress, EscapeStopTarget,
-    NAVIGATION_RAIL_TICK_HEIGHT, NAVIGATION_RAIL_TURN_HEIGHT, PendingUserInput, SessionNavigation,
-    StreamDeltaKind, TranscriptRowKind::*, active_navigation_turn_index, assistant_response_footer,
-    assistant_response_footer_index, assistant_response_footer_time,
-    changed_files_inline_message_index, compact_driver_error, disclosure_leading_space,
-    fenced_code, fitted_file_tree_width, fitted_panel_widths, folded_transcript_row_kinds,
-    format_worked_duration, format_working_elapsed, maintain_transcript_anchor, message_opens_turn,
-    message_starts_followup_turn, navigation_preview_snippet, navigation_rail_fade_visibility,
-    navigation_rail_height, navigation_rail_scale, paused_toast_duration, pop_stream_batch,
-    session_accepts_turn_output, session_is_reapable, should_refresh_branch_after_activity,
-    should_show_navigation_rail, should_show_scroll_to_bottom, task_id_from_notification_tag,
-    task_notification_tag, transcript_anchor_end_space, transcript_navigation_turns,
-    transcript_rests_at_tail, transcript_row_kinds, transcript_row_splice,
-    transcript_rows_fingerprint, widened_panel_width_for_file_editor,
-    widened_panel_width_for_review,
+    NAVIGATION_RAIL_TICK_HEIGHT, NAVIGATION_RAIL_TURN_HEIGHT, PendingUserInput, ReviewDiffSource,
+    SessionNavigation, StreamDeltaKind, TranscriptRowKind::*, active_navigation_turn_index,
+    assistant_response_footer, assistant_response_footer_index, assistant_response_footer_time,
+    changed_files_inline_message_index, checkpoint_review_source, compact_driver_error,
+    disclosure_leading_space, fenced_code, fitted_file_tree_width, fitted_panel_widths,
+    folded_transcript_row_kinds, format_worked_duration, format_working_elapsed,
+    maintain_transcript_anchor, message_opens_turn, message_starts_followup_turn,
+    navigation_preview_snippet, navigation_rail_fade_visibility, navigation_rail_height,
+    navigation_rail_scale, paused_toast_duration, pop_stream_batch, session_accepts_turn_output,
+    session_is_reapable, should_refresh_branch_after_activity, should_show_navigation_rail,
+    should_show_scroll_to_bottom, task_id_from_notification_tag, task_notification_tag,
+    transcript_anchor_end_space, transcript_navigation_turns, transcript_rests_at_tail,
+    transcript_row_kinds, transcript_row_splice, transcript_rows_fingerprint,
+    widened_panel_width_for_file_editor, widened_panel_width_for_review,
 };
 use crate::git_branch::BranchEntry;
 use crate::model::{
@@ -76,6 +76,7 @@ use std::{
 use uuid::Uuid;
 
 fn attach_changed_files(session: &mut AgentSession, files: Vec<CheckpointFile>) {
+    attach_workspace_changes(session, files.clone());
     let turn_id = session.turns.last().unwrap().id;
     let mut activity = ActivityItem::new(None, ActivityKind::FileChange, "Edit files", None, true);
     activity.file_changes = files
@@ -104,7 +105,7 @@ fn attach_changed_files(session: &mut AgentSession, files: Vec<CheckpointFile>) 
     }
 }
 
-fn attach_workspace_changes(session: &mut AgentSession, files: Vec<CheckpointFile>) {
+pub(super) fn attach_workspace_changes(session: &mut AgentSession, files: Vec<CheckpointFile>) {
     let turn = session.turns.last_mut().expect("the test has a turn");
     turn.checkpoint = Some(Checkpoint {
         turn_count: turn.turn_count,
@@ -1267,7 +1268,7 @@ fn changed_files_remain_visible_when_an_interrupted_turn_has_no_answer() {
 }
 
 #[test]
-fn changed_files_surface_appears_only_for_successful_recorded_edits() {
+fn changed_files_surface_appears_only_for_ready_checkpoints() {
     let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
     let turn_id = session.begin_turn("Build it");
     session.push_message(MessageRole::Assistant, "Done.");
@@ -1294,11 +1295,17 @@ fn changed_files_surface_appears_only_for_successful_recorded_edits() {
         !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id)),
         "a response with visible text hosts the card inside its terminal message"
     );
+    // Provider failure does not erase workspace changes made during the turn.
     session.transcript_blocks[0]
         .activities
         .last_mut()
         .unwrap()
         .failed = true;
+    assert_eq!(
+        changed_files_inline_message_index(&session, turn_id),
+        Some(1)
+    );
+    session.turns[0].checkpoint.as_mut().unwrap().status = CheckpointStatus::Error;
     assert!(
         !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id))
     );
@@ -1306,7 +1313,7 @@ fn changed_files_surface_appears_only_for_successful_recorded_edits() {
 }
 
 #[test]
-fn turn_completion_invalidates_the_cached_recorded_edits() {
+fn turn_completion_invalidates_the_cached_workspace_changes() {
     let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
     let turn_id = session.begin_turn("Build it");
     session.push_message(MessageRole::Assistant, "Done.");
@@ -1338,7 +1345,7 @@ fn turn_completion_invalidates_the_cached_recorded_edits() {
 }
 
 #[test]
-fn workspace_snapshot_and_shell_activity_do_not_create_a_recorded_edits_card() {
+fn workspace_snapshot_includes_shell_and_external_changes() {
     let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
     let turn_id = session.begin_turn("Run a shell edit");
     session.transcript_blocks.push(TranscriptBlock {
@@ -1363,14 +1370,12 @@ fn workspace_snapshot_and_shell_activity_do_not_create_a_recorded_edits_card() {
     );
     assert_eq!(changed_files_inline_message_index(&session, turn_id), None);
     assert!(
-        !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id))
+        folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(turn_id))
     );
 }
 
 #[test]
-fn recorded_edit_review_targets_the_historical_turn_and_preserves_unknown_stats() {
-    use super::transcript::{recorded_edit_review_blocks, recorded_edit_stat};
-    use shidou_protocol::turn_edits::recorded_turn_edits;
+fn workspace_review_targets_the_exact_historical_checkpoint() {
     let mut session = AgentSession::new(Uuid::new_v4(), ProviderKind::Codex);
     let first = session.begin_turn("Edit");
     attach_changed_files(
@@ -1381,37 +1386,34 @@ fn recorded_edit_review_targets_the_historical_turn_and_preserves_unknown_stats(
             deletions: 1,
         }],
     );
-    let activity = &mut session.transcript_blocks[0].activities[0];
-    activity.file_changes[0].additions = None;
-    let edit_id = activity.id;
-    activity.complete = false;
+    assert_eq!(checkpoint_review_source(&session, first), None);
     session.finish_active_turn(TurnStatus::Interrupted);
-    assert!(!folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(first)));
-    session.transcript_blocks[0].activities[0].complete = true;
-    assert!(folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(first)));
+    let snapshot = checkpoint_review_source(&session, first).unwrap();
     session.begin_turn("Another edit");
-    attach_changed_files(
-        &mut session,
-        vec![CheckpointFile {
-            path: "src/other.rs".into(),
-            additions: 50,
-            deletions: 0,
-        }],
-    );
     session.finish_active_turn(TurnStatus::Completed);
-    let edits = recorded_turn_edits(&session, &session.turns[0]);
-    assert_eq!(edits.activity_ids, vec![edit_id]);
+    assert_eq!(checkpoint_review_source(&session, first), Some(snapshot));
     assert_eq!(
-        recorded_edit_review_blocks(&session, first, &edits.activity_ids),
-        vec![0]
+        snapshot,
+        ReviewDiffSource::LastTurn {
+            session_id: session.id,
+            turn_id: first,
+            turn_count: 1,
+        }
     );
     assert_eq!(
-        recorded_edit_review_blocks(&session, session.turns[1].id, &edits.activity_ids),
-        Vec::<usize>::new()
+        checkpoint_review_source(&session, session.turns[1].id),
+        None
     );
-    assert_eq!(recorded_edit_stat(edits.additions, '+'), "+?");
-    assert_eq!(recorded_edit_stat(edits.deletions, '-'), "-1");
-    assert_eq!(recorded_edit_stat(Some(0), '+'), "+0");
+    // Even successful provider edits must not substitute for missing snapshots.
+    for status in [CheckpointStatus::Unavailable, CheckpointStatus::Error] {
+        session.turns[0].checkpoint.as_mut().unwrap().status = status;
+        assert_eq!(checkpoint_review_source(&session, first), None);
+        assert!(
+            !folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(first))
+        );
+    }
+    session.turns[0].checkpoint = None;
+    assert!(!folded_transcript_row_kinds(&session, &HashSet::new()).contains(&ChangedFiles(first)));
 }
 
 #[test]

@@ -1788,6 +1788,9 @@ impl Shidou {
                             turn.checkpoint = Some(checkpoint);
                             attached_turn_id = Some(turn.id);
                         }
+                        if attached_turn_id.is_some() {
+                            shidou.invalidate_transcript_content();
+                        }
                         if let Some(turn_id) = attached_turn_id
                             && selected
                         {

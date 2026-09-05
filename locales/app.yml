@@ -1953,8 +1953,10 @@ transcript.recorded_edit_no_diff:
   en: No diff recorded for this edit.
 transcript.recorded_edits:
   en: Recorded edits
-transcript.recorded_edits_note:
-  en: Provider-recorded edits, not a net diff. Shell changes may be missing. ? means unknown.
+transcript.workspace_changes_note:
+  en: Changes made during this turn.
+transcript.workspace_changes_tooltip:
+  en: May include edits from you or other tasks.
 transcript.review_changes:
   en: Review
 transcript.show_more_files:
