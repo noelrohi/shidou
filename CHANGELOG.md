@@ -15,6 +15,12 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.22]
+
+- Prevent a queued message from being submitted again after it has already been steered into the running turn
+- Reduce temporary memory allocations while displaying streamed plain-text responses and reasoning
+- Response edit cards now show only provider-recorded edits from that turn, rather than other tasks' workspace changes. Review opens the recorded edits; workspace diffs remain separate. Shell-script changes may be missing.
+
 ## [0.2.21]
 
 - Set up Computer Use from Settings and recognize its macOS permission helper by its Shidou app icon
