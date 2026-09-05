@@ -2,11 +2,9 @@ import ShidouProtocol
 import ShidouSession
 import SwiftUI
 
-/// The transcript, built exactly as the rendering decision settled it and the
-/// on-device prototype confirmed: `ScrollView` + `LazyVStack` +
-/// `defaultScrollAnchor(.bottom)`, markdown parsed incrementally, and the
-/// projection republished on an 80 ms cadence so a token-rate stream cannot
-/// invalidate SwiftUI per event.
+/// SwiftUI transcript rows hosted in a native, virtualized table. The
+/// projection publishes on an 80 ms cadence; the table owns scroll following
+/// and measurement independently from the composer and transcript chrome.
 struct TranscriptView: View {
     /// A transcript is opened one of two ways: from the list, where the daemon
     /// has the session and it must be hydrated; or from ＋, where the task is
@@ -47,7 +45,6 @@ struct TranscriptView: View {
 
     @Environment(DaemonConnection.self) private var connection
     @Environment(AttentionCenter.self) private var attention
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var model: SessionRuntimeModel?
@@ -80,19 +77,8 @@ struct TranscriptView: View {
     /// that row at the viewport top like the desktop transcript.
     @State private var pendingSubmissionAnchor: PendingSubmissionAnchor?
     @State private var submittedMessageAnchor: String?
-    /// Heights only for rows in the submitted turn. Keeping them per row lets
-    /// the outer LazyVStack stay virtualized even when one turn is very long.
-    @State private var anchoredRowHeights: [String: CGFloat] = [:]
-    /// The transcript's end has scrolled below the composer — the
-    /// scroll-to-latest button's whole reason to exist. Reported by
-    /// `onScrolledAwayFromBottom` on the scroll view, so it is written only
-    /// when it flips. The bottom-anchored open starts at rest, so the
-    /// button starts hidden.
-    @State private var isAwayFromLatest = false
-    /// One past each press of the scroll-to-latest button. A count, not a
-    /// boolean, so two presses in a row both land; the scroller watches it
-    /// because the `ScrollViewProxy` lives there, not on the composer bar.
-    @State private var scrollToLatestRequests = 0
+    @State private var scrollState = TranscriptScrollState()
+    @State private var scrollRequest: TranscriptScrollRequest?
 
     private struct PendingSubmissionAnchor: Equatable {
         let token = UUID()
@@ -243,6 +229,12 @@ struct TranscriptView: View {
                     scroller(rows: rows, matches: matches, model: model)
                 }
             }
+            .overlay(alignment: .bottom) {
+                TranscriptJumpControl(state: scrollState) {
+                    scrollRequest = TranscriptScrollRequest(target: .bottom)
+                }
+                .padding(.bottom, 8)
+            }
             // The composer is a bottom bar, not the last row of a stack: as a
             // bar the transcript keeps scrolling underneath it and the bar's
             // blur fades what passes behind, the same way the navigation bar
@@ -250,28 +242,16 @@ struct TranscriptView: View {
             // slab and the transcript would simply stop above it.
             .floatingBottomBar {
                 if let store {
-                    VStack(spacing: 0) {
-                        if isAwayFromLatest {
-                            ScrollToLatestButton { scrollToLatestRequests += 1 }
-                                .padding(.bottom, 8)
-                                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    ComposerView(
+                        model: model,
+                        store: store,
+                        daemonAddress: connection.preferenceKey,
+                        quoted: $quoted,
+                        onTurnSubmitted: {
+                            pendingSubmissionAnchor = PendingSubmissionAnchor(
+                                previousMessageId: latestUserMessageId(in: model.session))
                         }
-                        ComposerView(
-                            model: model,
-                            store: store,
-                            daemonAddress: connection.preferenceKey,
-                            quoted: $quoted,
-                            onTurnSubmitted: {
-                                pendingSubmissionAnchor = PendingSubmissionAnchor(
-                                    previousMessageId: latestUserMessageId(in: model.session))
-                            }
-                        )
-                    }
-                    // The button joins and leaves the bar rather than toggling
-                    // in place: the composer is the bar's last element, so it
-                    // never moves — the bar just grows upward. Reduce Motion
-                    // keeps the swap and drops the animation.
-                    .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: isAwayFromLatest)
+                    )
                 }
             }
         }
@@ -296,124 +276,32 @@ struct TranscriptView: View {
         model.session.turns.filter { $0.status != .running }.count
     }
 
-    /// The virtualized transcript itself, exactly as the rendering decision
-    /// settled it: bottom-anchored, lazy, and dismissing the keyboard as the
-    /// user scrolls away from the composer.
     private func scroller(
         rows: [TranscriptRow],
         matches: TranscriptFind.Result,
         model: SessionRuntimeModel
     ) -> some View {
-        GeometryReader { viewport in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        transcriptRows(
-                            rows,
-                            model: model,
-                            viewportHeight: viewport.size.height
-                        )
-                    }
-                    // On iOS 17 the scroll-anchor API cannot separate initial
-                    // placement from keyboard-driven size changes. Bottom-align
-                    // short content here and scroll long content once on open,
-                    // so later viewport changes can preserve what is being read.
-                    .frame(
-                        minHeight: max(0, viewport.size.height - 24),
-                        alignment: .bottom
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-                .transcriptDefaultScrollAnchor()
-                .scrollDismissesKeyboard(.interactively)
-                .dismissesKeyboardOnTap()
-                .accessibilityIdentifier("transcript-scroll")
-                // The web counts anything within its Virtuoso's 100 px
-                // `atBottomThreshold` as resting at the bottom; the same
-                // slop keeps the button from flickering while the pinned
-                // tail drifts a few points under streaming updates.
-                .onScrolledAwayFromBottom(threshold: 100) { isAwayFromLatest = $0 }
-                .onAppear {
-                    anchorSubmittedMessage(in: rows, with: proxy)
-                    if #unavailable(iOS 18.0), pendingSubmissionAnchor == nil {
-                        Task { @MainActor in
-                            await Task.yield()
-                            proxy.scrollTo("transcript-tail", anchor: .bottom)
-                        }
-                    }
-                }
-                .onChange(of: latestUserMessageId(in: model.session)) {
-                    reconcileSubmittedMessageAnchor(in: rows)
-                    anchorSubmittedMessage(in: rows, with: proxy)
-                }
-                .onChange(of: currentMatch) { _, index in
-                    guard let index, index < matches.matches.count else { return }
-                    let key = matches.matches[index].rowKey
-                    // Scrolling to a match is navigation, but animating the
-                    // journey is decoration, and Reduce Motion asks for none.
-                    if reduceMotion {
-                        proxy.scrollTo(key, anchor: .center)
-                    } else {
-                        withAnimation { proxy.scrollTo(key, anchor: .center) }
-                    }
-                }
-                .onChange(of: scrollToLatestRequests) {
-                    // A jump, not a journey: the web button scrolls
-                    // `behavior: 'auto'` and the desktop's is equally direct.
-                    // Animating through a LazyVStack materializes every row
-                    // the flight passes, for a delay the tap was trying to
-                    // skip. The tail is the last element in both layouts, so
-                    // landing on it bottom-anchored is the resting position
-                    // whatever the submitted-turn reservation is doing below.
-                    proxy.scrollTo("transcript-tail", anchor: .bottom)
-                }
-            }
+        TranscriptList(
+            rows: rows,
+            scrollState: scrollState,
+            request: scrollRequest,
+            submittedMessageID: submittedMessageAnchor
+        ) { row in
+            rowView(row, model: model)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { anchorSubmittedMessage(in: rows) }
+        .onChange(of: latestUserMessageId(in: model.session)) {
+            reconcileSubmittedMessageAnchor(in: rows)
+            anchorSubmittedMessage(in: rows)
+        }
+        .onChange(of: currentMatch) { _, index in
+            guard let index, index < matches.matches.count else { return }
+            scrollRequest = TranscriptScrollRequest(target: .find(matches.matches[index].rowKey))
         }
     }
 
-    @ViewBuilder
-    private func transcriptRows(
-        _ rows: [TranscriptRow],
-        model: SessionRuntimeModel,
-        viewportHeight: CGFloat
-    ) -> some View {
-        if let submittedMessageAnchor,
-            let anchorIndex = rows.firstIndex(where: { $0.id == submittedMessageAnchor })
-        {
-            ForEach(rows[..<anchorIndex]) { row in
-                rowView(row, model: model)
-                    .id(row.id)
-            }
-            ForEach(rows[anchorIndex...]) { row in
-                rowView(row, model: model)
-                    .id(row.id)
-                    .onGeometryChange(for: CGFloat.self) { geometry in
-                        geometry.size.height
-                    } action: { height in
-                        anchoredRowHeights[row.id] = height
-                    }
-            }
-            // A short response needs room below it or ScrollView clamps the
-            // new prompt back to the bottom. This reservation shrinks as the
-            // visible rows of the active turn fill the viewport.
-            Color.clear
-                .frame(height: anchorEndSpace(
-                    for: rows[anchorIndex...], viewportHeight: viewportHeight))
-                .id("transcript-tail")
-        } else {
-            ForEach(rows) { row in
-                rowView(row, model: model)
-                    .id(row.id)
-            }
-            // Keeps the last row clear of the composer's top edge.
-            Color.clear.frame(height: 8).id("transcript-tail")
-        }
-    }
-
-    /// Accepted Turn replaces the optimistic message id. Carry the scroll
-    /// anchor and its measured height to the canonical row so the prompt does
-    /// not jump when its identity converges.
+    /// Carry the submitted-turn reservation to the Accepted Turn's row ID.
     private func reconcileSubmittedMessageAnchor(in rows: [TranscriptRow]) {
         guard pendingSubmissionAnchor == nil,
             let submittedMessageAnchor,
@@ -421,15 +309,9 @@ struct TranscriptView: View {
             let latest = latestUserMessage(in: rows)
         else { return }
         self.submittedMessageAnchor = latest.rowId
-        if let height = anchoredRowHeights.removeValue(forKey: submittedMessageAnchor) {
-            anchoredRowHeights[latest.rowId] = height
-        }
     }
 
-    private func anchorSubmittedMessage(
-        in rows: [TranscriptRow],
-        with proxy: ScrollViewProxy
-    ) {
+    private func anchorSubmittedMessage(in rows: [TranscriptRow]) {
         guard let pendingSubmissionAnchor,
             let latest = latestUserMessage(in: rows),
             latest.messageId != pendingSubmissionAnchor.previousMessageId
@@ -437,22 +319,7 @@ struct TranscriptView: View {
 
         self.pendingSubmissionAnchor = nil
         submittedMessageAnchor = latest.rowId
-        anchoredRowHeights = [:]
-        Task { @MainActor in
-            await Task.yield()
-            proxy.scrollTo(latest.rowId, anchor: .top)
-        }
-    }
-
-    private func anchorEndSpace(
-        for rows: ArraySlice<TranscriptRow>,
-        viewportHeight: CGFloat
-    ) -> CGFloat {
-        let measuredHeight = rows.reduce(CGFloat(8)) { height, row in
-            height + (anchoredRowHeights[row.id] ?? 0)
-        }
-        let spacing = CGFloat(max(0, rows.count - 1)) * 16
-        return max(0, viewportHeight - measuredHeight - spacing)
+        scrollRequest = TranscriptScrollRequest(target: .submittedMessage(latest.rowId))
     }
 
     private func latestUserMessage(in rows: [TranscriptRow]) -> (rowId: String, messageId: UUID)? {
@@ -812,71 +679,6 @@ private struct FindBar: View {
 }
 
 
-extension View {
-    /// Opens short transcripts at the bottom without treating every later
-    /// viewport change as a command to move there. In particular, the keyboard
-    /// and a growing composer shrink the viewport; applying the bottom anchor
-    /// to that size change pushes the row being read above the screen.
-    @ViewBuilder
-    func transcriptDefaultScrollAnchor() -> some View {
-        if #available(iOS 18.0, *) {
-            defaultScrollAnchor(.bottom, for: .initialOffset)
-                .defaultScrollAnchor(.bottom, for: .alignment)
-        } else {
-            self
-        }
-    }
-}
-
-private struct ScrollBottomState: Equatable {
-    let isScrollable: Bool
-    let isAway: Bool
-}
-
-/// Reports whether this scroll view's content rests more than `threshold`
-/// points above its bottom edge — the state behind the scroll-to-latest
-/// button. The measurement rides `onScrollGeometryChange`, which is an iOS 18
-/// API; below it there is nothing to read the scroll position from, so the
-/// modifier degrades to silence rather than a button that guesses.
-extension View {
-    @ViewBuilder
-    func onScrolledAwayFromBottom(
-        threshold: CGFloat,
-        onChange: @escaping (Bool) -> Void
-    ) -> some View {
-        if #available(iOS 18.0, *) {
-            onScrollGeometryChange(for: ScrollBottomState.self) { geometry in
-                let isScrollable = geometry.contentSize.height > geometry.containerSize.height
-                return ScrollBottomState(
-                    isScrollable: isScrollable,
-                    isAway: isScrollable
-                        && geometry.visibleRect.maxY < geometry.contentSize.height - threshold
-                )
-            } action: { _, state in
-                onChange(state.isAway)
-            }
-        } else {
-            self
-        }
-    }
-}
-
-/// Tapping through a view also puts the keyboard away. The transcript is the
-/// composer's outside, and a tap there is an unambiguous "done typing" —
-/// scrolling already dismisses interactively, but a tap is what people try
-/// first. It resigns whatever is first responder through the responder chain,
-/// so the wrapped composer text view and the find bar both obey, and the
-/// gesture is simultaneous, so row buttons and file links still get the touch.
-extension View {
-    func dismissesKeyboardOnTap() -> some View {
-        simultaneousGesture(TapGesture().onEnded {
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder), to: nil, from: nil,
-                for: nil)
-        })
-    }
-}
-
 /// What a new task looks like before it is one: the web app's question, asked
 /// where its transcript will be.
 ///
@@ -927,6 +729,24 @@ private struct NewTaskCanvas: View {
 /// neighborhood. It floats over arbitrary content, so it takes the
 /// composer's own glass surface — interactive, because it is a control —
 /// with the composer pill's material fallback and hairline below iOS 26.
+/// An overlay, not part of the composer's safe-area height. Only this small
+/// view observes scroll position, so showing it cannot remeasure the history.
+private struct TranscriptJumpControl: View {
+    let state: TranscriptScrollState
+    let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if state.isAwayFromLatest {
+                ScrollToLatestButton(action: action)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+            }
+        }
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: state.isAwayFromLatest)
+    }
+}
+
 private struct ScrollToLatestButton: View {
     let action: () -> Void
 
