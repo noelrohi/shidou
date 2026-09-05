@@ -213,16 +213,13 @@ enum SettingsPage {
     Skills,
     Usage,
     Daemon,
-    ComputerUse,
+    Features,
     Appearance,
 }
 
 impl SettingsPage {
-    /// Computer Use depends on macOS privacy services. Keeping this decision on
-    /// the page itself makes the Settings sidebar and command palette use the
-    /// same platform gate.
     fn is_visible_in_navigation(self) -> bool {
-        self != Self::ComputerUse || cfg!(target_os = "macos")
+        true
     }
 }
 
@@ -2537,7 +2534,9 @@ impl Shidou {
                     // app had focus — a checkout in a terminal, an edit in an
                     // editor. Coming back is the moment to re-check.
                     this.invalidate_workspace_queries(cx);
-                    if this.settings_page == Some(SettingsPage::ComputerUse) {
+                    if cfg!(target_os = "macos")
+                        && this.settings_page == Some(SettingsPage::Features)
+                    {
                         this.request_computer_permissions(false, cx);
                     }
                     // Skill files are routinely edited in another app; coming

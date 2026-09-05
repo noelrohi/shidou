@@ -1959,45 +1959,41 @@ fn settings_search_filters_pages_for_arrow_cycling() {
 
     // An empty query keeps every page in sidebar order, so the arrows cycle
     // the full navigation even before anything is typed.
-    let mut all_pages = vec![
+    let all_pages = vec![
         SettingsPage::General,
         SettingsPage::Appearance,
         SettingsPage::Providers,
         SettingsPage::Skills,
         SettingsPage::Usage,
         SettingsPage::Daemon,
+        SettingsPage::Features,
     ];
-    if cfg!(target_os = "macos") {
-        all_pages.push(SettingsPage::ComputerUse);
-    }
     assert_eq!(pages(""), all_pages);
 
     assert_eq!(pages("theme"), vec![SettingsPage::Appearance]);
+    assert_eq!(pages("provider icons"), vec![SettingsPage::Appearance]);
     assert_eq!(pages("skill"), vec![SettingsPage::Skills]);
 
     // A keyword shared across pages keeps them all reachable.
-    let mut codex_pages = vec![
+    let codex_pages = vec![
         SettingsPage::Providers,
         SettingsPage::Skills,
         SettingsPage::Usage,
+        SettingsPage::Features,
     ];
-    if cfg!(target_os = "macos") {
-        codex_pages.push(SettingsPage::ComputerUse);
-    }
     assert_eq!(pages("codex"), codex_pages);
 
+    assert_eq!(pages("subtasks"), vec![SettingsPage::Features]);
+    assert_eq!(pages("computer use"), vec![SettingsPage::Features]);
     assert_eq!(pages("no such setting"), vec![]);
 }
 
 #[test]
-fn computer_use_navigation_is_macos_only() {
+fn features_navigation_is_available_on_every_platform() {
     use super::SettingsPage;
 
     assert!(SettingsPage::General.is_visible_in_navigation());
-    assert_eq!(
-        SettingsPage::ComputerUse.is_visible_in_navigation(),
-        cfg!(target_os = "macos")
-    );
+    assert!(SettingsPage::Features.is_visible_in_navigation());
 }
 
 #[test]

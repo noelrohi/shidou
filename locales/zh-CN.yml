@@ -85,15 +85,19 @@ settings.appearance: 外观
 settings.providers: 服务商
 settings.usage: 用量
 settings.daemon: 守护进程
-settings.computer_use: 电脑操作
+settings.features: 功能
+settings.sidebar_provider_icons: 侧边栏提供商图标
+settings.sidebar_provider_icons_description: 在侧边栏显示各任务的提供商图标
+features.subtasks: 子任务
+features.subtasks_description: 允许智能体创建子任务。关闭后立即阻止创建新的子任务，现有子任务仍可使用。任务编排指令将在智能体下次启动时更新。
 settings.general_keywords: 通用 本地 项目 对话 隐私 匿名 使用数据 分析 分享 更新 自动 版本 Git 提交 Conventional 信息
-settings.appearance_keywords: 外观 主题 系统 浅色 深色 语言 英语 中文 简体 字号 字体 大小 编辑器
+settings.appearance_keywords: 外观 主题 系统 浅色 深色 语言 英语 中文 简体 字号 字体 大小 编辑器 侧边栏 提供商 图标
 settings.providers_keywords: 服务商 智能体 模型 命令行 版本 安装 检测 claude codex cursor opencode amp grok pi
 settings.skills: 技能
 settings.skills_keywords: 技能 技能库 智能体 禁用 启用 删除 claude codex cursor opencode pi amp 共享
 settings.usage_keywords: 用量 令牌 费用 支出 缓存 每日 图表 模型 明细 历史 claude codex
 settings.daemon_keywords: 守护进程 服务 远程 网页 网络 暴露 来源 令牌 端口 websocket
-settings.computer_use_keywords: 电脑操作 屏幕录制 辅助功能 应用 控制 codex
+settings.features_keywords: 功能 子任务 编排 电脑操作 屏幕录制 辅助功能 应用 控制 codex subtasks computer use
 settings.back: 返回
 settings.search: 搜索设置
 daemon.expose_title: 暴露由 Shidou 管理的守护进程

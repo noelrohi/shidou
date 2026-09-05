@@ -702,7 +702,7 @@ impl Shidou {
                 SettingsPage::Appearance,
                 "settings.appearance",
                 "icons/appearance.svg",
-                "settings preferences appearance theme language light dark",
+                "settings preferences appearance theme language light dark sidebar provider icons",
             ),
             (
                 SettingsPage::Providers,
@@ -729,10 +729,10 @@ impl Shidou {
                 "settings preferences daemon server remote web network origin token port",
             ),
             (
-                SettingsPage::ComputerUse,
-                "settings.computer_use",
+                SettingsPage::Features,
+                "settings.features",
                 "icons/cursor-spark.svg",
-                "settings preferences computer use accessibility screen recording",
+                "settings preferences features subtasks child tasks orchestration computer use accessibility screen recording",
             ),
         ] {
             if !page.is_visible_in_navigation() {

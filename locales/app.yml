@@ -175,12 +175,20 @@ settings.usage:
   en: Usage
 settings.daemon:
   en: Daemon
-settings.computer_use:
-  en: Computer Use
+settings.sidebar_provider_icons:
+  en: Sidebar provider icons
+settings.sidebar_provider_icons_description:
+  en: Show each task’s provider icon in the sidebar
+settings.features:
+  en: Features
+features.subtasks:
+  en: Subtasks
+features.subtasks_description:
+  en: Allow agents to create child tasks. Turning this off blocks new children immediately; existing children remain available. Orchestration instructions change when an agent runtime next starts.
 settings.general_keywords:
   en: general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version git commit conventional messages
 settings.appearance_keywords:
-  en: appearance theme system light dark language english chinese simplified font size text editor
+  en: appearance theme system light dark language english chinese simplified font size text editor sidebar provider icons
 settings.providers_keywords:
   en: providers agents models cli version install detect claude codex cursor opencode amp grok pi
 settings.skills:
@@ -191,8 +199,8 @@ settings.usage_keywords:
   en: usage tokens cost spend cache daily chart model breakdown history claude codex
 settings.daemon_keywords:
   en: daemon server remote web network expose origin token port websocket
-settings.computer_use_keywords:
-  en: computer use screen recording accessibility apps control codex
+settings.features_keywords:
+  en: features subtasks child tasks orchestration computer use screen recording accessibility apps control codex
 settings.back:
   en: Back
 settings.search:

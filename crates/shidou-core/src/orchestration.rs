@@ -51,6 +51,7 @@ impl TaskCredentialRegistry {
             address: address.to_owned(),
             token,
             task_id,
+            subtasks_enabled: true,
         }
     }
 
@@ -149,6 +150,22 @@ Below, `shidou task …` stands for that full form.",
     } else {
         format!("The `shidou` executable is at `{cli}` and on PATH.")
     };
+    if !credential.subtasks_enabled {
+        return format!(
+            "You are running inside a Shidou task (id {task}). Creating child tasks is disabled. \
+You can still manage your existing child tasks. {invocation}\n\
+Commands:\n\
+- `shidou task list` lists your existing child tasks.\n\
+- `shidou task read <task-id>` prints the child's status and last message without waiting.\n\
+- `shidou task wait <task-id> [--timeout <seconds>]` waits for the child's current turn \
+to settle and prints its final message.\n\
+- `shidou task send <task-id> \"<prompt>\" [--wait]` sends a follow-up to an existing child.\n\
+Run each call as a single plain command: no `&&`, `;`, pipes, or redirection on the same \
+line, or it will need the user's approval. If a child is waiting for user input or \
+permission, tell the user rather than polling forever.",
+            task = credential.task_id,
+        );
+    }
     format!(
         "You are running inside a Shidou task (id {task}). Shidou can run other coding-agent \
 tasks for you in the same project; they appear in the user's sidebar under this task. Use \
@@ -431,11 +448,60 @@ mod tests {
     }
 
     #[test]
+    fn legacy_credentials_default_to_creation_instructions() {
+        let credential: TaskCredential = serde_json::from_value(serde_json::json!({
+            "address": "127.0.0.1:1", "token": "t", "task_id": Uuid::new_v4(),
+        }))
+        .unwrap();
+        assert!(credential.subtasks_enabled);
+        assert!(agent_instructions(&credential, false).contains("shidou task new"));
+    }
+
+    #[test]
+    fn disabled_credentials_teach_only_existing_child_management() {
+        let credential = TaskCredential {
+            address: "127.0.0.1:1".into(),
+            token: "restricted-token".into(),
+            task_id: Uuid::new_v4(),
+            subtasks_enabled: false,
+        };
+        let restored: TaskCredential =
+            serde_json::from_value(serde_json::to_value(&credential).unwrap()).unwrap();
+        assert_eq!(restored, credential);
+        for inline in [false, true] {
+            let instructions = agent_instructions(&credential, inline);
+            assert!(instructions.contains("Creating child tasks is disabled"));
+            for command in ["list", "read", "wait", "send"] {
+                assert!(instructions.contains(&format!("shidou task {command}")));
+            }
+            assert!(!instructions.contains("shidou task new"));
+            assert!(!instructions.contains("shidou task models"));
+            assert!(!instructions.contains("genuinely separable"));
+            assert!(!instructions.contains("Shidou can run other coding-agent"));
+            if inline {
+                assert!(instructions.contains("SHIDOU_DAEMON_ADDRESS=127.0.0.1:1"));
+                assert!(instructions.contains("SHIDOU_TASK_TOKEN=restricted-token"));
+                assert!(instructions.contains(&format!("SHIDOU_TASK_ID={}", credential.task_id)));
+            } else {
+                assert!(instructions.contains("on PATH"));
+                assert!(!instructions.contains("restricted-token"));
+            }
+            let preamble = FirstPromptPreamble::new(Some(&credential), inline);
+            assert_eq!(
+                preamble.apply("hello".into()),
+                format!("<shidou-orchestration>\n{instructions}\n</shidou-orchestration>\n\nhello")
+            );
+            assert_eq!(preamble.apply("again".into()), "again");
+        }
+    }
+
+    #[test]
     fn the_preamble_rides_only_the_first_prompt() {
         let credential = TaskCredential {
             address: "127.0.0.1:1".into(),
             token: "t".into(),
             task_id: Uuid::new_v4(),
+            subtasks_enabled: true,
         };
         let preamble = FirstPromptPreamble::new(Some(&credential), true);
         let first = preamble.apply("hello".into());

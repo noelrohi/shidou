@@ -43,6 +43,14 @@ pub struct TaskCredential {
     pub address: String,
     pub token: String,
     pub task_id: Uuid,
+    /// Instruction policy at runtime start, not authorization: the daemon
+    /// checks its current setting whenever an agent requests a new child.
+    #[serde(default = "default_subtasks_enabled")]
+    pub subtasks_enabled: bool,
+}
+
+fn default_subtasks_enabled() -> bool {
+    true
 }
 
 /// The list-level view of a Task that an orchestrating agent reads: enough to
