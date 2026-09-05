@@ -827,8 +827,7 @@ fn handle_connection(
                 }
                 Ok(ClientMessage::Shutdown) => {
                     if options.allow_shutdown {
-                        write_json(&mut socket, &ServerMessage::ShuttingDown)?;
-                        shutdown.store(true, Ordering::Release);
+                        acknowledge_shutdown(&mut socket, &shutdown)?;
                         break;
                     }
                     write_json(
@@ -1232,6 +1231,16 @@ fn read_client_message(socket: &mut WebSocket<TcpStream>) -> anyhow::Result<Clie
     }
 }
 
+fn acknowledge_shutdown<S: io::Read + io::Write>(
+    socket: &mut WebSocket<S>,
+    shutdown: &AtomicBool,
+) -> anyhow::Result<()> {
+    // The client may close before receiving the acknowledgement. Its write
+    // failure must not leave the server running and teardown waiting forever.
+    shutdown.store(true, Ordering::Release);
+    write_json(socket, &ServerMessage::ShuttingDown)
+}
+
 fn write_json<S: io::Read + io::Write, T: serde::Serialize>(
     socket: &mut WebSocket<S>,
     value: &T,
@@ -1262,6 +1271,38 @@ mod tests {
     use std::os::unix::fs::PermissionsExt as _;
     use std::path::PathBuf;
     use std::time::Instant;
+
+    #[test]
+    fn shutdown_survives_a_failed_acknowledgement() {
+        struct Disconnected;
+
+        impl io::Read for Disconnected {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                panic!("acknowledging shutdown must not read from the client");
+            }
+        }
+
+        impl io::Write for Disconnected {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut socket =
+            WebSocket::from_raw_socket(Disconnected, tungstenite::protocol::Role::Server, None);
+        let shutdown = AtomicBool::new(false);
+
+        let error = acknowledge_shutdown(&mut socket, &shutdown).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<tungstenite::Error>(),
+            Some(tungstenite::Error::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+        ));
+        assert!(shutdown.load(Ordering::Acquire));
+    }
 
     #[cfg(unix)]
     struct ShidouTestDaemon {
