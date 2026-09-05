@@ -1,53 +1,79 @@
 # Shidou
 
-Shidou is a fast, native coding-agent workspace for ecommerce development. It is based on [Waku](https://github.com/egoist/waku) and supports visual asset work with the local [`ima2`](https://github.com/lidge-jun/ima2-gen) runtime.
+Shidou is a native workspace for coding-agent tasks, based on
+[Waku](https://github.com/egoist/waku). Use the Desktop Client on macOS, Linux,
+or Windows, or connect to its daemon from the Browser Client or the iOS Client
+(distributed through TestFlight).
 
-## Visual assets
+Shidou runs your installed agent CLIs. The daemon owns provider processes,
+task history, workspaces, and attachments; each connected app shows and
+controls that work.
 
-Image generation starts in the main composer, like any other coding task. Ask the agent—or use a project skill you maintain—to run `ima2` inside the current workspace and save its output in a project folder.
+## What you can do
 
-The right panel's singleton **Visuals** surface is a lightweight workspace gallery:
+- Run tasks with Claude Code, Codex CLI, Amp, OpenCode, Pi, Oh My Pi,
+  DeepSeek Harness, Fx, Grok Build, Cursor CLI, or Kimi Code.
+- Review changes, browse workspace files, and attach images from the Visuals
+  gallery. Image generation is optional and runs through your agent's tools.
+- Checkpoint Git workspaces at turn boundaries and rewind code and conversation
+  with supported providers. Provider capabilities differ; see the
+  [provider guide](docs/providers.md).
+- Connect another Shidou app to your daemon to continue working remotely.
+  Expose it only over a trusted network or encrypted transport; the daemon
+  token grants full control.
 
-1. Choose a workspace folder containing images.
-2. Pick **Compact grid**, **Large grid**, or **Fit / contain**.
-3. Preview and multi-select images.
-4. Choose **Attach selected to composer** when the agent needs those files as context.
+The desktop also includes a terminal and, on macOS and Windows, an embedded
+browser. Computer Use is macOS-only.
 
-Visuals does not own prompts, briefs, generation settings, references, rounds, or generation progress. Refresh the gallery after the agent creates new files. Folder indexing and image reads run through daemon APIs, so the same workflow works with remote workspaces without interpreting daemon-host paths on the client.
+## Install
 
-Supported gallery formats are GIF, JPEG, PNG, SVG, and WebP.
+Download the Desktop Client from [shidou.dev](https://shidou.dev) or
+[GitHub Releases](https://github.com/noelrohi/shidou/releases).
+See the [Linux](docs/linux.md) and [Windows](docs/windows.md) guides for
+installation, updates, and platform requirements. macOS uses Sparkle for
+in-app updates; Windows verifies and runs a signed update installer; Linux
+upgrades by rerunning the install script.
 
-## Setup
+Install and authenticate at least one supported coding-agent CLI before
+starting a task. Shidou uses that CLI's provider account and configuration.
 
-Requirements:
+## Develop
 
-- Rust 1.96+
-- Bun
-- A supported coding-agent CLI
-- `ima2-gen` configured for the provider you intend to use
+Requirements: Rust 1.96+, Bun, the platform's native build prerequisites,
+and a supported agent CLI to test provider integrations.
 
 ```sh
-npm install -g ima2-gen
-ima2 setup
-ima2 ping
-
 bun install
 bun run dev
 ```
 
-Shidou does not install an image-generation skill. Keep the prompt or skill that invokes `ima2` in your own agent/project configuration.
+The watcher rebuilds the desktop or hot-swaps its external debug daemon as
+needed. Keep it running; do not start a second watcher or manually relaunch
+the debug app. See [CONTRIBUTING.md](CONTRIBUTING.md) for platform setup and
+checks.
 
-## Architecture
+Optional image-generation setup lives in [Visual assets](docs/visual-assets.md).
+`ima2-gen` is not required to build or use Shidou.
 
-The GPUI desktop and React browser client connect to the standalone daemon through the versioned protocol in `crates/shidou-protocol`. Provider sessions live in `crates/shidou-core`.
+## Architecture and docs
 
-The daemon has no image-generation RPC: the coding agent runs `ima2` itself, and Visuals only indexes and attaches the image files it writes into the workspace. The gallery imports a folder in one `importPathAttachments` round trip.
+- [`crates/shidou-protocol`](crates/shidou-protocol): versioned wire contract.
+- [`crates/shidou-core`](crates/shidou-core): daemon-owned provider runtimes,
+  persistence, filesystem, and Git services.
+- [`crates/shidou-daemon`](crates/shidou-daemon): standalone authenticated
+  WebSocket daemon.
+- [`crates/shidou-client`](crates/shidou-client): Rust transport and daemon
+  supervision for the GPUI Desktop Client in `src/`.
+- [`apps/web`](apps/web): React Browser Client.
+- [`apps/ios`](apps/ios): SwiftUI iOS Client and shared Swift packages.
 
-Shidou uses Bun for dependency management. Run `bun run protocol:generate` after changing wire types and `bun run protocol:check` to verify generated bindings.
+Run `bun run protocol:generate` after changing wire types and
+`bun run protocol:check` to verify generated TypeScript bindings.
 
-Release builds use Shidou's signed update feed at
-`https://releases.shidou.dev/appcast.xml`; see [RELEASING.md](RELEASING.md) for
-the signing and publishing workflow.
+See [CONTEXT.md](CONTEXT.md) for terminology, [RELEASING.md](RELEASING.md) for
+the four independent Delivery Channels, and [SECURITY.md](SECURITY.md) for
+vulnerability reporting. The [privacy policy](https://shidou.dev/privacy)
+describes desktop usage analytics and remote-client data handling.
 
 ## License
 

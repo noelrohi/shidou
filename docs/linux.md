@@ -29,9 +29,9 @@ Set `SHIDOU_VERSION` to install a specific version rather than the latest.
 
 The script is a convenience, not a requirement. Download
 `shidou-<version>-<target>.tar.gz` from
-[releases.shidou.dev](https://releases.shidou.dev) or the
-[GitHub release](https://github.com/noelrohi/shidou/releases), then unpack it
-wherever you like:
+[GitHub Releases](https://github.com/noelrohi/shidou/releases), then unpack it
+wherever you like. The release bucket serves individual files, not a download
+index; `https://releases.shidou.dev/latest-linux.txt` names the current version.
 
 ```sh
 mkdir -p ~/.local/shidou.app
@@ -77,8 +77,23 @@ install script to upgrade.
 curl -fsSL https://shidou.dev/install.sh | sh -s -- --uninstall
 ```
 
-This removes `~/.local/shidou.app`, the symlink, and the desktop entry. Projects
-and settings stay in `~/.shidou`; delete that directory to remove them too.
+This removes `~/.local/shidou.app`, the symlink, and the desktop entry. It
+preserves your data and settings:
+
+| What | Default release path |
+| --- | --- |
+| Task history and transcripts | `${XDG_DATA_HOME:-~/.local/share}/Shidou/app.db` |
+| Attachments and blobs | `${XDG_DATA_HOME:-~/.local/share}/Shidou/blobs` |
+| Desktop settings | `~/.shidou/app.json` |
+| Daemon settings | `~/.shidou/settings.json` |
+| Projectless task workspaces | `~/.shidou/projects` |
+
+Here `XDG_DATA_HOME` defaults to `~/.local/share` when unset. To remove retained
+Shidou data, stop the app and daemon, back up anything you need, then remove
+both the `Shidou` data directory and `~/.shidou`. Removing `~/.shidou` alone
+does **not** erase task history or attachments. These paths refer to the local
+daemon; uninstalling a client does not erase data on a remote daemon or
+provider-native history. Existing project folders elsewhere are left alone.
 
 ## Building from source
 

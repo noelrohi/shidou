@@ -3,8 +3,8 @@
 ## Install
 
 Download `Shidou-<version>-x86_64-Setup.exe` (or the `aarch64` installer on an
-Arm device) from [releases.shidou.dev](https://releases.shidou.dev) or the
-[GitHub release](https://github.com/noelrohi/shidou/releases) and run it. It
+Arm device) from the [Shidou download page](https://shidou.dev) or
+[GitHub Releases](https://github.com/noelrohi/shidou/releases) and run it. It
 installs per-user into `%LOCALAPPDATA%\Programs\Shidou`, so it never asks for
 administrator rights — which is also what lets Shidou update itself later
 without a UAC prompt.
@@ -66,9 +66,11 @@ tampered download cannot install anything. The preference itself lives in
 
 | What | Path |
 | --- | --- |
-| Tasks, sessions, transcripts | `%LOCALAPPDATA%\Shidou\app.db` |
+| Task history and transcripts | `%LOCALAPPDATA%\Shidou\app.db` |
 | Attachments and blobs | `%LOCALAPPDATA%\Shidou\blobs` |
-| Settings | `%USERPROFILE%\.shidou\app.json` |
+| Desktop settings | `%USERPROFILE%\.shidou\app.json` |
+| Daemon settings | `%USERPROFILE%\.shidou\settings.json` |
+| Projectless task workspaces | `%USERPROFILE%\.shidou\projects` |
 
 Unpacking a new release over the old directory leaves all of it untouched.
 

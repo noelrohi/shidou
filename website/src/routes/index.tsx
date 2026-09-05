@@ -46,12 +46,15 @@ const WINDOWS_DOCS_URL =
 const PROVIDERS = [
   { slug: 'amp', label: 'Amp' },
   { slug: 'claude', label: 'Claude Code' },
-  { slug: 'openai', label: 'Codex' },
-  { slug: 'cursor', label: 'Cursor' },
+  { slug: 'openai', label: 'Codex CLI' },
+  { slug: 'cursor', label: 'Cursor CLI' },
+  { slug: null, label: 'DeepSeek Harness' },
+  { slug: null, label: 'Fx' },
   { slug: 'opencode', label: 'OpenCode' },
-  { slug: 'grok', label: 'Grok' },
+  { slug: 'grok', label: 'Grok Build' },
+  { slug: 'kimi', label: 'Kimi Code' },
+  { slug: 'ohmypi', label: 'Oh My Pi' },
   { slug: 'pi', label: 'Pi' },
-  { slug: 'kimi', label: 'Kimi' },
 ]
 
 const FEATURES = [
@@ -68,41 +71,41 @@ const FEATURES = [
   {
     icon: History,
     title: 'Rewind that means it',
-    body: 'Every prompt checkpoints your working tree under a hidden git ref. Roll back the code and the provider conversation together, not just the chat log.',
+    body: 'Git workspaces are checkpointed at turn boundaries under hidden refs. Rewind restores code and conversation for supported providers; Kimi Code and Fx do not support it. Mid-turn steers share the turn’s checkpoint.',
   },
   {
     icon: Command,
     title: 'Keyboard first',
-    body: '⌘N starts a session, ⏎ queues a follow-up while the agent works, ⌘⏎ steers it mid-turn, Escape stops. Every control works without a mouse.',
+    body: '⌘N starts a task, ⏎ queues a follow-up while the agent works, ⌘⏎ steers it mid-turn, Escape stops. Use Ctrl instead of ⌘ on Windows and Linux.',
   },
   {
     icon: HardDrive,
     title: 'Local by architecture',
-    body: 'Projects, sessions, transcripts, and provider IDs live on your disk. No account, no telemetry, no Shidou cloud between you and your agents.',
+    body: 'Projects, tasks, transcripts, and provider session IDs live on the computer running your daemon. No Shidou account is required. Configured desktop release builds share usage analytics by default, with an opt-out in Settings.',
   },
   {
     icon: RefreshCw,
     title: 'Quietly current',
-    body: 'Signed, notarized, and auto-updated with binary deltas via Sparkle. The app stays fresh without asking for your attention.',
+    body: 'macOS builds are signed and notarized, with Sparkle updates and binary deltas when available. Windows verifies signed update installers. On Linux, rerun the install script to upgrade.',
   },
 ]
 
 const FAQ = [
   {
     q: 'Is this another Electron app?',
-    a: 'No. Shidou is a single Rust binary rendered by GPUI, the UI framework Zed is built on. The window you see is drawn by the GPU, not by a browser engine.',
+    a: 'No. The Shidou desktop app is written in Rust and rendered by GPUI, the UI framework Zed is built on. It ships with a separate daemon that runs your agents. The desktop window is drawn by the GPU, not by a browser engine.',
   },
   {
     q: 'Do I need new API keys?',
-    a: 'No. Shidou detects amp, claude, codex, cursor-agent, opencode, grok, pi, and kimi on your machine and drives them directly — your existing logins, plans, and rate limits apply unchanged.',
+    a: 'No new keys are required by Shidou itself. It detects amp, claude, codex, cursor-agent, dsh, fx, opencode, grok, kimi, omp, and pi on your machine and drives them under your existing provider logins and configuration. Provider billing and rate limits still apply.',
   },
   {
     q: 'Where does my data live?',
-    a: 'On your machine. Projects, sessions, transcripts, and provider session IDs are stored locally. There is no Shidou account and no telemetry.',
+    a: 'Projects, tasks, transcripts, and provider session IDs are stored on the computer running your daemon. Configured desktop release builds send usage metadata, not prompt or code content, with a persistent analytics ID. Turn off “Share anonymous usage data” in Settings → General. See the Privacy page for analytics, browser credential storage, and the optional demo.',
   },
   {
-    q: 'What is the future plan?',
-    a: 'A mobile app for remote control, and cloud agents are planned',
+    q: 'Can I use Shidou from my iPhone or iPad?',
+    a: 'The iOS app is delivered through TestFlight and connects to your Shidou daemon for remote control. It also offers “Try the demo” without a paired computer. Cloud agents remain planned.',
   },
 ]
 
@@ -251,9 +254,9 @@ function Home() {
                 One native app for all your coding agents.
               </h1>
               <p className="mt-5 max-w-[36rem] text-[17px] leading-relaxed text-pretty text-muted-foreground">
-                Shidou drives the agent CLIs you already have — sessions,
+                Shidou drives the agent CLIs you already have — tasks,
                 transcripts, tool activity, and checkpoints in one fast
-                graphite window, entirely on your machine.
+                native desktop window, backed by a daemon on your machine.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
                 <DownloadMenu
@@ -276,7 +279,7 @@ function Home() {
                 <SectionLabel>Drives the agents you already use</SectionLabel>
                 <div className="mt-4 flex flex-wrap items-center gap-x-7 gap-y-4">
                   {PROVIDERS.map((p) => (
-                    <Tooltip key={p.slug}>
+                    <Tooltip key={p.label}>
                       <TooltipTrigger
                         render={
                           <button
@@ -286,13 +289,17 @@ function Home() {
                           />
                         }
                       >
-                        <span
-                          className="provider-mark size-[22px]"
-                          style={{
-                            maskImage: `url(/providers/${p.slug}.svg)`,
-                            WebkitMaskImage: `url(/providers/${p.slug}.svg)`,
-                          }}
-                        />
+                        {p.slug ? (
+                          <span
+                            className="provider-mark size-[22px]"
+                            style={{
+                              maskImage: `url(/providers/${p.slug}.svg)`,
+                              WebkitMaskImage: `url(/providers/${p.slug}.svg)`,
+                            }}
+                          />
+                        ) : (
+                          <span className="text-sm">{p.label}</span>
+                        )}
                       </TooltipTrigger>
                       <TooltipContent>{p.label}</TooltipContent>
                     </Tooltip>
@@ -310,7 +317,7 @@ function Home() {
                 />
                 <img
                   src="/app-screenshot-light.png"
-                  alt="Shidou showing a coding-agent session"
+                  alt="Shidou showing a coding-agent task"
                   width={2266}
                   height={1752}
                   className="block h-auto w-full"

@@ -22,8 +22,11 @@ Usage:
   curl -fsSL https://shidou.dev/install.sh | sh -s -- --uninstall
 
 Options:
-  --uninstall   Remove Shidou, leaving ~/.shidou (projects and settings) alone
+  --uninstall   Remove Shidou, preserving settings, workspaces, and task data
   --help        Show this help
+
+Uninstall preserves ~/.shidou and $XDG_DATA_HOME/Shidou
+(default: ~/.local/share/Shidou), including task history and attachments.
 USAGE
 }
 
@@ -171,7 +174,8 @@ uninstall() {
         rm -f "$desktop_file"
     fi
     rm -rf "$app_dir"
-    echo "Shidou is uninstalled. Projects and settings remain in ~/.shidou."
+    echo "Shidou is uninstalled. Settings and projectless workspaces remain in $HOME/.shidou."
+    echo "Task history and attachments remain in ${XDG_DATA_HOME:-$HOME/.local/share}/Shidou."
 }
 
 main "$@"

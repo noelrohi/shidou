@@ -1,7 +1,8 @@
-# Session titles
+# Task titles
 
-How each session in the sidebar gets its name: who writes the title, how Shidou
-learns about it, and when.
+How each task in the sidebar gets its name: who writes the title, how Shidou
+learns about it, and when. Provider-native conversations are called sessions
+below; `AgentSession` is the current Rust type for a Shidou task.
 
 The governing rule is that **the provider names its own session wherever it
 can**. Providers that generate a title for their own UI usually do it on a
@@ -19,14 +20,14 @@ and Cursor that do not generate one keep the local prompt fallback.
 | `title` | the user | inline rename; wins whenever it differs from `DEFAULT_TITLE` |
 | `auto_title` | the provider | `DriverEvent::AutoTitleUpdated`, and the local fallback below |
 
-[`display_title`](../crates/shidou-protocol/src/model.rs#L940) resolves them:
-an explicit `title` first, then `auto_title`, then `DEFAULT_TITLE`
-(`"New task"`, [model.rs:841](../crates/shidou-protocol/src/model.rs#L841)).
+`AgentSession::display_title` in [model.rs](../crates/shidou-protocol/src/model.rs)
+resolves them: an explicit `title` first, then `auto_title`, then
+`DEFAULT_TITLE` (`"New task"`).
 A provider title therefore never overwrites a name the user typed.
 
 ### The local fallback
 
-[`set_title_from_prompt`](../crates/shidou-protocol/src/model.rs#L964) takes the
+[`set_title_from_prompt`](../crates/shidou-protocol/src/model.rs) takes the
 **first seven words** of the first prompt, capped at 54 characters, and writes
 them into `auto_title`. The Desktop Client applies it to its optimistic turn in
 [runtime.rs](../src/app/runtime.rs), and the daemon applies it again when it
@@ -43,11 +44,13 @@ fast it replaces that placeholder, not merely on whether it eventually does.
 
 ## The three delivery shapes
 
-Every provider funnels into `DriverEvent::AutoTitleUpdated(Option<String>)`,
-consumed once in [streaming.rs:258](../src/app/streaming.rs#L258) →
-`set_auto_title`, which trims, maps empty to `None`, and is the universal
-last-stage normalizer. `AutoTitleUpdated` is in the `force_save` set
-([runtime.rs](../src/app/runtime.rs)), so a title persists the moment it lands.
+Every provider funnels into `DriverEvent::AutoTitleUpdated(Option<String>)`.
+The shared [Reducer](../crates/shidou-protocol/src/reducer.rs) applies it through
+`set_auto_title`, which trims and maps empty strings to `None`. The daemon
+owns the canonical task projection; desktop's
+[streaming handler](../src/app/streaming.rs) passes the received event to the
+same reducer. `AutoTitleUpdated` is also in desktop's `force_save` set in
+[runtime.rs](../src/app/runtime.rs).
 
 What differs is how the title reaches that event:
 
