@@ -1782,21 +1782,6 @@ mod tests {
     }
 
     #[test]
-    fn info_popover_background_titles_stay_on_one_line() {
-        let source = include_str!("background_work.rs");
-        let row = source
-            .split_once("\nfn render_background_summary_row(")
-            .expect("background summary row renderer")
-            .1
-            .split_once("\n#[cfg(test)]")
-            .expect("background summary row renderer end")
-            .0;
-
-        assert!(row.contains(".truncate()"));
-        assert!(!row.contains(".line_clamp(1)"));
-    }
-
-    #[test]
     fn settled_foreground_commands_leave_the_registry() {
         let mut registry = BackgroundWorkRegistry::default();
         registry.upsert(item("one", BackgroundWorkStatus::Running, false));

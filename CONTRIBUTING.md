@@ -109,13 +109,13 @@ without those the script packages unsigned binaries and says so.
 
 ## Checks
 
-Run the focused checks relevant to your change, then run the full baseline
-before opening a pull request:
+Run checks relevant to your change before opening a pull request. CI selects
+jobs by changed paths; see [docs/ci.md](docs/ci.md) for coverage and cache behavior.
+For Rust and shared-protocol changes:
 
 ```sh
 cargo fmt --package shidou --package shidou-protocol --package shidou-client --package shidou-core --package shidou-daemon --package shidou-demo -- --check
-cargo check
-cargo test
+cargo test --locked
 bun run protocol:check
 bun run --filter @shidou/client check
 bun run --filter @shidou/client test

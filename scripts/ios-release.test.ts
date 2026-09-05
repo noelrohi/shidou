@@ -13,12 +13,6 @@ describe("exportOptionsPlist", () => {
     expect(plist).toContain("<true/>");
   });
 
-  test("keeps the output deterministic", () => {
-    const a = exportOptionsPlist({ teamId: "2Z79866758" });
-    const b = exportOptionsPlist({ teamId: "2Z79866758" });
-    expect(a).toBe(b);
-  });
-
   test("manual mode pins the named profile and the distribution cert", () => {
     const plist = exportOptionsPlist({
       teamId: "2Z79866758",

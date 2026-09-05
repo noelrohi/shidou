@@ -1,25 +1,11 @@
 name: Tests
 
+# Select jobs, not workflow runs: workflow edits and deleted files must be seen.
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - "apps/web/**"
-      - "website/**"
-      - "CHANGELOG.md"
-      - "CHANGELOG-ios.md"
-      - ".changes/**"
-      - ".github/workflows/deploy-workers.yml"
-      - ".github/workflows/test.yml"
   pull_request:
-    paths-ignore:
-      - "apps/web/**"
-      - "website/**"
-      - "CHANGELOG.md"
-      - "CHANGELOG-ios.md"
-      - ".changes/**"
-      - ".github/workflows/deploy-workers.yml"
-      - ".github/workflows/test.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,15 +15,123 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Select checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      # The PR files API stops at 3,000 files. Never select from a truncated diff.
+      RUN_ALL: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.changed_files >= 3000 }}
+    outputs:
+      rust: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.rust == 'true' }}
+      tooling: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.tooling == 'true' }}
+      client: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.client == 'true' }}
+      browser: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.browser == 'true' }}
+      swift: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.swift == 'true' }}
+      protocol: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.protocol == 'true' }}
+      licenses: ${{ env.RUN_ALL == 'true' || steps.paths.outputs.licenses == 'true' }}
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'push'
+
+      # PRs use the paginated changed-files API, including removed files and
+      # both sides of renames. Pushes compare before..after on master, not
+      # HEAD^ or a PR merge-base. A manual run deliberately selects everything.
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        if: env.RUN_ALL != 'true'
+        id: paths
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            workflows: &workflows
+              - '.github/workflows/**'
+              - '.github/actions/**'
+            cargo: &cargo
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain*'
+            javascript: &javascript
+              - '**/package.json'
+              - 'bun.lock'
+              - 'bun.lockb'
+              - '**/bunfig.toml'
+              - '**/tsconfig*.json'
+              - '**/.npmrc'
+              - '.bun-version'
+            protocol: &protocol
+              - *workflows
+              - *cargo
+              - 'crates/shidou-protocol/**'
+              - 'locales/**'
+              - 'packages/shidou-client/src/generated/**'
+            rust:
+              - *workflows
+              - *cargo
+              - 'src/**'
+              - 'crates/**'
+              - 'tests/**'
+              - 'benches/**'
+              - 'build.rs'
+              - 'assets/**'
+              - 'resources/**'
+              - 'locales/**'
+              - 'db/**'
+              - 'drizzle.config.ts'
+              - 'website/public/app-icon.png'
+              - 'scripts/bundle*'
+              - 'scripts/check-markdown-allocations.rs'
+            tooling:
+              - *workflows
+              - *javascript
+              - 'scripts/**'
+              - 'db/**'
+              - 'drizzle.config.ts'
+              - '.changes/**'
+              - 'Cargo.toml'
+              - 'apps/ios/project.yml'
+              - 'CHANGELOG*.md'
+            client: &client
+              - *workflows
+              - *javascript
+              - *protocol
+              - 'packages/**'
+            browser:
+              - *client
+              - 'apps/web/**'
+              - 'assets/**'
+              - 'locales/**'
+            swift:
+              - *protocol
+              - 'apps/ios/**'
+              - 'crates/shidou-demo/**'
+              - 'crates/shidou-core/**'
+              - 'db/migrations/**'
+            licenses:
+              - *workflows
+              - *cargo
+              - *javascript
+              - 'about.toml'
+              - 'licenses/**'
+              - 'scripts/licenses.ts'
+              - 'LICENSE'
+              - 'THIRD_PARTY_NOTICES.md'
+              - 'apps/web/public/{LICENSE.txt,THIRD_PARTY_LICENSES.txt,THIRD_PARTY_NOTICES.md}'
+              - 'website/public/{LICENSE.txt,THIRD_PARTY_LICENSES.txt,THIRD_PARTY_NOTICES.md}'
+
   test:
     name: Rust (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -49,12 +143,6 @@ jobs:
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
-
-      - name: Install cargo-about
-        if: runner.os == 'Linux'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-about@0.9.2
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -71,38 +159,145 @@ jobs:
             pkg-config \
             xdg-desktop-portal
 
-      - name: Cache Cargo
-        uses: actions/cache@v6
+      # Keep compiled dependencies, not workspace binaries or incremental state.
+      # PRs restore master's cache without creating a cache per merge ref.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ matrix.os }}-rust-1.96.0-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ matrix.os }}-rust-1.96.0-cargo-
+          key: ${{ matrix.os }}
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run tests
         run: cargo test --locked
 
-      # The generated protocol and browser client are platform-independent, so
-      # one runner is enough to catch a drifted checked-in artifact.
-      - name: Install JavaScript dependencies
-        if: runner.os == 'Linux'
-        run: bun install --frozen-lockfile
-
-      - name: Check generated protocol and browser client
-        if: runner.os == 'Linux'
+      # A standalone binary avoids linking GPUI again. The .exe suffix also
+      # works on Unix; Bash and RUNNER_TEMP are available on all three runners.
+      - name: Check markdown allocations
+        shell: bash
         run: |
-          bun run protocol:check
-          bun run --filter @shidou/client check
-          bun run --filter @shidou/client test
-          bun run licenses:check
+          rustc --edition=2024 --test scripts/check-markdown-allocations.rs -o "$RUNNER_TEMP/shidou-mend-tests.exe"
+          "$RUNNER_TEMP/shidou-mend-tests.exe" --exact marker_free_streaming_tails_do_not_allocate
 
-      # The release tooling (change notes, channel status, the PR gate) is
-      # plain TypeScript with its own tests; keep them green with the rest.
-      - name: Test release scripts and Change Notes
-        if: runner.os == 'Linux'
+  tooling:
+    name: Bun tooling
+    needs: changes
+    if: needs.changes.outputs.tooling == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test scripts
+      - run: bun scripts/changes.ts check
+
+  client:
+    name: Bun client
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @shidou/client check
+      - run: bun run --filter @shidou/client test
+
+  browser:
+    name: Bun browser
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @shidou/web typecheck
+      - run: bun run --filter @shidou/web test
+
+  swift:
+    name: Swift package
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
         run: |
-          bun test scripts
-          bun scripts/changes.ts check
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+      # The job id gives this headless build its own dependency cache, separate
+      # from the GPUI matrix. Swift build artifacts are deliberately not cached.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - name: Build integration test daemon
+        run: cargo build --locked -p shidou-demo
+      - name: Test ShidouKit
+        env:
+          SHIDOU_DEMO_BIN: ${{ github.workspace }}/target/debug/shidou-demo
+        run: |
+          test -x "$SHIDOU_DEMO_BIN"
+          swift test --package-path apps/ios/Packages/ShidouKit --force-resolved-versions
+
+  protocol:
+    name: Protocol drift
+    needs: changes
+    if: needs.changes.outputs.protocol == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+      # This small crate does not need GPUI or its system dependencies. Keep
+      # its cache separate so checking bindings never downloads the GUI cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: 'false'
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo run --locked -p shidou-protocol --bin export_types -- --check
+
+  licenses:
+    name: License reports
+    needs: changes
+    if: needs.changes.outputs.licenses == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal
+          rustup default 1.96.0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+      - run: bun install --frozen-lockfile
+      - run: bun run licenses:check
+
+  complete:
+    name: Tests passed
+    needs: [changes, test, tooling, client, browser, swift, protocol, licenses]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # One stable required check, including docs-only PRs. Selection failures
+      # and cancellations must not turn skipped downstream jobs into success.
+      - name: Check results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e '
+            .changes.result == "success" and
+            all(.[]; .result == "success" or .result == "skipped")
+          '

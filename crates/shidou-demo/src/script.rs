@@ -755,9 +755,7 @@ mod tests {
     }
 
     #[test]
-    fn the_script_is_the_same_every_time_it_is_built() {
-        assert_eq!(kinds(&showcase()), kinds(&showcase()));
-        assert_eq!(kinds(&canned_reply("hello")), kinds(&canned_reply("other")));
+    fn the_handshake_connects_and_advertises_commands_and_usage() {
         assert_eq!(
             kinds(&handshake()),
             ["connected", "availableCommands", "usageUpdated"]

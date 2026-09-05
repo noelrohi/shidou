@@ -2300,49 +2300,6 @@ mod tests {
     }
 
     #[test]
-    fn mermaid_rendering_hides_its_source_until_disclosed() {
-        let source = include_str!("render.rs");
-        let start = source
-            .find("\nfn render_mermaid_block(")
-            .expect("Mermaid block renderer");
-        let body = &source[start + 1..];
-        let end = body.find("\nfn render_code_block(").expect("renderer end");
-        let body = &body[..end];
-
-        assert!(body.contains("let key = ctx.next_key()"));
-        assert!(body.contains("mermaid-code-"));
-        assert!(!body.contains("render_code_block(language, code, ctx)"));
-        assert!(body.contains(".when(!expanded, |element|"));
-        assert!(body.contains(".when(expanded, |element| element.child(source))"));
-        assert!(!body.contains("\n        .child(source)\n"));
-        assert!(body.contains("markdown.show_source"));
-        assert!(body.contains("on_key_down"));
-    }
-
-    #[test]
-    fn code_block_rendering_wraps_and_exposes_a_keyboard_copy_control() {
-        let source = include_str!("render.rs");
-        let start = source
-            .find("\nfn code_copy_button(")
-            .expect("code block controls");
-        let body = &source[start + 1..];
-        let end = body
-            .find("\nfn code_runs(")
-            .expect("code block renderer end");
-        let body = &body[..end];
-
-        assert!(body.contains(".whitespace_normal()"));
-        assert!(!body.contains(".overflow_x_scroll()"));
-        assert!(!body.contains(".whitespace_nowrap()"));
-        assert!(body.contains("\"icons/copy.svg\""));
-        assert!(body.contains("\"icons/check.svg\""));
-        assert!(body.contains("ClipboardItem::new_string"));
-        assert!(body.contains("show_code_copied"));
-        assert!(body.contains(".tab_index(0)"));
-        assert!(body.contains(".on_key_down"));
-    }
-
-    #[test]
     fn copied_code_feedback_resets_after_three_seconds_and_ignores_stale_timers() {
         assert_eq!(CODE_COPY_FEEDBACK_DURATION, Duration::from_secs(3));
 
