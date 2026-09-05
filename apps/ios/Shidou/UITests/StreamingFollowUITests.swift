@@ -70,14 +70,16 @@ final class StreamingFollowUITests: XCTestCase {
     func testScrollUpPausesAndJumpResumesWithKeyboardAlreadyDismissed() {
         let reply = sendLongEchoWithKeyboardDismissed()
         reachReplyTail(reply)
-        let beforeDrag = reply.frame.minY
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.60))
         start.press(forDuration: 0.1, thenDragTo: end)
         XCTAssertTrue(jump.waitForExistence(timeout: 3))
         let readingFrame = reply.frame
-        XCTAssertGreaterThan(readingFrame.minY, beforeDrag + 100,
-                             "the gesture must actually move the reply toward older text")
+        // XCTest may wait for app idleness before delivering the drag. The
+        // growing reply keeps moving until touch-down, so a pre-gesture screen
+        // coordinate is stale; measure distance from the live tail instead.
+        XCTAssertGreaterThan(readingFrame.maxY, composer.frame.minY + 100,
+                             "the gesture must leave the live reply tail below the viewport")
         sleep(2)
         XCTAssertGreaterThan(reply.frame.height, readingFrame.height + 100,
                              "the reply must continue growing while reading")
@@ -148,6 +150,7 @@ final class StreamingFollowUITests: XCTestCase {
     }
 
     private func capture(_ name: String) {
+        guard ProcessInfo.processInfo.environment["SHIDOU_UI_SCREENSHOTS"] == "1" else { return }
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways

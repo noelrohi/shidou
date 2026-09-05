@@ -88,6 +88,31 @@ final class TranscriptListTests: XCTestCase {
         XCTAssertTrue(fixture.scrollState.isAwayFromLatest)
     }
 
+    func testTranscriptExtendsBehindFloatingBar() async throws {
+        fixture = Fixture()
+        let controller = UIHostingController(rootView:
+            NavigationStack {
+                FixtureView(fixture: fixture, withChrome: true)
+                    .toolbar { ToolbarItem(placement: .topBarLeading) { Text("Task") } }
+            }
+        )
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        try await settle {
+            self.table = self.findTable(in: controller.view)
+            return self.table != nil && self.table.contentSize.height > 1_000
+        }
+        let frame = table.convert(table.bounds, to: window)
+        XCTAssertEqual(frame.minY, window.bounds.minY, accuracy: 2,
+                       "Content must extend behind the native toolbar")
+        XCTAssertGreaterThan(table.adjustedContentInset.top, 0)
+        XCTAssertEqual(frame.maxY, window.bounds.maxY, accuracy: 2,
+                       "Content must extend behind the composer for glass to sample it")
+        XCTAssertEqual(table.adjustedContentInset.bottom, 100 + window.safeAreaInsets.bottom, accuracy: 2,
+                       "The resting tail must clear the composer without doubling its inset")
+    }
+
     private var atBottom: Bool {
         let maximum = max(-table.adjustedContentInset.top,
                           table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)
@@ -140,7 +165,7 @@ private final class Fixture {
     var height: CGFloat = 600
     let scrollState = TranscriptScrollState()
 
-    init(historyCount: Int) {
+    init(historyCount: Int = 5) {
         rows = (0..<historyCount).map { FixtureRow(id: "history-\($0)", text: "Earlier message \($0)") }
         rows.append(FixtureRow(id: "reply", text: String(repeating: "A streamed reply line.\n", count: 80)))
     }
@@ -152,8 +177,25 @@ private final class Fixture {
 
 private struct FixtureView: View {
     let fixture: Fixture
+    var withChrome = false
 
     var body: some View {
+        if withChrome {
+            list.floatingBottomBar {
+                Text("Composer")
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 100)
+                    .glassSurface(in: RoundedRectangle(cornerRadius: 24))
+            }
+        } else {
+            list
+                .frame(width: 390, height: fixture.height)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea()
+        }
+    }
+
+    private var list: some View {
         TranscriptList(
             rows: fixture.rows,
             scrollState: fixture.scrollState,
@@ -162,8 +204,5 @@ private struct FixtureView: View {
         ) { row in
             Text(row.text).fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 390, height: fixture.height)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .ignoresSafeArea()
     }
 }
