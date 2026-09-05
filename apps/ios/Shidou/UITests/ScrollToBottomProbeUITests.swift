@@ -14,7 +14,7 @@ final class ScrollToBottomProbeUITests: XCTestCase {
             tryTheDemo.tap()
         }
 
-        let transcript = app.scrollViews["transcript-scroll"]
+        let transcript = app.descendants(matching: .any)["transcript-scroll"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30), "a transcript should render")
 
         app.buttons["Tasks"].tap()

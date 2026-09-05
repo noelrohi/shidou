@@ -14,7 +14,7 @@ final class ComposerKeyboardProbeUITests: XCTestCase {
             tryTheDemo.tap()
         }
 
-        let initiallyOpenTranscript = app.scrollViews["transcript-scroll"]
+        let initiallyOpenTranscript = app.descendants(matching: .any)["transcript-scroll"]
         XCTAssertTrue(initiallyOpenTranscript.waitForExistence(timeout: 30), "a transcript should render")
 
         app.buttons["Tasks"].tap()
@@ -24,7 +24,7 @@ final class ComposerKeyboardProbeUITests: XCTestCase {
         XCTAssertTrue(rateLimitingTask.waitForExistence(timeout: 10), "demo task should exist")
         rateLimitingTask.tap()
 
-        let transcript = app.scrollViews["transcript-scroll"]
+        let transcript = app.descendants(matching: .any)["transcript-scroll"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 10), "selected transcript should render")
         let visibleAnswer = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Each client gets a token bucket")
@@ -44,12 +44,23 @@ final class ComposerKeyboardProbeUITests: XCTestCase {
         assertVisible(visibleAnswer, above: app.keyboards.firstMatch, "typing a long prompt")
         app.buttons["Send"].tap()
         sleep(3)
-        field.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        stopTurnIfNeeded(in: app)
+        // A followed answer may have moved the prompt offscreen. Navigate
+        // back before testing a keyboard-only change to the reading position.
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         let sentPrompt = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Explain the refill rate.")
         ).firstMatch
+        for _ in 0..<6 {
+            if sentPrompt.exists, sentPrompt.frame.maxY > app.navigationBars.firstMatch.frame.maxY,
+                sentPrompt.frame.minY < field.frame.minY
+            { break }
+            transcript.swipeDown(velocity: .slow)
+        }
         XCTAssertTrue(sentPrompt.waitForExistence(timeout: 5), "the sent prompt should render")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         assertVisible(
             sentPrompt, above: app.keyboards.firstMatch, "focused after a send",
             fully: false
@@ -75,7 +86,7 @@ final class ComposerKeyboardProbeUITests: XCTestCase {
         let tryTheDemo = app.buttons["Try the demo"]
         if tryTheDemo.waitForExistence(timeout: 10) { tryTheDemo.tap() }
 
-        let transcript = app.scrollViews["transcript-scroll"]
+        let transcript = app.descendants(matching: .any)["transcript-scroll"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30), "a transcript should render")
         app.buttons["Tasks"].tap()
         let task = app.descendants(matching: .any)[
