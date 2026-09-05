@@ -1045,29 +1045,55 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_environment_probe_captures_the_inherited_path_without_a_profile() {
-        let capture = ShellEnvironmentCapture::create().expect("create capture file");
-        let mut command = Command::new("powershell.exe");
-        command
-            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
-            .arg(WINDOWS_ENV_CAPTURE_COMMAND)
-            .env("SHIDOU_SHELL_ENV_CAPTURE_FILE", capture.path())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let mut child = spawn(&mut command).expect("spawn PowerShell probe");
-        assert!(
-            wait_for_child(&mut child, Duration::from_secs(10)),
-            "PowerShell probe did not finish in time"
-        );
-        let environment =
-            parse_shell_environment(&fs::read(capture.path()).expect("capture file written"))
-                .expect("parse captured environment");
+        // This checks the real script and PATH, not production's best-effort
+        // latency budget. Cold PowerShell startup can exceed ten seconds while
+        // the Windows CI runner executes the core tests in parallel. Keep a
+        // finite test-only budget and the production kill/wait cleanup path.
+        let environment = capture_windows_environment(
+            Path::new("powershell.exe"),
+            false,
+            Duration::from_secs(60),
+        )
+        .expect("PowerShell must capture its environment within the test budget");
         let path = environment
             .iter()
             .find(|(name, _)| name == OsStr::new("PATH"))
             .map(|(_, value)| value.clone())
             .expect("captured PATH");
         assert_eq!(path, std::env::var_os("PATH").expect("inherited PATH"));
+    }
+
+    #[test]
+    fn an_expired_probe_deadline_terminates_the_child() {
+        const CHILD_PROBE: &str = "SHIDOU_TIMEOUT_CHILD_PROBE";
+        if std::env::var_os(CHILD_PROBE).is_some() {
+            std::thread::sleep(Duration::from_secs(60));
+            return;
+        }
+
+        // Use this executable rather than a shell so timeout coverage does not
+        // depend on PowerShell startup. A zero budget exercises cleanup without
+        // a wall-clock assertion that can itself flake on a loaded runner.
+        let mut command = Command::new(std::env::current_exe().expect("resolve test executable"));
+        command
+            .args([
+                "--exact",
+                "command_env::tests::an_expired_probe_deadline_terminates_the_child",
+            ])
+            .env(CHILD_PROBE, "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = spawn(&mut command).expect("spawn timeout probe");
+
+        assert!(!wait_for_child(&mut child, Duration::ZERO));
+        let status = child
+            .try_wait()
+            .expect("read terminated child status")
+            .expect("deadline cleanup must leave no running child");
+        assert!(!status.success(), "the sleeping child must be terminated");
     }
 
     #[cfg(windows)]

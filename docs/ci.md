@@ -33,10 +33,26 @@ build directories. Workspace binaries, incremental state and bundled apps are
 not retained. Pull requests restore caches but only `master` saves them, which
 avoids creating a large cache for every PR merge ref.
 
+Every Rust setup in Tests and Desktop Release uses `.github/actions/setup-rust`
+to install and default to 1.96.0. On disposable GitHub-hosted runners only, it
+removes other installed toolchains before caching: pinned `rust-cache` v2.9.2
+hashes every installed toolchain, so unused stable versions on different runner
+images otherwise create duplicate keys. Compiler/config hashing, cache
+namespaces and save policy are unchanged; `RUSTUP_HOME` is not randomized.
+Fake-rustup regression tests run with `bun test scripts/setup-rust.test.ts`
+without accessing local Rust installations.
+
 Caches share the repository's storage allowance with Desktop Release builds.
 An evicted cache makes the next build cold, and a PR cannot repopulate it. Run
 the Tests workflow on `master` to warm shared caches without shipping anything.
-Cache storage limits and Desktop Release triggers are unchanged.
+The repository cache allowance is configured to 20 GB (7-day retention) so test
+and release dependencies can coexist; usage above GitHub's included allowance
+is billed separately. Workflows do not change that setting. Desktop Release
+triggers are unchanged.
+
+The Windows environment-capture integration test has a 60-second startup budget
+for loaded CI runners. It still checks the inherited PATH exactly and kills and
+reaps a timed-out process; production probe timeouts are unchanged.
 
 ### Measuring Rust checks
 
