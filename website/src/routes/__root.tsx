@@ -12,7 +12,7 @@ import appCss from '@/styles.css?url'
 const SITE_URL = 'https://shidou.dev'
 const TITLE = 'Shidou — one native app for all your coding agents'
 const DESCRIPTION =
-  'A fast, native app for local coding agents. Amp, Claude Code, Codex, Cursor, OpenCode, Grok, and Pi — one timeline, entirely on your machine.'
+  'A native desktop app for coding-agent tasks. Amp, Claude Code, Codex CLI, Cursor CLI, DeepSeek Harness, Fx, OpenCode, Grok Build, Kimi Code, Oh My Pi, and Pi — one timeline backed by your own daemon.'
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient

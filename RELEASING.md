@@ -1,11 +1,13 @@
 # Releasing Shidou
 
-Shidou auto-updates with [Sparkle](https://sparkle-project.org). Releases live in
-a **Cloudflare R2** bucket served at **`https://releases.shidou.dev`**. New users
-download a notarized **`.dmg`**; existing users get smaller in-app updates
-(binary deltas when available) via Sparkle, which reads the appcast at
-`https://releases.shidou.dev/appcast.xml`, verifies each build's EdDSA signature,
-and installs it. One release command produces and publishes both.
+Desktop Release artifacts live in a **Cloudflare R2** bucket served at
+**`https://releases.shidou.dev`**. On macOS, new users download a notarized
+**`.dmg`**; existing users get in-app updates through
+[Sparkle](https://sparkle-project.org), with binary deltas when available.
+Sparkle reads `https://releases.shidou.dev/appcast.xml`, verifies each build's
+EdDSA signature, and installs it. Windows uses architecture-specific appcasts
+and a signed-update installer flow; Linux users rerun the install script.
+`bun run ship desktop` publishes all supported desktop platforms together.
 
 Shidou has four **Delivery Channels** that ship independently
 ([ADR 0004](docs/adr/0004-independent-delivery-channels.md)): the **Desktop
@@ -25,7 +27,7 @@ bun run ship status     # what each channel last shipped, and what master holds 
 channel-specific commands underneath. See [Shipping](#shipping) for the pull
 request labels and Change Notes every change needs first.
 
-- Updater code: [`src/updater.rs`](src/updater.rs) — loads the embedded
+- macOS updater code: [`src/updater.rs`](src/updater.rs) — loads the embedded
   Sparkle.framework at runtime and starts `SPUUpdater` with Shidou's custom user
   driver. Available updates appear in the sidebar footer; download, signature
   verification, install, and relaunch remain owned by Sparkle. **Check for
@@ -358,10 +360,11 @@ The workflow opens (or updates) a **draft** GitHub release with those files and
 the matching `CHANGELOG.md` section. Publishing the GitHub release syncs the
 assets — including the signed `appcast.xml` — to R2.
 
-`appcast.xml`, `latest-linux.txt`, and `latest-windows.txt` are the bucket's
-mutable pointers and upload with a short cache lifetime; everything else is
-versioned and cached forever. Linux users install from that bucket via
-[`website/public/install.sh`](website/public/install.sh), served at
+`appcast.xml`, `appcast-windows-x86_64.xml`,
+`appcast-windows-aarch64.xml`, `latest-linux.txt`, and `latest-windows.txt` are
+the bucket's mutable pointers and upload with a short cache lifetime;
+versioned release artifacts use immutable cache headers. Linux users install
+from that bucket via [`website/public/install.sh`](website/public/install.sh), served at
 `https://shidou.dev/install.sh` — see [docs/linux.md](docs/linux.md).
 
 Every release archive carries `LICENSE`, `THIRD_PARTY_NOTICES.md`, and the
@@ -410,7 +413,7 @@ secrets first:
 
 ## Notes
 
-- **Two artifacts per release:** the notarized `.dmg` (what people download)
+- **Two macOS artifact formats:** the notarized `.dmg` (what people download)
   and a `.zip` (what Sparkle installs, plus `.delta` files against recent
   builds). Only the zip family appears in the appcast; point download buttons
   at the DMG.

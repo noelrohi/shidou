@@ -123,7 +123,7 @@ If you would rather not use the script: open `apps/ios/Shidou.xcodeproj`
 (after `xcodegen generate`), set the **Any iOS Device** destination, and
 **Product → Archive**. Confirm in the archive's Info.plist that
 `ITSAppUsesNonExemptEncryption` and `NSAllowsLocalNetworking` are present —
-they come from [`apps/ios/project.yml`](apps/ios/project.yml) and a stale
+they come from [`apps/ios/project.yml`](../apps/ios/project.yml) and a stale
 project generation is the usual way they go missing. **Distribute App →
 TestFlight & App Store** uploads it. Bump the build number in the target's
 build settings first if this marketing version was already uploaded.

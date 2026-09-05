@@ -15,7 +15,7 @@ import appCss from '@/styles.css?url'
 
 const TITLE = 'Shidou Web'
 const DESCRIPTION =
-  'Connect securely to a Shidou daemon and build ecommerce experiences with coding agents.'
+  'Connect to a Shidou daemon to run coding-agent tasks and review workspace changes in your browser.'
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient

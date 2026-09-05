@@ -1,8 +1,8 @@
 # Shidou
 
-A native client for coding-agent tasks: a macOS GPUI app, an iOS SwiftUI app,
-and a browser client that connect to a per-user daemon owning the provider
-processes.
+A workspace for coding-agent tasks: a GPUI Desktop Client for macOS, Linux,
+and Windows, a SwiftUI iOS Client, and a Browser Client. All connect to a
+per-user daemon that owns the provider processes.
 
 ## Language
 
