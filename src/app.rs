@@ -1616,7 +1616,7 @@ pub struct Shidou {
     sidebar_rows_fingerprint: Cell<Option<u64>>,
     sidebar_rows_snapshot: RefCell<Rc<Vec<SidebarRow>>>,
     transcript_row_kinds: RefCell<Vec<TranscriptRowKind>>,
-    recorded_turn_edits_cache: RefCell<RecordedEditsCache>,
+    turn_workspace_changes_cache: RefCell<WorkspaceChangesCache>,
     /// Fingerprint of the transcript inputs `transcript_row_kinds` was folded
     /// from, so an unchanged transcript costs nothing on a frame. `None` until
     /// the first fold. See `transcript_rows_fingerprint`.
@@ -3163,7 +3163,7 @@ impl Shidou {
                 transcript_row_kinds: RefCell::new(Vec::new()),
                 transcript_row_kinds_fingerprint: Cell::new(None),
                 transcript_content_revision: Cell::new(0),
-                recorded_turn_edits_cache: RefCell::new(RecordedEditsCache::default()),
+                turn_workspace_changes_cache: RefCell::new(WorkspaceChangesCache::default()),
                 transcript_navigation_turns: RefCell::new(Rc::new(Vec::new())),
                 transcript_navigation_turns_fingerprint: Cell::new(None),
                 assistant_footer_cache: RefCell::new(HashMap::new()),

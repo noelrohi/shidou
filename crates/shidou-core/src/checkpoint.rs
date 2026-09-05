@@ -1154,6 +1154,62 @@ mod tests {
     }
 
     #[test]
+    fn turn_diff_includes_shell_deletions_without_counting_preexisting_edits() {
+        let directory = diverged_repository();
+        fs::write(directory.join("shared.txt"), "dirty before turn\n").unwrap();
+        fs::write(directory.join("staged.txt"), "already staged\n").unwrap();
+        git_ok(&directory, &["add", "staged.txt"]);
+        fs::write(
+            directory.join("local-skill.txt"),
+            "local skill\nsecond line\n",
+        )
+        .unwrap();
+        fs::write(directory.join("untouched.txt"), "already untracked\n").unwrap();
+        let index_before = git_text(&directory, &["diff", "--cached"]);
+        let session_id = Uuid::new_v4();
+        capture_turn_start(&directory, session_id, 1).unwrap();
+
+        fs::remove_file(directory.join("shared.txt")).unwrap();
+        fs::remove_file(directory.join("local-skill.txt")).unwrap();
+        fs::write(directory.join("created.txt"), "created during turn\n").unwrap();
+        let turn = capture_turn(&directory, session_id, 1).unwrap();
+        let files: BTreeMap<_, _> = turn
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), (file.additions, file.deletions)))
+            .collect();
+        assert_eq!(
+            files,
+            BTreeMap::from([
+                ("created.txt", (1, 0)),
+                ("local-skill.txt", (0, 2)),
+                ("shared.txt", (0, 1)),
+            ])
+        );
+        assert_eq!((turn.additions, turn.deletions), (1, 3));
+        assert_eq!(git_text(&directory, &["diff", "--cached"]), index_before);
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn turn_diff_includes_deleted_symlinks_without_following_the_target() {
+        let directory = diverged_repository();
+        let target = directory.join("shared.txt");
+        let original = fs::read(&target).unwrap();
+        std::os::unix::fs::symlink("shared.txt", directory.join("skill-link")).unwrap();
+        let session_id = Uuid::new_v4();
+        capture_turn_start(&directory, session_id, 1).unwrap();
+        fs::remove_file(directory.join("skill-link")).unwrap();
+        let turn = capture_turn(&directory, session_id, 1).unwrap();
+        assert_eq!(turn.files.len(), 1);
+        assert_eq!(turn.files[0].path, "skill-link");
+        assert_eq!((turn.additions, turn.deletions), (0, 1));
+        assert_eq!(fs::read(&target).unwrap(), original);
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
     fn each_turn_uses_its_own_start_snapshot() {
         let directory = diverged_repository();
         let session_id = Uuid::new_v4();

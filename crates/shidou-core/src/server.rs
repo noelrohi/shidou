@@ -827,8 +827,7 @@ fn handle_connection(
                 }
                 Ok(ClientMessage::Shutdown) => {
                     if options.allow_shutdown {
-                        write_json(&mut socket, &ServerMessage::ShuttingDown)?;
-                        shutdown.store(true, Ordering::Release);
+                        let _ = accept_shutdown(&mut socket, &shutdown);
                         break;
                     }
                     write_json(
@@ -1219,6 +1218,13 @@ fn retryable_error(error: &(dyn std::error::Error + 'static)) -> bool {
         }
     }
     error.source().is_some_and(retryable_error)
+}
+
+fn accept_shutdown(socket: &mut WebSocket<TcpStream>, shutdown: &AtomicBool) -> anyhow::Result<()> {
+    // An accepted shutdown must survive a requester that disconnects before
+    // receiving the acknowledgement. The caller treats the reply as best effort.
+    shutdown.store(true, Ordering::Release);
+    write_json(socket, &ServerMessage::ShuttingDown)
 }
 
 fn read_client_message(socket: &mut WebSocket<TcpStream>) -> anyhow::Result<ClientMessage> {
@@ -2776,6 +2782,65 @@ for line in sys.stdin:
                 epoch,
                 sequence: 168,
             })
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_survives_a_reset_before_acknowledgement() {
+        use std::os::fd::AsRawFd as _;
+        use tungstenite::protocol::Role;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut peer = WebSocket::from_raw_socket(peer, Role::Client, None);
+        let mut socket = WebSocket::from_raw_socket(stream, Role::Server, None);
+        write_json(&mut peer, &ClientMessage::Shutdown).unwrap();
+        assert!(matches!(
+            read_client_message(&mut socket).unwrap(),
+            ClientMessage::Shutdown
+        ));
+
+        // Force an abortive close after the server has received Shutdown.
+        // Waiting for ECONNRESET below removes scheduling from the ack race.
+        let linger = libc::linger {
+            l_onoff: 1,
+            l_linger: 0,
+        };
+        // SAFETY: the socket is live and linger points to an initialized value
+        // of the size required by SO_LINGER for the duration of this call.
+        assert_eq!(
+            unsafe {
+                libc::setsockopt(
+                    peer.get_ref().as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_LINGER,
+                    (&linger as *const libc::linger).cast(),
+                    std::mem::size_of_val(&linger) as libc::socklen_t,
+                )
+            },
+            0
+        );
+        drop(peer);
+        let reset = io::Read::read(socket.get_mut(), &mut [0]).unwrap_err();
+        assert_eq!(reset.kind(), io::ErrorKind::ConnectionReset);
+
+        let shutdown = AtomicBool::new(false);
+        let acknowledgement = accept_shutdown(&mut socket, &shutdown);
+        assert!(
+            acknowledgement.is_err(),
+            "the reset peer cannot receive the ack"
+        );
+        assert!(
+            shutdown.load(Ordering::Acquire),
+            "a failed acknowledgement must not leave the daemon serving forever"
         );
     }
 

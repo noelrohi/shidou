@@ -1480,42 +1480,15 @@ impl Shidou {
         cx.notify();
     }
 
-    fn review_recorded_turn_edits(&mut self, turn_id: Uuid, cx: &mut Context<Self>) {
+    fn review_turn_workspace_changes(&mut self, turn_id: Uuid, cx: &mut Context<Self>) {
         self.refresh_transcript_row_kinds();
-        let Some(edits) = self.recorded_turn_edits_cached(turn_id) else {
+        let Some(edits) = self.turn_workspace_changes_cached(turn_id) else {
             return;
         };
-        let blocks = self
-            .selected_session()
-            .map(|session| recorded_edit_review_blocks(session, turn_id, &edits.activity_ids))
-            .unwrap_or_default();
-        if blocks.is_empty() {
-            return;
-        }
-        self.toggle_turn_fold(turn_id, false, cx);
-        for id in &edits.activity_ids {
-            self.expanded_activity_items.insert(*id, true);
-        }
-        for &index in &blocks {
-            self.activities_expanded.insert(index, true);
-            self.remeasure_transcript_block(index);
-        }
-        let first = TranscriptRowKind::TurnBlock(blocks[0]);
-        if let Some(item_ix) = self
-            .transcript_row_kinds
-            .borrow()
-            .iter()
-            .position(|row| *row == first)
-        {
-            self.active_transcript_rows().scroll_to(ListOffset {
-                item_ix,
-                offset_in_item: px(0.0),
-            });
-        }
-        cx.notify();
+        self.set_right_panel_diff_source(edits.source, cx);
     }
 
-    /// Provider-recorded edits, not a workspace snapshot or a net diff.
+    /// Net workspace changes between this turn's checkpoints, without attribution.
     fn render_changed_files_row(
         &self,
         turn_id: Uuid,
@@ -1523,15 +1496,15 @@ impl Shidou {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let Some(edits) = self
-            .recorded_turn_edits_cached(turn_id)
+            .turn_workspace_changes_cached(turn_id)
             .filter(|edits| !edits.files.is_empty())
         else {
             return None;
         };
 
         let files = edits.files.as_slice();
-        let additions = recorded_edit_stat(edits.additions, '+');
-        let deletions = recorded_edit_stat(edits.deletions, '-');
+        let additions = format!("+{}", edits.additions);
+        let deletions = format!("-{}", edits.deletions);
         let expanded = self.expanded_changed_files.contains(&turn_id);
         let visible_limit = if expanded {
             CHANGED_FILES_EXPANDED_LIMIT
@@ -1568,11 +1541,11 @@ impl Shidou {
             .child(icon("icons/file-diff.svg", 12.0, theme.text_tertiary))
             .child(tr_cow!("transcript.review_changes"))
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.review_recorded_turn_edits(turn_id, cx);
+                this.review_turn_workspace_changes(turn_id, cx);
             }))
             .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _, cx| {
                 if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                    this.review_recorded_turn_edits(turn_id, cx);
+                    this.review_turn_workspace_changes(turn_id, cx);
                     cx.stop_propagation();
                 }
             }));
@@ -1644,11 +1617,13 @@ impl Shidou {
 
         card = card.child(
             div()
+                .id(SharedString::from(format!("workspace-changes-note-{turn_id}")))
                 .px(px(12.0))
                 .pb(px(9.0))
                 .text_size(sp(12.0))
                 .text_color(theme.text_secondary)
-                .child(tr_cow!("transcript.recorded_edits_note")),
+                .child(tr_cow!("transcript.workspace_changes_note"))
+                .tooltip(Tooltip::text(tr!("transcript.workspace_changes_tooltip"))),
         );
         let mut file_rows = div()
             .w_full()
@@ -1708,14 +1683,14 @@ impl Shidou {
                             .flex_none()
                             .text_size(sp(12.5))
                             .text_color(theme.success)
-                            .child(recorded_edit_stat(file.additions, '+')),
+                            .child(format!("+{}", file.additions)),
                     )
                     .child(
                         div()
                             .flex_none()
                             .text_size(sp(12.5))
                             .text_color(theme.danger)
-                            .child(recorded_edit_stat(file.deletions, '-')),
+                            .child(format!("-{}", file.deletions)),
                     ),
             );
         }

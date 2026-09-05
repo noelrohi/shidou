@@ -1002,6 +1002,8 @@ transcript.recorded_edit_file_limit: 表示上限のため、記録された差�
 transcript.recorded_edit_no_diff: この編集の差分は記録されていません。
 transcript.recorded_edits: 記録された編集
 transcript.recorded_edits_note: プロバイダーが記録した編集で、最終的な差分ではありません。シェルでの変更は含まれない場合があります。? は不明を示します。
+transcript.workspace_changes_note: このターン中に行われた変更。
+transcript.workspace_changes_tooltip: あなたや他のタスクによる編集が含まれる場合があります。
 transcript.review_changes: レビュー
 transcript.show_more_files: "さらに %{count} 個のファイルを表示"
 transcript.show_fewer_files: 表示するファイルを減らす

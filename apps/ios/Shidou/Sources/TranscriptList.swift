@@ -25,11 +25,38 @@ struct TranscriptScrollRequest: Equatable {
 /// Pattern reference: exyte/Chat's UIList.swift, especially its serialized
 /// updates and preservation of a visible message's offset across an update.
 /// Unlike its inverted table, this table retains normal reading order.
-struct TranscriptList<Row: Identifiable, RowContent: View>: UIViewRepresentable where Row.ID == String {
+struct TranscriptList<Row: Identifiable, RowContent: View>: View where Row.ID == String {
     let rows: [Row]
     let scrollState: TranscriptScrollState
     let request: TranscriptScrollRequest?
     let submittedMessageID: String?
+    @ViewBuilder let rowContent: (Row) -> RowContent
+
+    var body: some View {
+        GeometryReader { geometry in
+            // A representable does not extend its scrollable content through
+            // SwiftUI's bars like ScrollView does. Keep the viewport under the
+            // native glass, and reserve the readable area with UIKit insets.
+            TranscriptTable(
+                rows: rows,
+                scrollState: scrollState,
+                request: request,
+                submittedMessageID: submittedMessageID,
+                barInsets: geometry.safeAreaInsets,
+                rowContent: rowContent
+            )
+            .padding(.top, -geometry.safeAreaInsets.top)
+            .padding(.bottom, -geometry.safeAreaInsets.bottom)
+        }
+    }
+}
+
+private struct TranscriptTable<Row: Identifiable, RowContent: View>: UIViewRepresentable where Row.ID == String {
+    let rows: [Row]
+    let scrollState: TranscriptScrollState
+    let request: TranscriptScrollRequest?
+    let submittedMessageID: String?
+    let barInsets: EdgeInsets
     @ViewBuilder let rowContent: (Row) -> RowContent
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -51,6 +78,11 @@ struct TranscriptList<Row: Identifiable, RowContent: View>: UIViewRepresentable 
     }
 
     func updateUIView(_ table: UITableView, context: Context) {
+        let insets = UIEdgeInsets(top: barInsets.top, left: 0, bottom: barInsets.bottom, right: 0)
+        if table.contentInset != insets {
+            table.contentInset = insets
+            table.verticalScrollIndicatorInsets = insets
+        }
         context.coordinator.enqueue(self, environment: context.environment)
     }
 
@@ -68,7 +100,7 @@ struct TranscriptList<Row: Identifiable, RowContent: View>: UIViewRepresentable 
     final class Coordinator: NSObject, UITableViewDelegate, UIGestureRecognizerDelegate {
         private weak var table: UITableView?
         private var dataSource: UITableViewDiffableDataSource<Int, String>?
-        private var latest: TranscriptList?
+        private var latest: TranscriptTable?
         private var environment = EnvironmentValues()
         private var displayedRows: [Row] = []
         private var ids: [String] = []
@@ -145,7 +177,7 @@ struct TranscriptList<Row: Identifiable, RowContent: View>: UIViewRepresentable 
             table = nil
         }
 
-        func enqueue(_ value: TranscriptList, environment: EnvironmentValues) {
+        func enqueue(_ value: TranscriptTable, environment: EnvironmentValues) {
             latest = value
             self.environment = environment
             updatePending = true
