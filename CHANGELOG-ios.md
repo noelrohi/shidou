@@ -9,6 +9,10 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2036]
+
+- Restore transcript content behind the task toolbar and composer so native glass blurs the scrolling conversation.
+
 ## [0.2.13-build.2035]
 
 - Keep streamed replies in view, pause following when scrolling up, and resume with the jump-to-bottom button. Preserve the reading position when the keyboard opens.
