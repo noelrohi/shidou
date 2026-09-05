@@ -667,7 +667,7 @@ struct RecordedEditsSummary: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text("Recorded edits")
+                Text("Changed \(edits.files.count) file")
                     .font(.caption.bold())
                 RecordedEditStatText(additions: edits.additions, deletions: edits.deletions)
                     .font(.caption2.monospacedDigit())

@@ -1577,7 +1577,11 @@ impl Shidou {
                 }
             }));
 
-        let title = tr!("transcript.recorded_edits");
+        let title = if files.len() == 1 {
+            tr!("transcript.changed_file", count = files.len())
+        } else {
+            tr!("transcript.changed_files", count = files.len())
+        };
         let mut card = div()
             .id(SharedString::from(format!("changed-files-card-{turn_id}")))
             .w_full()

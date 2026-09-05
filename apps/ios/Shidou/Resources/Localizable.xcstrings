@@ -2,7 +2,6 @@
   "sourceLanguage": "en",
   "strings": {
     "No diff recorded for this edit.": {},
-    "Recorded edits": {},
     "Provider-recorded totals, not a net Git diff. Shell changes may be missing.": {},
     "Review recorded edits": {},
     "Expands this turn's recorded file edit activities": {},

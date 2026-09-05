@@ -1934,7 +1934,9 @@ function RecordedEditsCard({ edits, t, onReview }: { edits: RecordedEdits; t: Tr
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12.5px] font-medium">
-            {t('transcript.recorded_edits')} · {t('activity.file_count', { count: files.length })}
+            {t(files.length === 1 ? 'transcript.changed_file' : 'transcript.changed_files', {
+              count: files.length,
+            })}
           </div>
           <div className="mt-0.5 flex gap-1.5 text-[11px] leading-[14px]">
             <span className="text-[var(--success)]">+{additions ?? '?'}</span>{' '}
