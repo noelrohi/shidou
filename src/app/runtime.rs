@@ -2922,7 +2922,12 @@ impl Shidou {
     /// Remove one queue item both locally and from the daemon's merge-only
     /// task state. Without the explicit daemon tombstone, the next catalog
     /// reconciliation restores the item and can submit it again.
-    fn take_queued_message(&mut self, session_id: Uuid, message_id: Uuid) -> Option<QueuedMessage> {
+    fn take_queued_message(
+        &mut self,
+        session_id: Uuid,
+        message_id: Uuid,
+        cx: &mut Context<Self>,
+    ) -> Option<QueuedMessage> {
         let index = self
             .state
             .sessions
@@ -2933,6 +2938,7 @@ impl Shidou {
             .position(|message| message.id == message_id)?;
         if let Err(error) = self.store.remove_queued_message(session_id, message_id) {
             self.show_toast(tr!("errors.save_local_state", error = error));
+            cx.notify();
             return None;
         }
         self.state
@@ -2946,7 +2952,10 @@ impl Shidou {
         message_id: Uuid,
         cx: &mut Context<Self>,
     ) {
-        if self.take_queued_message(session_id, message_id).is_none() {
+        if self
+            .take_queued_message(session_id, message_id, cx)
+            .is_none()
+        {
             return;
         }
         self.save();
@@ -2962,7 +2971,7 @@ impl Shidou {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(message) = self.take_queued_message(session_id, message_id) else {
+        let Some(message) = self.take_queued_message(session_id, message_id, cx) else {
             return;
         };
         self.restore_composer_submission(ComposerSubmission::from_queued_message(message), cx);
@@ -2982,7 +2991,7 @@ impl Shidou {
         message_id: Uuid,
         cx: &mut Context<Self>,
     ) {
-        let Some(message) = self.take_queued_message(session_id, message_id) else {
+        let Some(message) = self.take_queued_message(session_id, message_id, cx) else {
             return;
         };
         self.save();
@@ -3025,7 +3034,7 @@ impl Shidou {
             return;
         }
         let message_id = session.queued_messages[0].id;
-        let Some(message) = self.take_queued_message(session_id, message_id) else {
+        let Some(message) = self.take_queued_message(session_id, message_id, cx) else {
             return;
         };
         self.submit_submission_for_session(

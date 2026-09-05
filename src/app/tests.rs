@@ -216,6 +216,12 @@ fn desktop_queue_consumption_records_a_daemon_tombstone() {
         .expect("queue-consumption helper end");
     let helper = &helper[..helper_end];
     assert!(helper.contains("self.store.remove_queued_message(session_id, message_id)"));
+    let failure = helper.split("if let Err(error)").nth(1).unwrap();
+    let failure = failure.split("return None;").next().unwrap();
+    assert!(
+        failure.contains("cx.notify()"),
+        "queue failures must repaint the toast"
+    );
 
     let drain_start = source
         .find("\n    fn drain_queued_message(")
@@ -224,7 +230,7 @@ fn desktop_queue_consumption_records_a_daemon_tombstone() {
     let drain_end = drain
         .find("\n    fn submit_submission_for_session(")
         .expect("queue drain end");
-    assert!(drain[..drain_end].contains("self.take_queued_message(session_id, message_id)"));
+    assert!(drain[..drain_end].contains("self.take_queued_message(session_id, message_id, cx)"));
 }
 
 #[test]
