@@ -38,6 +38,21 @@ struct OpenDelimiter {
 
 /// Repair hanging inline markers. Returns `None` when nothing needs repair.
 pub fn close_hanging(text: &str) -> Option<String> {
+    // Plain streaming prose needs neither character offsets nor delimiter
+    // stacks. Check ASCII opener bytes before allocating the index vector;
+    // UTF-8 continuation bytes cannot be mistaken for these markers.
+    if !text
+        .bytes()
+        .any(|byte| matches!(byte, b'*' | b'_' | b'~' | b'`' | b'['))
+    {
+        return needs_setext_guard(text).then(|| {
+            let mut mended = String::with_capacity(text.len() + ZERO_WIDTH_SPACE.len_utf8());
+            mended.push_str(text);
+            mended.push(ZERO_WIDTH_SPACE);
+            mended
+        });
+    }
+
     let chars = text.char_indices().collect::<Vec<_>>();
     let at = |index: usize| chars.get(index).map(|&(_, ch)| ch);
 
@@ -315,6 +330,29 @@ mod tests {
             "",
         ] {
             assert_eq!(close_hanging(text), None, "unexpected repair for {text:?}");
+        }
+    }
+
+    #[test]
+    fn marker_free_text_preserves_setext_and_unicode_behavior() {
+        for text in [
+            "日本語 café 🎉",
+            "literal \\ and unmatched ](url)",
+            "paragraph\n\n-",
+            "paragraph\n-\n",
+            "paragraph\n=-",
+            "# heading\n=",
+            "paragraph\n -",
+            "",
+        ] {
+            assert_eq!(close_hanging(text), None, "unexpected repair for {text:?}");
+        }
+        for text in ["paragraph\n-", "日本語 🎉\n===", "café\n-- \t", "text\\\n="] {
+            assert_eq!(
+                close_hanging(text),
+                Some(format!("{text}{ZERO_WIDTH_SPACE}")),
+                "missing setext guard for {text:?}"
+            );
         }
     }
 
