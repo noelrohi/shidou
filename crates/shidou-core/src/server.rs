@@ -1461,6 +1461,155 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn feature_toggles_refresh_next_prompt_without_changing_the_transcript() {
+        #[derive(Default)]
+        struct RecordingProvider {
+            prompts: Mutex<Vec<String>>,
+            computer_use: Mutex<Vec<bool>>,
+        }
+        impl crate::driver::DriverControl for RecordingProvider {
+            fn prompt(&self, prompt: String) {
+                self.prompts.lock().push(prompt);
+            }
+            fn set_computer_use_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+                self.computer_use.lock().push(enabled);
+                Ok(())
+            }
+            fn cancel(&self) {
+                panic!("feature updates must not cancel the agent");
+            }
+            fn respond(&self, _: String, _: String) {}
+            fn rollback(
+                &self,
+                _: usize,
+            ) -> anyhow::Result<Option<crate::model::ProviderResumeCursor>> {
+                Ok(None)
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!("shidou-feature-state-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = StateStore::daemon(root.join("app.db"));
+        let project = Project::from_path(root.join("repo"));
+        let mut session = AgentSession::new(project.id, ProviderKind::Claude);
+        session.begin_turn("initial work");
+        session.finish_active_turn(crate::model::TurnStatus::Completed);
+        session.status = SessionStatus::Idle;
+        let session_id = session.id;
+        let mut state = store.load().unwrap();
+        state.projects.push(project);
+        state.push_session(session);
+        store.save(&mut state).unwrap();
+        let backend = ShidouBackend::new(
+            DaemonSettingsStore::open(root.join("settings.json")).unwrap(),
+            store,
+        )
+        .unwrap();
+        let runtime_id = Uuid::new_v4();
+        let provider = Arc::new(RecordingProvider::default());
+        backend.set_running_driver_for_test(
+            session_id,
+            runtime_id,
+            crate::driver::DriverHandle::from_control(provider.clone()),
+        );
+        let hub = Arc::new(Hub::default());
+        let send = |command| {
+            backend
+                .handle(
+                    Request {
+                        request_id: Uuid::new_v4(),
+                        session_id,
+                        runtime_id,
+                        command,
+                    },
+                    hub.event_sink(session_id, runtime_id),
+                )
+                .unwrap()
+        };
+
+        send(Command::HydrateSession { session_id });
+
+        // Multiple changes before a turn must deliver the latest state, not a
+        // queue of contradictory notifications. The same driver stays alive.
+        for enabled in [true, false, true, false] {
+            send(Command::UpdateSettings {
+                settings: crate::DaemonSettings {
+                    subtasks_enabled: enabled,
+                    computer_use_enabled: enabled,
+                    ..Default::default()
+                },
+            });
+        }
+        assert!(provider.prompts.lock().is_empty());
+        send(Command::Prompt {
+            prompt: "continue directly".into(),
+            submission_id: Uuid::new_v4(),
+        });
+        let disabled = provider.prompts.lock()[0].clone();
+        assert!(disabled.contains("Subtasks are disabled"));
+        assert!(disabled.contains("Computer Use is disabled"));
+        assert!(disabled.contains("existing children"));
+        assert!(disabled.ends_with("\n\ncontinue directly"));
+        backend
+            .handle_runtime_event(&SequencedEvent {
+                session_id,
+                runtime_id,
+                epoch: Uuid::new_v4(),
+                sequence: 1,
+                event: WireDriverEvent::new(
+                    "turnFinished",
+                    json!({ "success": true, "summary": null }),
+                ),
+            })
+            .unwrap();
+
+        send(Command::UpdateSettings {
+            settings: crate::DaemonSettings {
+                subtasks_enabled: true,
+                computer_use_enabled: true,
+                ..Default::default()
+            },
+        });
+        send(Command::Prompt {
+            prompt: "continue again".into(),
+            submission_id: Uuid::new_v4(),
+        });
+        let enabled = provider.prompts.lock()[1].clone();
+        assert!(enabled.contains("Subtasks are enabled"));
+        assert!(enabled.contains("Computer Use is enabled"));
+        assert!(enabled.contains("does not install missing tools"));
+        assert!(enabled.contains("no Task Credential"));
+        assert_eq!(provider.computer_use.lock().last(), Some(&true));
+        assert!(provider.computer_use.lock().contains(&false));
+
+        let saved_store = StateStore::daemon(root.join("app.db"));
+        let mut saved = saved_store.load().unwrap();
+        saved_store.hydrate(&mut saved.sessions[0]).unwrap();
+        assert!(
+            saved.sessions[0]
+                .messages
+                .iter()
+                .all(|message| !message.content.contains("shidou-feature-state"))
+        );
+        assert!(
+            saved.sessions[0]
+                .messages
+                .iter()
+                .any(|message| message.content == "continue directly")
+        );
+        assert!(
+            saved.sessions[0]
+                .messages
+                .iter()
+                .any(|message| message.content == "continue again")
+        );
+        drop(saved_store);
+        drop(backend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn pi_composer_discovery_includes_extension_commands_before_the_first_turn() {
         let daemon = ShidouTestDaemon::new("pi-composer-commands", |_| {});
         let binary = daemon.root.join("pi-composer-fixture.py");

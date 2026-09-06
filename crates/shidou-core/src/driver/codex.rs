@@ -873,6 +873,13 @@ impl DriverControl for CodexDriver {
         let _ = self.commands.send(CommandMessage::Cancel);
     }
 
+    fn set_computer_use_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        if let Some(directory) = self.computer_use_process_directory.as_deref() {
+            computer_use_runtime::set_enabled(directory, enabled)?;
+        }
+        Ok(())
+    }
+
     fn cancel_computer_use(&self) {
         if let (Some(directory), Some(server_path)) = (
             self.computer_use_process_directory.as_deref(),

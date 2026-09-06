@@ -184,7 +184,7 @@ settings.features:
 features.subtasks:
   en: Subtasks
 features.subtasks_description:
-  en: Allow agents to create child tasks. Turning this off blocks new children immediately; existing children remain available. Orchestration instructions change when an agent runtime next starts.
+  en: Allow agents to create child tasks. Turning this off blocks new children immediately; existing children remain available. Agents receive current feature settings on their next turn. Enabling may require the agent runtime to start again.
 settings.general_keywords:
   en: general local projects conversations privacy analytics telemetry anonymous sharing updates automatic sparkle version git commit conventional messages
 settings.appearance_keywords:
@@ -479,7 +479,7 @@ providers.checked_hours_ago:
 computer_use.allow_apps:
   en: Let Shidou use apps
 computer_use.availability:
-  en: Computer Use is available with Codex, OpenCode, Grok, and Pi
+  en: Computer Use is available with Codex, OpenCode, Grok, and Pi. Turning this off blocks new tool calls immediately. Agents receive current feature settings on their next turn; enabling missing tools requires the agent runtime to start again.
 computer_use.macos_access:
   en: macOS access
 computer_use.helper_access:

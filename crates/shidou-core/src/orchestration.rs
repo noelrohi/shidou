@@ -60,6 +60,10 @@ impl TaskCredentialRegistry {
         self.tokens.lock().get(token).copied()
     }
 
+    pub fn has_credential(&self, task_id: Uuid) -> bool {
+        self.tokens.lock().values().any(|bound| *bound == task_id)
+    }
+
     /// Drop every credential for `task_id`; its runtime is gone.
     pub fn revoke(&self, task_id: Uuid) {
         self.tokens.lock().retain(|_, bound| *bound != task_id);
@@ -191,6 +195,47 @@ this conversation: put everything they need in the prompt. Child tasks cannot cr
 of their own, and you may have at most {children} unfinished children at once.",
         task = credential.task_id,
         children = MAX_ACTIVE_CHILDREN,
+    )
+}
+
+/// Current authorization, delivered on every new turn so startup instructions
+/// and resumed provider history cannot keep advertising a disabled feature.
+/// This is a reminder, not tool installation or a replacement system prompt.
+pub fn feature_state_prompt(
+    prompt: String,
+    subtasks_enabled: bool,
+    computer_use_enabled: bool,
+    has_task_credential: bool,
+) -> String {
+    // Provider-native slash commands must remain at the start and keep their
+    // exact arguments. Deliver the reminder with the next ordinary prompt;
+    // live execution checks still apply to work triggered by a command.
+    if prompt.trim_start().starts_with('/') {
+        return prompt;
+    }
+    let subtasks = if subtasks_enabled && has_task_credential {
+        "Subtasks are enabled. You may create children with `shidou task new \"<prompt>\"` \
+using this runtime's Shidou CLI connection instructions, or manage existing children. \
+Delegate only genuinely separable work. At most 8 unfinished children are allowed."
+    } else if subtasks_enabled {
+        "Subtasks are enabled, but this runtime has no Task Credential. Do not use credentials \
+from earlier runtime starts. Parent tasks need their runtime to start again to obtain \
+access; child tasks cannot create children. Continue the work directly."
+    } else {
+        "Subtasks are disabled. Do not create or delegate to new child tasks, even if earlier \
+instructions advertise that capability. Continue the work directly. You may still list, \
+read, wait for, and send follow-ups to existing children using your Task Credential."
+    };
+    let computer_use = if computer_use_enabled {
+        "Computer Use is enabled. Use only the tools actually installed in this runtime; \
+enabling this setting does not install missing tools until the runtime next starts."
+    } else {
+        "Computer Use is disabled. Do not call Shidou Computer Use tools, even if earlier \
+instructions advertise them. Continue without computer interaction."
+    };
+    format!(
+        "<shidou-feature-state>\nCurrent Shidou settings (supersede earlier feature availability \
+instructions):\n{subtasks}\n{computer_use}\n</shidou-feature-state>\n\n{prompt}"
     )
 }
 
@@ -492,6 +537,36 @@ mod tests {
                 format!("<shidou-orchestration>\n{instructions}\n</shidou-orchestration>\n\nhello")
             );
             assert_eq!(preamble.apply("again".into()), "again");
+        }
+    }
+
+    #[test]
+    fn feature_reminders_preserve_native_commands_and_sample_features_independently() {
+        for command in [
+            "/compact",
+            " /permission workspace-write",
+            "/skill custom arguments",
+        ] {
+            assert_eq!(
+                feature_state_prompt(command.into(), false, false, false),
+                command
+            );
+        }
+        let prompt = "Continue 日本語\nexactly";
+        for subtasks in [false, true] {
+            for computer_use in [false, true] {
+                for credential in [false, true] {
+                    let forwarded =
+                        feature_state_prompt(prompt.into(), subtasks, computer_use, credential);
+                    assert!(forwarded.ends_with(&format!("\n\n{prompt}")));
+                    assert_eq!(forwarded.contains("Subtasks are enabled"), subtasks);
+                    assert_eq!(forwarded.contains("Computer Use is enabled"), computer_use);
+                    assert_eq!(
+                        forwarded.contains("shidou task new"),
+                        subtasks && credential
+                    );
+                }
+            }
         }
     }
 

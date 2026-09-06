@@ -99,6 +99,12 @@ impl DriverHandle {
         self.inner.cancel();
     }
 
+    /// Update authorization for already configured provider-integrated tools.
+    /// This does not restart the agent or install tools absent at startup.
+    pub fn set_computer_use_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        self.inner.set_computer_use_enabled(enabled)
+    }
+
     pub fn cancel_computer_use(&self) {
         self.inner.cancel_computer_use();
     }
@@ -154,6 +160,9 @@ pub trait DriverControl: Send + Sync {
     /// `DriverEvent::SteerRejected`.
     fn steer(&self, _prompt: String) {}
     fn cancel(&self);
+    fn set_computer_use_enabled(&self, _enabled: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn cancel_computer_use(&self) {}
     fn refresh_background_work(&self) {}
     fn stop_background_work(&self, _key: BackgroundWorkKey, _control_id: String) {}

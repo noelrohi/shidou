@@ -428,6 +428,22 @@ private final class StatusAgentProcess {
     }
 }
 
+// Provider-integrated helpers receive this directory through Launch Services
+// arguments (which do not inherit the bridge's environment). A positive lease
+// makes disabled, removed, and unreadable runtime state fail closed. Unscoped
+// manual helpers retain their existing behavior.
+private enum ComputerUseAuthorization {
+    static func check(directory: String? = commandLineArgument("--process-directory")
+        ?? ProcessInfo.processInfo.environment["SHIDOU_COMPUTER_USE_PROCESS_DIRECTORY"]) throws {
+        guard let directory, !directory.isEmpty else { return }
+        let lease = URL(fileURLWithPath: directory, isDirectory: true)
+            .appendingPathComponent("enabled")
+        guard (try? Data(contentsOf: lease)) == Data("enabled".utf8) else {
+            throw HelperError.invalidRequest("Computer Use is disabled in Shidou Settings. Do not retry computer tools until it is enabled.")
+        }
+    }
+}
+
 private final class BridgeProcessRegistration {
     static let shared = BridgeProcessRegistration()
 
@@ -958,6 +974,7 @@ struct ShidouComputerUse {
     }
 
     private static func callMCPTool(name: String, arguments: [String: Any]) async throws -> [String: Any] {
+        try ComputerUseAuthorization.check()
         switch name {
         case "list_apps":
             let apps = listTargetableApps()
@@ -1136,6 +1153,7 @@ struct ShidouComputerUse {
                     )
                 case "set_value":
                     let value = try requiredString(arguments, "value")
+                    try ComputerUseAuthorization.check()
                     guard AXUIElementSetAttributeValue(
                         element,
                         kAXValueAttribute as CFString,
@@ -1884,6 +1902,7 @@ private func listTargetableApps() -> [[String: Any]] {
 }
 
 private func launchApplication(for identifier: String) async throws {
+    try ComputerUseAuthorization.check()
     guard let url = applicationURL(for: identifier),
           let bundleID = Bundle(url: url)?.bundleIdentifier,
           !isBlocked(bundleId: bundleID) else {
@@ -2337,6 +2356,7 @@ private func captureAppState(
     guard let display = captureDisplay(for: resolved.window, in: resolved.content.displays) else {
         throw HelperError.captureFailed
     }
+    try ComputerUseAuthorization.check()
     let filter = SCContentFilter(display: display, including: [resolved.window])
     let sourceRect = captureSourceRect(for: resolved.window, on: display)
     BridgeProcessRegistration.shared.activate()
@@ -2703,6 +2723,7 @@ private func accessibilityActions(_ element: AXUIElement) throws -> [String] {
 }
 
 private func performAccessibilityAction(_ element: AXUIElement, name: String) throws {
+    try ComputerUseAuthorization.check()
     guard AXUIElementPerformAction(element, name as CFString) == .success else {
         throw HelperError.invalidRequest("The element does not expose the \(name) action")
     }
@@ -2775,6 +2796,7 @@ private func selectText(_ arguments: [String: Any], in element: AXUIElement) thr
             "selection_type must be text, cursor_before, or cursor_after"
         )
     }
+    try ComputerUseAuthorization.check()
     var selection = CFRange(location: match.location, length: match.length)
     guard let rangeValue = AXValueCreate(.cfRange, &selection),
           AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue) == .success else {
@@ -3132,6 +3154,7 @@ private func capture(
     cursor: CGPoint? = nil,
     coordinateSpace: Target? = nil
 ) async throws -> Capture {
+    try ComputerUseAuthorization.check()
     let size = captureSize(for: sourceRect)
     let image: CGImage
     if #available(macOS 14.0, *) {
@@ -3227,6 +3250,7 @@ private func perform(_ actions: [Action], in window: SCWindow, coordinateSpace: 
     }
 
     for action in actions {
+        try ComputerUseAuthorization.check()
         switch action.type {
         case "click":
             updateVirtualCursor(action.x, action.y, window: window, coordinateSpace: coordinateSpace)
@@ -3750,6 +3774,7 @@ private func withInactiveWindowRouting<T>(
     synthesizeActivationClick: Bool = false,
     _ operation: () throws -> T
 ) throws -> T {
+    try ComputerUseAuthorization.check()
     // The retained route owns the focus guard. Per-action AX focus writes and
     // per-action tap teardown are observably different from Sky and can both
     // dismiss transient menus.
@@ -3760,6 +3785,7 @@ private func withInactiveWindowRouting<T>(
         activationLocalPoint: localPoint,
         synthesizeActivationClick: synthesizeActivationClick
     )
+    try ComputerUseAuthorization.check()
     return try operation()
 }
 
@@ -3793,6 +3819,7 @@ private func click(
         synthesizeActivationClick: button == .right
     ) {
         for index in 1...count {
+            try ComputerUseAuthorization.check()
             let eventNumber = SyntheticMouseEventNumbers.next()
             let down = try windowTargetedMouseEvent(
                 type: downType,
@@ -3868,6 +3895,8 @@ private func drag(
         )
         post(initialDrag, to: processID)
 
+        // This drag was admitted before mouseDown. Always finish through
+        // mouseUp; revocation gates the next action, not a held input sequence.
         for step in 1...12 {
             let progress = Double(step) / 12
             let point = CGPoint(
@@ -3923,11 +3952,13 @@ private func scroll(
     if let location {
         event.location = location
     }
+    try ComputerUseAuthorization.check()
     post(event, to: processID)
 }
 
 private func typeText(_ text: String, processID: pid_t) throws {
     for chunk in Array(text.utf16).chunked(maxCount: 32) {
+        try ComputerUseAuthorization.check()
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
             throw HelperError.eventCreationFailed
@@ -3951,6 +3982,7 @@ private func pressKey(_ key: String, modifiers: [String], processID: pid_t) thro
     }
     down.flags = flags
     up.flags = flags
+    try ComputerUseAuthorization.check()
     post(down, to: processID)
     usleep(35_000)
     post(up, to: processID)

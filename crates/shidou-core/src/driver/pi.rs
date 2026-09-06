@@ -791,6 +791,13 @@ impl DriverControl for PiDriver {
         let _ = self.commands.send(CommandMessage::Cancel);
     }
 
+    fn set_computer_use_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        if let Some(computer_use) = &self.computer_use {
+            computer_use.set_enabled(enabled)?;
+        }
+        Ok(())
+    }
+
     fn cancel_computer_use(&self) {
         if let Some(computer_use) = self.computer_use.as_ref() {
             computer_use.stop();
