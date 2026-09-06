@@ -15,6 +15,10 @@ Write release notes for the final product users receive, not the development
 history. When a feature is still unreleased, fold its fixes and refinements into
 the original feature bullet instead of adding separate entries for them.
 
+## [0.2.24]
+
+- Settings now groups Computer Use and a Subtasks switch under Features. Disable Subtasks to block new agent-created child tasks without removing existing children, and hide provider icons in the sidebar from Appearance.
+
 ## [0.2.23]
 
 - Prevent the daemon from hanging during shutdown when its connection closes early.
