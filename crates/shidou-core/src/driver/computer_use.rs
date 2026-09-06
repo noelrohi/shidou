@@ -61,6 +61,12 @@ impl ComputerUseRuntime {
         })
     }
 
+    pub(super) fn set_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        // Revoke new actions without interrupting balanced input sequences or
+        // breaking the persistent MCP connection needed for re-enable.
+        set_enabled(&self.config.process_directory, enabled)
+    }
+
     pub(super) fn stop(&self) {
         stop_registered_processes(&self.config.process_directory, &self.config.server_path);
     }
@@ -145,7 +151,30 @@ pub(super) fn create_process_directory() -> anyhow::Result<PathBuf> {
             directory.display()
         )
     })?;
+    set_enabled(&directory, true)?;
     Ok(directory)
+}
+
+/// A positive authorization lease shared with the native helper. Missing leases
+/// fail closed, including when the runtime directory has been removed. Keep the
+/// filename in sync with ComputerUseAuthorization in ShidouComputerUse.swift.
+pub(super) fn set_enabled(directory: &Path, enabled: bool) -> anyhow::Result<()> {
+    let lease = directory.join("enabled");
+    if enabled {
+        // Unrelated settings updates must not briefly truncate a live lease.
+        if fs::read(&lease).ok().as_deref() == Some(b"enabled") {
+            return Ok(());
+        }
+        fs::write(&lease, b"enabled")
+            .with_context(|| format!("could not enable Computer Use in {}", directory.display()))?;
+    } else {
+        match fs::remove_file(&lease) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("could not disable Computer Use"),
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn stop_registered_processes(directory: &Path, helper_executable: &Path) {
@@ -205,4 +234,71 @@ pub(super) fn process_executable(pid: i32) -> Option<PathBuf> {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub(super) fn process_executable(_: i32) -> Option<PathBuf> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn computer_use_lease_tracks_live_settings_and_fails_closed_after_cleanup() {
+        let directory = create_process_directory().unwrap();
+        let lease = directory.join("enabled");
+        assert_eq!(fs::read(&lease).unwrap(), b"enabled");
+        set_enabled(&directory, false).unwrap();
+        assert!(!lease.exists());
+        set_enabled(&directory, false).unwrap();
+        set_enabled(&directory, true).unwrap();
+        assert_eq!(fs::read(&lease).unwrap(), b"enabled");
+        fs::remove_dir_all(&directory).unwrap();
+        set_enabled(&directory, false).unwrap();
+        assert!(set_enabled(&directory, true).is_err());
+        assert!(!directory.exists());
+    }
+
+    #[test]
+    fn computer_use_settings_are_session_scoped() {
+        let first = create_process_directory().unwrap();
+        let second = create_process_directory().unwrap();
+        set_enabled(&first, false).unwrap();
+        assert_eq!(fs::read(second.join("enabled")).unwrap(), b"enabled");
+        // Authorization files must never be mistaken for helper PID records.
+        assert!(registered_processes(&second).is_empty());
+        fs::remove_dir_all(first).unwrap();
+        fs::remove_dir_all(second).unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn computer_use_disable_preserves_helper_and_agent_while_revoking_lease() {
+        use std::process::Command;
+        let mut helper = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let mut agent = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let directory = create_process_directory().unwrap();
+        fs::write(directory.join(helper.id().to_string()), b"").unwrap();
+        let runtime = ComputerUseRuntime {
+            config: ComputerUseConfig {
+                server_path: PathBuf::from("/bin/sleep"),
+                repl_path: PathBuf::new(),
+                skill_path: PathBuf::new(),
+                process_directory: directory.clone(),
+            },
+            preview_monitor: None,
+        };
+        runtime.set_enabled(false).unwrap();
+        assert!(!directory.join("enabled").exists());
+        // Give an accidental SIGTERM time to arrive before checking liveness.
+        thread::sleep(Duration::from_millis(50));
+        let helper_running = helper.try_wait().unwrap().is_none();
+        let agent_running = agent.try_wait().unwrap().is_none();
+        runtime.set_enabled(true).unwrap();
+        assert_eq!(fs::read(directory.join("enabled")).unwrap(), b"enabled");
+        assert_eq!(registered_processes(&directory).len(), 1);
+        let _ = helper.kill();
+        let _ = helper.wait();
+        let _ = agent.kill();
+        let _ = agent.wait();
+        assert!(helper_running);
+        assert!(agent_running);
+    }
 }

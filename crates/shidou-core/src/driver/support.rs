@@ -81,6 +81,10 @@ impl HeadlessComputerUseRuntime {
         Ok(Self { runtime, config })
     }
 
+    pub(super) fn set_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        self.runtime.set_enabled(enabled)
+    }
+
     pub(super) fn stop(&self) {
         self.runtime.stop();
     }

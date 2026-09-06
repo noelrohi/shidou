@@ -269,7 +269,23 @@ impl Backend for ShidouBackend {
                 settings: self.settings.get(),
             }),
             Command::UpdateSettings { settings } => {
+                // Serialize with runtime installation so a provider starting during
+                // this update cannot miss the live execution guard.
+                let sessions = self.sessions.lock();
+                let computer_use_enabled = settings.computer_use_enabled;
                 self.settings.replace(settings)?;
+                let mut errors = Vec::new();
+                for (_, driver) in sessions.values() {
+                    if let Err(error) = driver.set_computer_use_enabled(computer_use_enabled) {
+                        errors.push(error.to_string());
+                    }
+                }
+                if !errors.is_empty() {
+                    bail!(
+                        "could not update Computer Use authorization: {}",
+                        errors.join("; ")
+                    );
+                }
                 Ok(ResponsePayload::Ack)
             }
             Command::ProbeProvider {
@@ -825,7 +841,8 @@ impl Backend for ShidouBackend {
                     service_tier: options.service_tier,
                     context_window: options.context_window,
                     agent_preset: options.agent_preset,
-                    computer_use_enabled: options.computer_use_enabled,
+                    computer_use_enabled: options.computer_use_enabled
+                        && self.settings.get().computer_use_enabled,
                     provider_cursor: options
                         .provider_cursor
                         .map(serde_json::from_value)
@@ -855,9 +872,14 @@ impl Backend for ShidouBackend {
                         }
                     })
                     .context("could not start daemon event forwarding thread")?;
-                self.sessions
-                    .lock()
-                    .insert(session_id, (runtime_id, handle));
+                let mut sessions = self.sessions.lock();
+                if let Err(error) =
+                    handle.set_computer_use_enabled(self.settings.get().computer_use_enabled)
+                {
+                    handle.cancel();
+                    return Err(error);
+                }
+                sessions.insert(session_id, (runtime_id, handle));
                 Ok(ResponsePayload::Started { supports_steer })
             }
             Command::CloseSession => {
@@ -907,6 +929,27 @@ impl Backend for ShidouBackend {
                     };
                     events.send(event_to_wire(accepted)?)?;
                 }
+                // Persist/emit the user's words above, not the provider-only reminder.
+                // New turns (including queued and child-task prompts) sample live settings;
+                // steering is left untouched because providers echo it into the transcript.
+                let command = match command {
+                    Command::Prompt {
+                        prompt,
+                        submission_id,
+                    } => {
+                        let settings = self.settings.get();
+                        Command::Prompt {
+                            prompt: crate::orchestration::feature_state_prompt(
+                                prompt,
+                                settings.subtasks_enabled,
+                                settings.computer_use_enabled,
+                                self.credentials.has_credential(session_id),
+                            ),
+                            submission_id,
+                        }
+                    }
+                    command => command,
+                };
                 handle_driver_command(&driver, command)
             }
         }
