@@ -9,6 +9,11 @@ each TestFlight delivery. Desktop notes live in `CHANGELOG.md`.
 Format follows [Keep a Changelog](https://keepachangelog.com). Releases
 before 0.2.14 shared the desktop version and its changelog.
 
+## [0.2.13-build.2037]
+
+- Restore the blurred transition beneath the sidebar’s Settings and New task controls.
+- Keep the transcript’s working spinner animated and elapsed time updating each second, including after returning to the app. Remove duplicate spinners from tool-call rows.
+
 ## [0.2.13-build.2036]
 
 - Restore transcript content behind the task toolbar and composer so native glass blurs the scrolling conversation.
