@@ -43,8 +43,10 @@ struct SessionsDrawer: View {
                         dismiss()
                     }
                 }
-            footer
         }
+        // Keep the footer in the drawer's hit-testing layer. On iOS 26,
+        // safeAreaBar makes these controls appear tappable but drops taps.
+        .safeAreaInset(edge: .bottom, spacing: 0) { footer }
         .background {
             Rectangle()
                 .fill(.background)
@@ -142,6 +144,11 @@ struct SessionsDrawer: View {
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
+        .background {
+            BarBlurBackdrop()
+                .padding(.top, -BarBlurBackdrop.fade)
+                .ignoresSafeArea(.container, edges: .bottom)
+        }
     }
 
     private func newTask() {

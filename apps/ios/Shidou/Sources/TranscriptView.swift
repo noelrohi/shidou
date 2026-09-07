@@ -65,7 +65,6 @@ struct TranscriptView: View {
     @State private var showingSurfaces = false
     @State private var surfacePath: [SurfaceRoute] = []
     @State private var showingCommit = false
-    @State private var now = UInt64(Date().timeIntervalSince1970)
     @State private var images = TranscriptImageStore()
     /// The prompt being edited, and the turn sending it would rewind to.
     @State private var editing: MessageEdit?
@@ -126,7 +125,6 @@ struct TranscriptView: View {
         .onDisappear {
             if attention.visibleSessionId == sessionId { attention.visibleSessionId = nil }
         }
-        .task(id: model?.session.status) { await tickWhileWorking() }
         .alert("Rename task", isPresented: $showingRename) {
             TextField("Title", text: $renameText)
             Button("Cancel", role: .cancel) {}
@@ -409,7 +407,7 @@ struct TranscriptView: View {
             }
         case .working(let startedAt):
             WorkingRow(
-                startedAt: startedAt, now: now, isWaiting: model.session.status == .waiting
+                startedAt: startedAt, isWaiting: model.session.status == .waiting
             )
         }
     }
@@ -592,17 +590,6 @@ struct TranscriptView: View {
         let title = renameText
         guard let store else { return }
         Task { try? await store.rename(sessionId, to: title) }
-    }
-
-    /// One clock for the whole screen, ticking only while a turn runs. A timer
-    /// per row would wake the phone once per row per second for the same
-    /// second.
-    private func tickWhileWorking() async {
-        guard model?.session.status.isBusy == true else { return }
-        while !Task.isCancelled, model?.session.status.isBusy == true {
-            now = UInt64(Date().timeIntervalSince1970)
-            try? await Task.sleep(for: .seconds(1))
-        }
     }
 
     private func transcriptPlainText(_ session: AgentSession) -> String {
