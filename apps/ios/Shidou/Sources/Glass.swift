@@ -59,17 +59,15 @@ struct GlassGroup<Content: View>: View {
 /// at its top instead of ending on a ruled line, and it reaches past the bottom
 /// safe area so the home-indicator strip belongs to the same surface.
 ///
-/// The bar draws this itself on every system. iOS 26's scroll edge effect does
-/// not render under custom bar content — verified in the simulator, and the
-/// same thing FB18350439 reports — and below 26 there is no such effect at all,
-/// so one hand-drawn backdrop is what keeps the composer looking the same on
-/// both.
-private struct BarBlurBackdrop: View {
+/// The drawer uses this on every system because custom bars do not reliably
+/// receive the native scroll edge effect. The composer and search field use
+/// it only below iOS 26, where their controls have no Liquid Glass.
+struct BarBlurBackdrop: View {
     /// How far the material takes to disappear. Fixed rather than a fraction of
     /// the bar: the bar grows when a permission panel or queued messages
     /// appear, and a proportional fade would haze more of the transcript every
     /// time it did.
-    private let fade: CGFloat = 28
+    static let fade: CGFloat = 28
 
     var body: some View {
         Rectangle()
@@ -79,7 +77,7 @@ private struct BarBlurBackdrop: View {
                     LinearGradient(
                         colors: [.clear, .black], startPoint: .top, endPoint: .bottom
                     )
-                    .frame(height: fade)
+                    .frame(height: Self.fade)
                     Rectangle()
                 }
             }

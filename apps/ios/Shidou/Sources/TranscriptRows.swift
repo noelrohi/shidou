@@ -539,19 +539,13 @@ private struct ActivityRow: View {
             .accessibilityHidden(true)
     }
 
-    /// Status stays independent of disclosure: a detailed running activity
-    /// keeps both its spinner and chevron, while failures use a distinct shape.
+    /// Failures keep a distinct shape; the working row owns shared activity.
     @ViewBuilder
     private var statusGlyph: some View {
         if activity.failed {
             Image(systemName: "xmark")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(Color.red)
-                .accessibilityHidden(true)
-        } else if !activity.complete {
-            ProgressView()
-                .controlSize(.mini)
-                .tint(.secondary)
                 .accessibilityHidden(true)
         }
     }
@@ -754,7 +748,6 @@ struct DiffStatText: View {
 /// until then the honest sentence is the only thing standing in for it.
 struct WorkingRow: View {
     let startedAt: UInt64
-    let now: UInt64
     let isWaiting: Bool
 
     var body: some View {
@@ -764,32 +757,65 @@ struct WorkingRow: View {
                     .font(.footnote)
                     .foregroundStyle(.orange)
                     .accessibilityHidden(true)
+                Text("Waiting for you")
             } else {
-                ProgressView().controlSize(.small)
+                WorkingSpinner()
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
+                // The hosted row owns its clock: no agent event or table
+                // reconfiguration is needed to refresh the elapsed label.
+                TimelineView(.periodic(from: startDate, by: 1)) { context in
+                    let elapsed = Self.elapsedSeconds(startedAt: startedAt, now: context.date)
+                    Text("Working for \(elapsed.durationShortLabel)")
+                        .accessibilityLabel("Working for \(elapsed.durationLabel)")
+                }
             }
-            Text(label)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
             Spacer(minLength: 0)
         }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .monospacedDigit()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("working-indicator")
     }
 
-    private var label: String {
-        isWaiting
-            ? String(localized: "Waiting for you")
-            : String(localized: "Working for \(elapsed.durationShortLabel)")
+    private var startDate: Date { Date(timeIntervalSince1970: TimeInterval(startedAt)) }
+
+    /// Always derive from the turn timestamp, including after remount/resume.
+    static func elapsedSeconds(startedAt: UInt64, now: Date) -> Int {
+        Int(max(0, now.timeIntervalSince1970 - TimeInterval(startedAt)))
+    }
+}
+
+/// Start only after the hosted cell is mounted, outside the table's
+/// `UIView.performWithoutAnimation` update. UIKit owns the animation rather
+/// than restarting it whenever SwiftUI reconfigures the row.
+private struct WorkingSpinner: UIViewRepresentable {
+    func makeUIView(context: Context) -> Indicator {
+        let view = Indicator(style: .medium)
+        view.color = .secondaryLabel
+        return view
     }
 
-    private var accessibilityLabel: String {
-        isWaiting
-            ? String(localized: "Waiting for you")
-            : String(localized: "Working for \(elapsed.durationLabel)")
+    func updateUIView(_ view: Indicator, context: Context) {}
+
+    static func dismantleUIView(_ view: Indicator, coordinator: ()) {
+        view.stopAnimating()
     }
 
-    private var elapsed: Int { Int(now > startedAt ? now - startedAt : 0) }
+    final class Indicator: UIActivityIndicatorView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else {
+                stopAnimating()
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil else { return }
+                self.startAnimating()
+            }
+        }
+    }
 }
 
 // MARK: - Copy

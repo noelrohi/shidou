@@ -220,6 +220,20 @@ final class SurfacesNavigationUITests: XCTestCase {
         )
     }
 
+    func testDrawerNewTaskOpensComposer() {
+        hittableButton("New task").tap()
+        let drawerClosed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == false"), object: taskRow()
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [drawerClosed], timeout: 5), .completed,
+                       "starting a task closes the drawer")
+        let composer = app.textViews.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Ask Shidou")
+        ).firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertTrue(composer.isHittable)
+    }
+
     func testEverySettingsPageIsNavigable() {
         hittableButton("Settings").tap()
         for page in ["General", "Appearance", "Providers", "Skills", "Usage", "Daemon", "About"] {
